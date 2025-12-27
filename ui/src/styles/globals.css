@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@plugin "@iconify/tailwind4";
+
+@theme inline {
+  --background-color-background: oklch(0.15 0 0);
+  --background-color-primary: oklch(0.17 0 0);
+  --background-color-primary-light: oklch(0.2 0 0);
+
+  --text-color-primary: oklch(0.9 0 0);
+  --text-color-primary-dark: oklch(0.7 0 0);
+}
+
+body {
+  @apply bg-background;
+  @apply text-primary;
+}
