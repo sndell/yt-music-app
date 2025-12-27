@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 import webview
 import os
+from features.music_api import MusicApi
 from util.webview_controller import WebViewController
 
 if getattr(sys, "frozen", False):  # running as PyInstaller exe
@@ -9,7 +10,7 @@ if getattr(sys, "frozen", False):  # running as PyInstaller exe
 else:
     ENV = os.getenv("ENV", "dev")
 
-class Api:
+class Api (MusicApi):
     def __init__(self):
         pass
 

@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "../../util/cn";
+import { SidebarList } from "../../features/playlist";
 
 export const Sidebar = () => {
   return (
@@ -30,8 +31,8 @@ export const Sidebar = () => {
           />
         </div>
       </div>
-      <div className="flex-1 rounded-xl bg-primary p-1.5 text-center grid place-items-center text-primary-dark">
-        Playlists will be shown here. Add Auth Cookies in Settings.
+      <div className="flex-1 rounded-xl bg-primary p-1.5">
+        <SidebarList />
       </div>
     </div>
   );
