@@ -1,10 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { cn } from "../../util/cn";
-import { SidebarList } from "../../features/playlist";
+import { cn } from "@/util/cn";
+import { SidebarList } from "@/features/playlist";
 
 export const Sidebar = () => {
   return (
-    <div className="flex flex-col gap-1.5 p-1.5 w-64">
+    <div className="flex flex-col gap-1.5 p-1.5 w-64 overflow-hidden h-screen">
       <div className="p-1.5 rounded-xl bg-primary">
         <div className="flex gap-2 justify-center items-center pt-1.5 pb-3">
           <span className="icon-[material-symbols--youtube-music]" />
@@ -31,7 +31,7 @@ export const Sidebar = () => {
           />
         </div>
       </div>
-      <div className="flex-1 rounded-xl bg-primary p-1.5">
+      <div className="overflow-hidden flex-1 rounded-xl bg-primary">
         <SidebarList />
       </div>
     </div>
@@ -56,7 +56,7 @@ const SidebarItem = ({
     <Link
       href={path}
       className={cn(
-        "flex gap-3 items-center px-1.5 py-1.5 rounded-lg transition-colors cursor-pointer",
+        "flex gap-3 items-center px-3 py-1.5 rounded-lg transition-colors cursor-pointer",
         isActive ? "text-primary-light bg-primary-light" : "text-primary-dark hover:text-primary hover:bg-primary-light"
       )}
     >

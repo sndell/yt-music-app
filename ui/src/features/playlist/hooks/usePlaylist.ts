@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { getPlaylists } from "../../../lib/api";
+import { getPlaylists } from "@/lib/api/bridge";
 
 type UsePlaylistState = {
   playlists: GetPlaylistsResponse;

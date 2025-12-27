@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @plugin "@iconify/tailwind4";
 
+:root {
+  --scrollbar-track: oklch(0.15 0 0 / 0.12);
+  --scrollbar-thumb: oklch(0.28 0 0);
+  --scrollbar-thumb-hover: oklch(0.38 0 0);
+}
+
 @theme inline {
   --background-color-background: oklch(0.15 0 0);
   --background-color-primary: oklch(0.17 0 0);
@@ -8,6 +14,75 @@
 
   --text-color-primary: oklch(0.9 0 0);
   --text-color-primary-dark: oklch(0.7 0 0);
+}
+
+/* Custom scrollbar utility */
+@utility scrollbar {
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+
+  /* Webkit (Chrome, Safari, Edge) */
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track);
+  }
+}
+
+/* Thin variant for smaller containers */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+
+  &::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 3px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track);
+  }
+}
+
+/* Hidden scrollbar (keeps functionality) */
+@utility scrollbar-none {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 body {

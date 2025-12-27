@@ -1,35 +1,51 @@
+import { useLayoutEffect } from "react";
 import { usePlaylist } from "../hooks/usePlaylist";
 
 export const SidebarList = () => {
   const { playlists, isLoading, error, fetchPlaylists } = usePlaylist();
 
-  return (
-    <div className="flex flex-col gap-2">
-      <button
-        onClick={fetchPlaylists}
-        disabled={isLoading}
-        className="bg-primary-light py-1.5 w-full rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {isLoading ? "Loading..." : "Get playlists"}
-      </button>
+  useLayoutEffect(() => {
+    fetchPlaylists();
+  }, [fetchPlaylists]);
 
+  return (
+    <div className="flex overflow-y-auto flex-col gap-2 h-full scrollbar-thin p-1.5">
       <div className="flex flex-col gap-1">
         {error && <div className="px-2 text-sm text-red-400">{error}</div>}
 
-        {playlists.length === 0 && !isLoading && !error && (
-          <div className="grid place-items-center py-4 h-full text-sm text-center text-primary-dark">
-            Playlists will be shown here. Add Auth Cookies in Settings.
+        {isLoading && (
+          <div className="grid place-items-center py-8 h-full">
+            <span className="icon-[svg-spinners--ring-resize] text-2xl text-primary-dark" />
           </div>
         )}
 
-        {playlists.map((playlist, idx) => (
-          <div
-            key={idx}
-            className="px-2 py-1.5 rounded-lg hover:bg-primary-light cursor-pointer text-sm text-primary-dark hover:text-primary transition-colors"
-          >
-            {playlist}
+        {playlists.length === 0 && !isLoading && !error && (
+          <div className="grid place-items-center py-4 h-full text-sm text-center text-primary-dark">
+            Playlists will be shown here. Add Auth Cookies in Settings.{" "}
+            <button onClick={fetchPlaylists} className="cursor-pointer text-primary hover:underline">
+              Reload
+            </button>
           </div>
-        ))}
+        )}
+
+        {playlists.map((playlist) => {
+          const thumbnailUrl = playlist.thumbnails?.[0]?.url;
+          return (
+            <div
+              key={playlist.playlistId}
+              className="p-1.5 rounded-lg hover:bg-primary-light cursor-pointer text-sm text-primary-dark hover:text-primary transition-colors flex items-center gap-2"
+            >
+              {thumbnailUrl ? (
+                <img src={thumbnailUrl} alt={playlist.title} className="w-10 h-10 rounded-sm shrink-0" />
+              ) : (
+                <div className="grid place-items-center w-10 h-10 rounded-sm shrink-0 bg-primary-light">
+                  <span className="icon-[mingcute--music-2-line] text-primary-dark" />
+                </div>
+              )}
+              <span className="truncate">{playlist.title}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
