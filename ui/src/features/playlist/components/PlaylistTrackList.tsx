@@ -28,7 +28,7 @@ const PlaylistTrackItem = ({ track }: { track: Track }) => {
       )}
     >
       <div className="flex gap-3 items-center min-w-0">
-        <div className="overflow-hidden w-10 h-10 rounded-md sm:w-12 sm:h-12 shrink-0">
+        <div className="flex overflow-hidden justify-center items-center w-10 h-10 rounded-md sm:w-12 sm:h-12 shrink-0 bg-primary-light">
           {track.thumbnails[0].url ? (
             <img src={track.thumbnails[0].url} alt={track.title} className="object-cover" />
           ) : (
