@@ -126,7 +126,7 @@ export interface ClearCacheResult {
  */
 export interface ApiMethods {
   get_playlists: {
-    params: [forceRefresh?: boolean];
+    params: [];
     response: PlaylistSummary[];
   };
   get_playlist_items: {

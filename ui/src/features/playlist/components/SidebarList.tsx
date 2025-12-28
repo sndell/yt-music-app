@@ -22,7 +22,7 @@ export const SidebarList = () => {
         )}
 
         {playlists.length === 0 && !isLoading && !error && (
-          <div className="grid place-items-center py-4 h-full text-sm text-center text-primary-dark">
+          <div className="grid place-content-center py-4 h-full text-sm text-center text-primary-dark">
             Playlists will be shown here. Add Auth Cookies in Settings.{" "}
             <button onClick={fetchPlaylists} className="cursor-pointer text-primary hover:underline">
               Reload

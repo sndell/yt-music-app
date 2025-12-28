@@ -26,11 +26,9 @@ _CACHE_DIR = Path(__file__).parent.parent / ".cache"
 cache = diskcache.Cache(str(_CACHE_DIR))
 
 # Cache durations in seconds
-CACHE_DURATION_PLAYLISTS = 60 * 60  # 1 hour
 CACHE_DURATION_PLAYLIST_ITEMS = 60 * 30  # 30 minutes
 
 # Cache key prefixes
-CACHE_KEY_PLAYLISTS = "playlists"
 CACHE_KEY_PLAYLIST_PREFIX = "playlist:"
 
 
@@ -64,30 +62,37 @@ class MusicApi:
         """Reset the YTMusic instance to force re-initialization."""
         cls._ytmusic = None
 
-    def get_playlists(self, force_refresh: bool = False) -> list[dict[str, Any]]:
-        """Fetch all playlists from the user's YouTube Music library.
+    @classmethod
+    def _is_authenticated(cls) -> bool:
+        """Check if user is authenticated by calling the API.
         
-        Args:
-            force_refresh: If True, bypass cache and fetch fresh data.
+        Returns:
+            True if authenticated (get_account_info succeeds), False otherwise.
+        """
+        try:
+            ytmusic = cls._get_ytmusic()
+            account_info = ytmusic.get_account_info()
+            return account_info is not None
+        except Exception as e:
+            logger.warning("Authentication check failed: %s", e)
+            return False
+
+    def get_playlists(self) -> list[dict[str, Any]]:
+        """Fetch all playlists from the user's YouTube Music library.
         
         Returns:
             A list of playlist dictionaries, or an empty list on error.
         """
         try:
-            # Check cache first (unless force refresh)
-            if not force_refresh:
-                cached = cache.get(CACHE_KEY_PLAYLISTS)
-                if cached is not None:
-                    logger.info("Returning cached playlists (count: %d)", len(cached))
-                    return cached
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return playlists")
+                return []
             
             logger.info("Fetching playlists from API...")
             ytmusic = self._get_ytmusic()
             playlists = ytmusic.get_library_playlists()
             
-            # Store in cache
-            cache.set(CACHE_KEY_PLAYLISTS, playlists, expire=CACHE_DURATION_PLAYLISTS)
-            logger.info("Playlists fetched and cached (count: %d)", len(playlists))
+            logger.info("Playlists fetched (count: %d)", len(playlists))
             return playlists
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
@@ -110,6 +115,10 @@ class MusicApi:
         cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
         
         try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return playlist items")
+                return {}
+            
             # Check cache first (unless force refresh)
             if not force_refresh:
                 cached = cache.get(cache_key)
