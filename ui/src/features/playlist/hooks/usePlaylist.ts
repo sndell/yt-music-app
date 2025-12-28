@@ -1,16 +1,19 @@
 import { useCallback, useState } from "react";
-import { getPlaylistItems, getPlaylists } from "@/lib/api/bridge";
+import { PyBridge } from "@/lib/api/bridge";
+import type { PlaylistSummary, PlaylistDetails } from "@/lib/api/types";
 
-type UsePlaylistState = {
-  playlists: GetPlaylistsResponse;
+interface UsePlaylistState {
+  playlists: PlaylistSummary[];
+  currentPlaylist: PlaylistDetails | null;
   isLoading: boolean;
   error: string | null;
-};
+}
 
-type UsePlaylistReturn = UsePlaylistState & {
+interface UsePlaylistReturn extends UsePlaylistState {
   fetchPlaylists: () => Promise<void>;
-  fetchPlaylistItems: (playlistId: string) => Promise<void>;
-};
+  fetchPlaylistItems: (playlistId: string) => Promise<PlaylistDetails | null>;
+  clearError: () => void;
+}
 
 /**
  * Hook to manage playlist data from the Python backend
@@ -18,6 +21,7 @@ type UsePlaylistReturn = UsePlaylistState & {
 export const usePlaylist = (): UsePlaylistReturn => {
   const [state, setState] = useState<UsePlaylistState>({
     playlists: [],
+    currentPlaylist: null,
     isLoading: false,
     error: null,
   });
@@ -25,29 +29,53 @@ export const usePlaylist = (): UsePlaylistReturn => {
   const fetchPlaylists = useCallback(async () => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
-    try {
-      const playlists = await getPlaylists();
-      setState({ playlists, isLoading: false, error: null });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to fetch playlists";
-      setState((prev) => ({ ...prev, isLoading: false, error: message }));
+    const result = await PyBridge.getPlaylists();
+
+    if (result.success) {
+      setState((prev) => ({
+        ...prev,
+        playlists: result.data,
+        isLoading: false,
+      }));
+    } else {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: result.error.message,
+      }));
     }
   }, []);
 
-  const fetchPlaylistItems = useCallback(async (playlistId: string) => {
-    try {
-      await getPlaylistItems(playlistId);
-      console.log("Playlist items fetched successfully");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to fetch playlist items";
-      setState((prev) => ({ ...prev, isLoading: false, error: message }));
+  const fetchPlaylistItems = useCallback(async (playlistId: string): Promise<PlaylistDetails | null> => {
+    setState((prev) => ({ ...prev, isLoading: true, error: null }));
+
+    const result = await PyBridge.getPlaylistItems(playlistId);
+
+    if (result.success) {
+      setState((prev) => ({
+        ...prev,
+        currentPlaylist: result.data,
+        isLoading: false,
+      }));
+      return result.data;
+    } else {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: result.error.message,
+      }));
+      return null;
     }
+  }, []);
+
+  const clearError = useCallback(() => {
+    setState((prev) => ({ ...prev, error: null }));
   }, []);
 
   return {
     ...state,
     fetchPlaylists,
     fetchPlaylistItems,
+    clearError,
   };
 };
-

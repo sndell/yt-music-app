@@ -1,11 +1,24 @@
-import { generateAuthHeader } from "@/lib/api/bridge";
 import { useCallback, useState } from "react";
+import { PyBridge } from "@/lib/api/bridge";
 
 export const Settings = () => {
   const [headerInput, setHeaderInput] = useState("");
+  const [status, setStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSaveAuthHeaders = useCallback(async () => {
-    await generateAuthHeader(headerInput);
+    setStatus("saving");
+    setErrorMessage(null);
+
+    const result = await PyBridge.generateAuthHeader(headerInput);
+
+    if (result.success) {
+      setStatus("success");
+      setHeaderInput("");
+    } else {
+      setStatus("error");
+      setErrorMessage(result.error.message);
+    }
   }, [headerInput]);
 
   return (
@@ -24,11 +37,18 @@ export const Settings = () => {
             />
             <button
               onClick={handleSaveAuthHeaders}
-              className="px-3 bg-secondary hover:bg-secondary-light transition-colors py-1.5 rounded-lg cursor-pointer"
+              disabled={status === "saving" || !headerInput.trim()}
+              className="px-3 bg-secondary hover:bg-secondary-light transition-colors py-1.5 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Save
+              {status === "saving" ? "Saving..." : "Save"}
             </button>
           </div>
+          {status === "success" && (
+            <div className="text-green-500 text-sm">Headers saved successfully!</div>
+          )}
+          {status === "error" && errorMessage && (
+            <div className="text-red-500 text-sm">{errorMessage}</div>
+          )}
         </div>
       </div>
     </div>

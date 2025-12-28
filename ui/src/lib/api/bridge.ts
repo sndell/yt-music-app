@@ -1,17 +1,50 @@
+/**
+ * PyWebView Bridge
+ * Type-safe communication layer between React frontend and Python backend
+ */
+
+import type {
+  ApiMethodName,
+  ApiParams,
+  ApiResponse,
+  ApiError,
+  Result,
+} from "./types";
 
 // ============================================================
-// Internal helpers
+// Configuration
 // ============================================================
 
+const BRIDGE_TIMEOUT_MS = 30_000;
+const DEBUG = import.meta.env.DEV;
 
-function waitForPyWebView(): Promise<void> {
-  return new Promise((resolve) => {
-    if (isPyWebView()) {
+// ============================================================
+// Internal Helpers
+// ============================================================
+
+function log(level: "info" | "warn" | "error", message: string, ...args: unknown[]) {
+  if (!DEBUG && level === "info") return;
+  console[level](`[PyBridge] ${message}`, ...args);
+}
+
+function isPyWebViewReady(): boolean {
+  return typeof window !== "undefined" && window.pywebview !== undefined;
+}
+
+function waitForPyWebView(timeoutMs: number = BRIDGE_TIMEOUT_MS): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (isPyWebViewReady()) {
       resolve();
       return;
     }
 
+    const timeout = setTimeout(() => {
+      window.removeEventListener("pywebviewready", handler);
+      reject(new Error("PyWebView initialization timed out"));
+    }, timeoutMs);
+
     const handler = () => {
+      clearTimeout(timeout);
       window.removeEventListener("pywebviewready", handler);
       resolve();
     };
@@ -20,55 +53,104 @@ function waitForPyWebView(): Promise<void> {
   });
 }
 
-const isPyWebView = (): boolean => {
-  return typeof window !== "undefined" && window.pywebview !== undefined;
-};
+/**
+ * Core bridge function - calls a Python method with full type safety
+ */
+async function callPython<M extends ApiMethodName>(
+  method: M,
+  ...args: ApiParams<M>
+): Promise<Result<ApiResponse<M>>> {
+  try {
+    await waitForPyWebView();
 
-async function callPy<T>(method: string, fallback: T, ...args: unknown[]): Promise<T> {
-  await waitForPyWebView();
-  
-  if (isPyWebView()) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const api = window.pywebview!.api as any;
+    if (!isPyWebViewReady()) {
+      return {
+        success: false,
+        error: { code: "NO_PYWEBVIEW", message: "PyWebView is not available" },
+      };
+    }
+
+    const api = window.pywebview!.api;
     const fn = api[method];
 
-    if (typeof fn === "function") {
-      return fn.call(api, ...args);
+    if (typeof fn !== "function") {
+      log("error", `Method "${method}" not found on Python API`);
+      return {
+        success: false,
+        error: { code: "METHOD_NOT_FOUND", message: `Method "${method}" not found` },
+      };
     }
 
-    if (fn === undefined) {
-      console.error(`[PyBridge] Method "${method}" not found on Python API`);
-      return fallback;
-    }
+    log("info", `Calling ${method}`, args);
+    const result = await fn(...args);
+    log("info", `${method} returned`, result);
 
-    return fn;
+    return { success: true, data: result as ApiResponse<M> };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log("error", `${method} failed:`, message);
+    return {
+      success: false,
+      error: { code: "CALL_FAILED", message },
+    };
   }
-
-  console.warn(`[PyBridge] No pywebview, using mock for: ${method}`);
-  return fallback;
 }
 
 // ============================================================
-// Exported API functions
+// Exported API Functions
 // ============================================================
 
 /**
- * Fetch all playlists from the backend
+ * The PyBridge object provides type-safe access to all Python API methods.
+ * Each method returns a Result<T> for explicit error handling.
  */
-export async function getPlaylists(): Promise<GetPlaylistsResponse> {
-  return callPy("get_playlists", []);
+export const PyBridge = {
+  /**
+   * Fetch all playlists from the user's YouTube Music library
+   */
+  getPlaylists: () => callPython("get_playlists"),
+
+  /**
+   * Fetch details and tracks for a specific playlist
+   */
+  getPlaylistItems: (playlistId: string) => callPython("get_playlist_items", playlistId),
+
+  /**
+   * Generate authentication header from raw headers
+   */
+  generateAuthHeader: (headers: string) => callPython("generate_auth_header", headers),
+} as const;
+
+// ============================================================
+// Utility Helpers
+// ============================================================
+
+/**
+ * Unwrap a Result, throwing on error. Use when you want exceptions.
+ */
+export function unwrap<T>(result: Result<T>): T {
+  if (result.success) {
+    return result.data;
+  }
+  throw new Error(`${result.error.code}: ${result.error.message}`);
 }
 
 /**
- * Fetch all items from a playlist
+ * Unwrap a Result with a default fallback on error.
  */
-export async function getPlaylistItems(playlist_id: string): Promise<GetPlaylistItemsResponse> {
-  return callPy("get_playlist_items", {} as GetPlaylistItemsResponse, playlist_id);
+export function unwrapOr<T>(result: Result<T>, fallback: T): T {
+  return result.success ? result.data : fallback;
 }
 
 /**
- * Generate auth header
+ * Check if we're running inside PyWebView
  */
-export async function generateAuthHeader(headers: string): Promise<void> {
-  return callPy("generate_auth_header", undefined, headers);
+export function isInPyWebView(): boolean {
+  return isPyWebViewReady();
 }
+
+// ============================================================
+// Re-export types for convenience
+// ============================================================
+
+export type { ApiError, Result } from "./types";
