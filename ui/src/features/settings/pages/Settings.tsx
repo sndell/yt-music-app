@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { PyBridge } from "@/lib/api/bridge";
 
 export const Settings = () => {
@@ -6,7 +6,7 @@ export const Settings = () => {
   const [status, setStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSaveAuthHeaders = useCallback(async () => {
+  const handleSave = async () => {
     setStatus("saving");
     setErrorMessage(null);
 
@@ -19,7 +19,7 @@ export const Settings = () => {
       setStatus("error");
       setErrorMessage(result.error.message);
     }
-  }, [headerInput]);
+  };
 
   return (
     <div className="flex justify-center">
@@ -33,22 +33,18 @@ export const Settings = () => {
               rows={4}
               onChange={(e) => setHeaderInput(e.target.value)}
               placeholder="Enter auth headers"
-              className="px-3 w-full rounded-lg bg-primary-light py-1.5 outline-none"
+              className="px-3 py-1.5 w-full rounded-lg outline-none bg-primary-light"
             />
             <button
-              onClick={handleSaveAuthHeaders}
+              onClick={handleSave}
               disabled={status === "saving" || !headerInput.trim()}
-              className="px-3 bg-secondary hover:bg-secondary-light transition-colors py-1.5 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg transition-colors cursor-pointer bg-secondary hover:bg-secondary-light disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {status === "saving" ? "Saving..." : "Save"}
             </button>
           </div>
-          {status === "success" && (
-            <div className="text-green-500 text-sm">Headers saved successfully!</div>
-          )}
-          {status === "error" && errorMessage && (
-            <div className="text-red-500 text-sm">{errorMessage}</div>
-          )}
+          {status === "success" && <div className="text-sm text-green-500">Headers saved successfully!</div>}
+          {status === "error" && errorMessage && <div className="text-sm text-red-500">{errorMessage}</div>}
         </div>
       </div>
     </div>

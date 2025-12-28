@@ -1,2 +1,1 @@
-import 'unplugin-icons/types/react'
-
+import "unplugin-icons/types/react";

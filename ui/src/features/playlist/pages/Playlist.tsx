@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "wouter";
 import type { PlaylistDetails } from "@/lib/api";
 import { hexToRgba } from "@/util/hex_to_rgba";
@@ -13,7 +13,7 @@ export const Playlist = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!id) return;
     fetchPlaylistItems(id).then((data) => data && setPlaylist(data));
   }, [id, fetchPlaylistItems]);

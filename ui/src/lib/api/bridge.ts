@@ -1,86 +1,47 @@
 /**
- * PyWebView Bridge
- * Type-safe communication layer between React frontend and Python backend
+ * PyWebView Bridge - Type-safe communication with Python backend
  */
 
-import type {
-  ApiMethodName,
-  ApiParams,
-  ApiResponse,
-  ApiError,
-  Result,
-} from "./types";
-
-// ============================================================
-// Configuration
-// ============================================================
+import type { ApiMethodName, ApiParams, ApiResponse, Result } from "./types";
 
 const BRIDGE_TIMEOUT_MS = 30_000;
 const DEBUG = import.meta.env.DEV;
-
-// ============================================================
-// Internal Helpers
-// ============================================================
 
 function log(level: "info" | "warn" | "error", message: string, ...args: unknown[]) {
   if (!DEBUG && level === "info") return;
   console[level](`[PyBridge] ${message}`, ...args);
 }
 
-function isPyWebViewReady(): boolean {
-  return typeof window !== "undefined" && window.pywebview !== undefined;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function waitForPyWebView(timeoutMs: number = BRIDGE_TIMEOUT_MS): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (isPyWebViewReady()) {
-      resolve();
-      return;
+async function waitForMethod(method: string, timeoutMs = BRIDGE_TIMEOUT_MS): Promise<boolean> {
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    if (window.pywebview?.api && typeof window.pywebview.api[method as ApiMethodName] === "function") {
+      return true;
     }
+    await sleep(50);
+  }
 
-    const timeout = setTimeout(() => {
-      window.removeEventListener("pywebviewready", handler);
-      reject(new Error("PyWebView initialization timed out"));
-    }, timeoutMs);
-
-    const handler = () => {
-      clearTimeout(timeout);
-      window.removeEventListener("pywebviewready", handler);
-      resolve();
-    };
-
-    window.addEventListener("pywebviewready", handler);
-  });
+  return false;
 }
 
-/**
- * Core bridge function - calls a Python method with full type safety
- */
 async function callPython<M extends ApiMethodName>(
   method: M,
   ...args: ApiParams<M>
 ): Promise<Result<ApiResponse<M>>> {
   try {
-    await waitForPyWebView();
+    const ready = await waitForMethod(method);
 
-    if (!isPyWebViewReady()) {
-      return {
-        success: false,
-        error: { code: "NO_PYWEBVIEW", message: "PyWebView is not available" },
-      };
+    if (!ready) {
+      log("error", `Method "${method}" not found on Python API (timeout)`);
+      return { success: false, error: { code: "METHOD_NOT_FOUND", message: `Method "${method}" not found` } };
     }
 
-    const api = window.pywebview!.api;
-    const fn = api[method];
-
-    if (typeof fn !== "function") {
-      log("error", `Method "${method}" not found on Python API`);
-      return {
-        success: false,
-        error: { code: "METHOD_NOT_FOUND", message: `Method "${method}" not found` },
-      };
-    }
-
+    const fn = window.pywebview!.api[method];
     log("info", `Calling ${method}`, args);
     const result = await fn(...args);
     log("info", `${method} returned`, result);
@@ -89,83 +50,16 @@ async function callPython<M extends ApiMethodName>(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log("error", `${method} failed:`, message);
-    return {
-      success: false,
-      error: { code: "CALL_FAILED", message },
-    };
+    return { success: false, error: { code: "CALL_FAILED", message } };
   }
 }
 
-// ============================================================
-// Exported API Functions
-// ============================================================
-
-/**
- * The PyBridge object provides type-safe access to all Python API methods.
- * Each method returns a Result<T> for explicit error handling.
- */
+/** Type-safe access to all Python API methods */
 export const PyBridge = {
-  /**
-   * Fetch all playlists from the user's YouTube Music library
-   */
   getPlaylists: () => callPython("get_playlists"),
-
-  /**
-   * Fetch details and tracks for a specific playlist
-   * @param playlistId - The YouTube Music playlist ID
-   * @param forceRefresh - If true, bypass cache and fetch fresh data
-   */
-  getPlaylistItems: (playlistId: string, forceRefresh?: boolean) =>
-    callPython("get_playlist_items", playlistId, forceRefresh ?? false),
-
-  /**
-   * Generate authentication header from raw headers
-   */
+  getPlaylistItems: (playlistId: string, forceRefresh = false) =>
+    callPython("get_playlist_items", playlistId, forceRefresh),
   generateAuthHeader: (headers: string) => callPython("generate_auth_header", headers),
-
-  /**
-   * Invalidate cache for specific playlist IDs
-   * @param playlistIds - Array of playlist IDs to remove from cache
-   */
-  invalidatePlaylistCache: (playlistIds: string[]) =>
-    callPython("invalidate_playlist_cache", playlistIds),
-
-  /**
-   * Clear all cached data
-   */
+  invalidatePlaylistCache: (playlistIds: string[]) => callPython("invalidate_playlist_cache", playlistIds),
   clearAllCache: () => callPython("clear_all_cache"),
 } as const;
-
-// ============================================================
-// Utility Helpers
-// ============================================================
-
-/**
- * Unwrap a Result, throwing on error. Use when you want exceptions.
- */
-export function unwrap<T>(result: Result<T>): T {
-  if (result.success) {
-    return result.data;
-  }
-  throw new Error(`${result.error.code}: ${result.error.message}`);
-}
-
-/**
- * Unwrap a Result with a default fallback on error.
- */
-export function unwrapOr<T>(result: Result<T>, fallback: T): T {
-  return result.success ? result.data : fallback;
-}
-
-/**
- * Check if we're running inside PyWebView
- */
-export function isInPyWebView(): boolean {
-  return isPyWebViewReady();
-}
-
-// ============================================================
-// Re-export types for convenience
-// ============================================================
-
-export type { ApiError, Result } from "./types";

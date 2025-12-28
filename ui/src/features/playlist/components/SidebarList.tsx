@@ -1,12 +1,12 @@
-import { useLayoutEffect } from "react";
-import { usePlaylist } from "../hooks/usePlaylist";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
+import { usePlaylist } from "../hooks/usePlaylist";
 
 export const SidebarList = () => {
   const { playlists, isLoading, error, fetchPlaylists } = usePlaylist();
   const [, navigate] = useLocation();
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     fetchPlaylists();
   }, [fetchPlaylists]);
 

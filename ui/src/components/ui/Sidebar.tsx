@@ -6,10 +6,10 @@ export const Sidebar = () => {
   return (
     <div className="flex flex-col gap-1.5 p-1.5 w-72 overflow-hidden h-screen">
       <div className="p-1.5 rounded-xl bg-primary">
-        <div className="flex gap-2 justify-center items-center pt-1.5 pb-3">
+        {/* <div className="flex gap-2 justify-center items-center pt-1.5 pb-3">
           <span className="icon-[material-symbols--youtube-music]" />
           <div className="font-bold">YTMusic</div>
-        </div>
+        </div> */}
         <div className="flex flex-col gap-1.5">
           <SidebarItem
             icon="icon-[mingcute--home-3-line]"

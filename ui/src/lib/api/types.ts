@@ -1,24 +1,6 @@
-/**
- * Unified API Types
- * Single source of truth for the frontend-backend contract
- */
+/** API Types - Frontend-backend contract */
 
-// ============================================================
-// Result Pattern - Type-safe error handling
-// ============================================================
-
-export type Result<T, E = ApiError> =
-  | { success: true; data: T }
-  | { success: false; error: E };
-
-export interface ApiError {
-  code: string;
-  message: string;
-}
-
-// ============================================================
-// Shared Types
-// ============================================================
+export type Result<T> = { success: true; data: T } | { success: false; error: { code: string; message: string } };
 
 export interface Thumbnail {
   url: string;
@@ -41,10 +23,6 @@ export interface Album {
   id: string;
 }
 
-// ============================================================
-// Playlist Types
-// ============================================================
-
 export interface PlaylistSummary {
   title: string;
   playlistId: string;
@@ -54,40 +32,27 @@ export interface PlaylistSummary {
   author?: Author[];
 }
 
-export type LikeStatus = "LIKE" | "INDIFFERENT" | "DISLIKE";
-export type VideoType = "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV";
-export type PrivacyStatus = "UNLISTED" | "PUBLIC" | "PRIVATE";
-
 export interface Track {
   videoId: string;
   title: string;
   artists: Artist[];
   album: Album | null;
-  likeStatus: LikeStatus;
+  likeStatus: "LIKE" | "INDIFFERENT" | "DISLIKE";
   inLibrary: boolean;
-  pinnedToListenAgain: boolean;
-  feedbackTokens: {
-    add: string;
-    remove: string;
-  };
-  listenAgainFeedbackTokens: {
-    pin: string;
-    unpin: string;
-  };
   thumbnails: Thumbnail[];
   isAvailable: boolean;
   isExplicit: boolean;
-  videoType: VideoType;
+  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV";
   views: number | null;
   duration: string;
-  duration_seconds: number;
+  durationSeconds: number;
   setVideoId: string;
 }
 
 export interface PlaylistDetails {
   owned: boolean;
   id: string;
-  privacy: PrivacyStatus;
+  privacy: "UNLISTED" | "PUBLIC" | "PRIVATE";
   description: string | null;
   views: number;
   duration: string;
@@ -96,62 +61,20 @@ export interface PlaylistDetails {
   thumbnails: Thumbnail[];
   author: Author;
   year: string;
-  related: unknown[];
   tracks: Track[];
-  duration_seconds: number;
-  /** Hex color string of the dominant vibrant color from the playlist thumbnail (e.g., "#ff5733") */
+  durationSeconds: number;
   dominantColor: string | null;
 }
 
-// ============================================================
-// Cache Types
-// ============================================================
-
-export interface InvalidateCacheResult {
-  invalidated: string[];
-  not_found: string[];
-}
-
-export interface ClearCacheResult {
-  cleared: number;
-}
-
-// ============================================================
-// API Method Registry - Maps method names to request/response types
-// ============================================================
-
-/**
- * Define all API methods and their signatures here.
- * This creates a type-safe contract between frontend and backend.
- */
+/** API method signatures */
 export interface ApiMethods {
-  get_playlists: {
-    params: [];
-    response: PlaylistSummary[];
-  };
-  get_playlist_items: {
-    params: [playlistId: string, forceRefresh?: boolean];
-    response: PlaylistDetails;
-  };
-  generate_auth_header: {
-    params: [headers: string];
-    response: void;
-  };
-  invalidate_playlist_cache: {
-    params: [playlistIds: string[]];
-    response: InvalidateCacheResult;
-  };
-  clear_all_cache: {
-    params: [];
-    response: ClearCacheResult;
-  };
+  get_playlists: { params: []; response: PlaylistSummary[] };
+  get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
+  generate_auth_header: { params: [headers: string]; response: void };
+  invalidate_playlist_cache: { params: [playlistIds: string[]]; response: { invalidated: string[]; not_found: string[] } };
+  clear_all_cache: { params: []; response: { cleared: number } };
 }
 
-/** All available API method names */
 export type ApiMethodName = keyof ApiMethods;
-
-/** Extract params type for a method */
 export type ApiParams<M extends ApiMethodName> = ApiMethods[M]["params"];
-
-/** Extract response type for a method */
 export type ApiResponse<M extends ApiMethodName> = ApiMethods[M]["response"];
