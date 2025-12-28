@@ -23,45 +23,63 @@ export const Playlist = () => {
     const scrollTop = scrollContainerRef.current.scrollTop;
     const headerHeight = headerRef.current.offsetHeight;
     // Trigger sticky header after scrolling past ~60% of original header
-    setIsScrolled(scrollTop > headerHeight * 0.6);
+    setIsScrolled(scrollTop > headerHeight * 0.75);
   };
 
-  if (!playlist) {
+  if (!playlist)
     return (
       <div className="grid place-items-center py-8 h-full">
         <span className="icon-[svg-spinners--ring-resize] text-2xl text-primary-dark" />
       </div>
     );
-  }
 
   const { title, description, thumbnails, author, year, trackCount, privacy, dominantColor } = playlist;
   const thumbnailUrl = thumbnails[0]?.url;
 
-  const gradient = dominantColor
+  const detailsGradient = dominantColor
     ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 1)}, ${hexToRgba(dominantColor, 0.2)})`
-    : undefined;
+    : "transparent";
 
-  const stickyBg = dominantColor ? hexToRgba(dominantColor, 1) : "var(--background-color-primary)";
+  const tracksGradient = dominantColor
+    ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 0.1)}, #0000)`
+    : "transparent";
+
+  const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
   return (
     <div className="flex overflow-hidden relative flex-col flex-1">
       {/* Sticky compact header - appears when scrolled */}
       <div
-        className="absolute top-0 right-0 left-0 z-10 flex gap-4 items-center px-6 py-3 transition-all duration-300"
+        className="absolute top-0 right-0 left-0 z-10 transition-transform duration-300"
         style={{
-          background: stickyBg,
           transform: isScrolled ? "translateY(0)" : "translateY(-100%)",
           opacity: isScrolled ? 1 : 0,
         }}
       >
-        {thumbnailUrl && <img src={thumbnailUrl} alt={title} className="size-12 shrink-0 rounded shadow-md" />}
-        <h2 className="text-xl font-bold truncate">{title}</h2>
+        <div className="flex gap-3 items-center p-3 w-full backdrop-blur-2xl" style={{ background: stickyBg }}>
+          {thumbnailUrl && <img src={thumbnailUrl} alt={title} className="rounded shadow-md size-12 shrink-0" />}
+          <div>
+            <h2 className="text-xl font-bold truncate">{title}</h2>
+            <p className="font-medium text-primary-dark">
+              <span className="text-primary">{author.name} </span>
+              <span className="capitalize">
+                <span className="text-sm">•</span> {year} <span className="text-sm">•</span> {trackCount} songs{" "}
+                <span className="text-sm">•</span> {privacy.toLowerCase()}
+              </span>
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] border-y border-primary bg-secondary/60 backdrop-blur-2xl py-1.5 px-6">
+          <div>Track</div>
+          <div className="max-md:hidden">Album</div>
+          <div className="justify-self-end">Duration</div>
+        </div>
       </div>
 
       {/* Scrollable content */}
       <div ref={scrollContainerRef} onScroll={handleScroll} className="overflow-y-auto flex-1 scrollbar">
         {/* Original full header */}
-        <div ref={headerRef} className="flex gap-6 items-end p-6" style={{ background: gradient }}>
+        <div ref={headerRef} className="flex gap-6 items-end p-6" style={{ background: detailsGradient }}>
           {thumbnailUrl && (
             <img
               src={thumbnailUrl}
@@ -73,17 +91,17 @@ export const Playlist = () => {
             <h1 className="pt-1.5 text-5xl font-bold">{title}</h1>
             <p className="pt-1.5 font-medium text-primary-dark opacity-90">{description ?? "No description"}</p>
             <p className="pt-3 font-medium text-primary-dark">
-              <span className="text-primary">{author.name}</span>
+              <span className="text-primary">{author.name} </span>
               <span className="capitalize">
-                {" "}
-                • {year} • {trackCount} songs • {privacy.toLowerCase()}
+                <span className="text-sm">•</span> {year} <span className="text-sm">•</span> {trackCount} songs{" "}
+                <span className="text-sm">•</span> {privacy.toLowerCase()}
               </span>
             </p>
           </div>
         </div>
 
         {/* Track list */}
-        <PlaylistTrackList tracks={playlist.tracks} />
+        <PlaylistTrackList tracks={playlist.tracks} gradient={tracksGradient} />
       </div>
     </div>
   );

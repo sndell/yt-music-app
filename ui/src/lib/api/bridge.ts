@@ -107,9 +107,8 @@ async function callPython<M extends ApiMethodName>(
 export const PyBridge = {
   /**
    * Fetch all playlists from the user's YouTube Music library
-   * @param forceRefresh - If true, bypass cache and fetch fresh data
    */
-  getPlaylists: (forceRefresh?: boolean) => callPython("get_playlists", forceRefresh ?? false),
+  getPlaylists: () => callPython("get_playlists"),
 
   /**
    * Fetch details and tracks for a specific playlist

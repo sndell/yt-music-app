@@ -16,6 +16,8 @@
 
   --text-color-primary: oklch(0.9 0 0);
   --text-color-primary-dark: oklch(0.75 0 0);
+
+  --border-color-primary: oklch(0.3 0 0);
 }
 
 /* Custom scrollbar utility */
