@@ -1,8 +1,10 @@
 import { useLayoutEffect } from "react";
 import { usePlaylist } from "../hooks/usePlaylist";
+import { useLocation } from "wouter";
 
 export const SidebarList = () => {
-  const { playlists, isLoading, error, fetchPlaylists, fetchPlaylistItems } = usePlaylist();
+  const { playlists, isLoading, error, fetchPlaylists } = usePlaylist();
+  const [, navigate] = useLocation();
 
   useLayoutEffect(() => {
     fetchPlaylists();
@@ -10,11 +12,11 @@ export const SidebarList = () => {
 
   return (
     <div className="flex overflow-y-auto flex-col gap-2 h-full scrollbar-thin p-1.5">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col flex-1 gap-1">
         {error && <div className="px-2 text-sm text-red-400">{error}</div>}
 
         {isLoading && (
-          <div className="grid place-items-center py-8 h-full">
+          <div className="grid flex-1 place-items-center py-8">
             <span className="icon-[svg-spinners--ring-resize] text-2xl text-primary-dark" />
           </div>
         )}
@@ -32,7 +34,7 @@ export const SidebarList = () => {
           const thumbnailUrl = playlist.thumbnails?.[0]?.url;
           return (
             <button
-              onClick={() => fetchPlaylistItems(playlist.playlistId)}
+              onClick={() => navigate(`/playlist/${playlist.playlistId}`)}
               key={playlist.playlistId}
               className="p-1.5 rounded-lg hover:bg-primary-light cursor-pointer text-sm text-primary-dark hover:text-primary transition-colors flex items-center gap-2"
             >

@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { cn } from "@/util/cn";
 import { SidebarList } from "@/features/playlist";
 
@@ -49,12 +49,12 @@ const SidebarItem = ({
   path: string;
   text: string;
 }) => {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const isActive = location === path;
 
   return (
-    <Link
-      href={path}
+    <button
+      onClick={() => navigate(path)}
       className={cn(
         "flex gap-3 items-center px-3 py-1.5 rounded-lg transition-colors cursor-pointer",
         isActive ? "text-primary-light bg-primary-light" : "text-primary-dark hover:text-primary hover:bg-primary-light"
@@ -62,6 +62,6 @@ const SidebarItem = ({
     >
       <span className={cn("text-lg", isActive ? iconHighlighted : icon)} />
       {text}
-    </Link>
+    </button>
   );
 };

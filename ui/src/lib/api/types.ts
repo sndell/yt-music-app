@@ -99,6 +99,8 @@ export interface PlaylistDetails {
   related: unknown[];
   tracks: Track[];
   duration_seconds: number;
+  /** Hex color string of the dominant vibrant color from the playlist thumbnail (e.g., "#ff5733") */
+  dominantColor: string | null;
 }
 
 // ============================================================

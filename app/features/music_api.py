@@ -13,6 +13,8 @@ from typing import Any
 
 import ytmusicapi
 
+from util.get_dominant_color import get_dominant_color_hex
+
 logger = logging.getLogger(__name__)
 
 # Resolve browser.json path relative to this module
@@ -87,6 +89,26 @@ class MusicApi:
                 playlist.get("title", "Unknown"),
                 len(playlist.get("tracks", []))
             )
+            
+            # Extract dominant color from thumbnail
+            thumbnails = playlist.get("thumbnails", [])
+            if thumbnails:
+                # Use the largest thumbnail for better color accuracy
+                largest_thumb = max(thumbnails, key=lambda t: t.get("width", 0))
+                thumbnail_url = largest_thumb.get("url")
+                if thumbnail_url:
+                    logger.info("Extracting dominant color from thumbnail...")
+                    dominant_color = get_dominant_color_hex(thumbnail_url)
+                    if dominant_color:
+                        playlist["dominantColor"] = dominant_color
+                        logger.info("Dominant color extracted: %s", dominant_color)
+                    else:
+                        playlist["dominantColor"] = None
+                else:
+                    playlist["dominantColor"] = None
+            else:
+                playlist["dominantColor"] = None
+            
             return playlist
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)

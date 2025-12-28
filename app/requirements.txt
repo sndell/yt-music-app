@@ -3,4 +3,4 @@
 
 pywebview>=5.0.0
 ytmusicapi>=1.0.0
-
+colorthief>=0.2.1
