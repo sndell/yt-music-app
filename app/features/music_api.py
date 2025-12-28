@@ -11,14 +11,27 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import diskcache
 import ytmusicapi
 
 from util.get_dominant_color import get_dominant_color_hex
 
 logger = logging.getLogger(__name__)
 
-# Resolve browser.json path relative to this module
+# Resolve paths relative to this module
 _BROWSER_JSON_PATH = Path(__file__).parent.parent / "browser.json"
+_CACHE_DIR = Path(__file__).parent.parent / ".cache"
+
+# Initialize persistent disk cache
+cache = diskcache.Cache(str(_CACHE_DIR))
+
+# Cache durations in seconds
+CACHE_DURATION_PLAYLISTS = 60 * 60  # 1 hour
+CACHE_DURATION_PLAYLIST_ITEMS = 60 * 30  # 30 minutes
+
+# Cache key prefixes
+CACHE_KEY_PLAYLISTS = "playlists"
+CACHE_KEY_PLAYLIST_PREFIX = "playlist:"
 
 
 class MusicApi:
@@ -51,17 +64,30 @@ class MusicApi:
         """Reset the YTMusic instance to force re-initialization."""
         cls._ytmusic = None
 
-    def get_playlists(self) -> list[dict[str, Any]]:
+    def get_playlists(self, force_refresh: bool = False) -> list[dict[str, Any]]:
         """Fetch all playlists from the user's YouTube Music library.
+        
+        Args:
+            force_refresh: If True, bypass cache and fetch fresh data.
         
         Returns:
             A list of playlist dictionaries, or an empty list on error.
         """
         try:
-            logger.info("Fetching playlists...")
+            # Check cache first (unless force refresh)
+            if not force_refresh:
+                cached = cache.get(CACHE_KEY_PLAYLISTS)
+                if cached is not None:
+                    logger.info("Returning cached playlists (count: %d)", len(cached))
+                    return cached
+            
+            logger.info("Fetching playlists from API...")
             ytmusic = self._get_ytmusic()
             playlists = ytmusic.get_library_playlists()
-            logger.info("Playlists fetched successfully (count: %d)", len(playlists))
+            
+            # Store in cache
+            cache.set(CACHE_KEY_PLAYLISTS, playlists, expire=CACHE_DURATION_PLAYLISTS)
+            logger.info("Playlists fetched and cached (count: %d)", len(playlists))
             return playlists
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
@@ -70,20 +96,34 @@ class MusicApi:
             logger.exception("Failed to fetch playlists: %s", e)
             return []
 
-    def get_playlist_items(self, playlist_id: str) -> dict[str, Any]:
+    def get_playlist_items(self, playlist_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch all items from a specific playlist.
         
         Args:
             playlist_id: The YouTube Music playlist ID
+            force_refresh: If True, bypass cache and fetch fresh data.
             
         Returns:
             A dictionary containing playlist details and tracks,
             or an empty dict on error.
         """
+        cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
+        
         try:
-            logger.info("Fetching playlist items for ID: %s", playlist_id)
+            # Check cache first (unless force refresh)
+            if not force_refresh:
+                cached = cache.get(cache_key)
+                if cached is not None:
+                    logger.info(
+                        "Returning cached playlist '%s' (tracks: %d)",
+                        cached.get("title", "Unknown"),
+                        len(cached.get("tracks", []))
+                    )
+                    return cached
+            
+            logger.info("Fetching playlist items from API for ID: %s", playlist_id)
             ytmusic = self._get_ytmusic()
-            playlist = ytmusic.get_playlist(playlist_id)
+            playlist = ytmusic.get_playlist(playlist_id, limit=None)
             logger.info(
                 "Playlist '%s' fetched successfully (tracks: %d)",
                 playlist.get("title", "Unknown"),
@@ -108,6 +148,10 @@ class MusicApi:
                     playlist["dominantColor"] = None
             else:
                 playlist["dominantColor"] = None
+            
+            # Store in cache
+            cache.set(cache_key, playlist, expire=CACHE_DURATION_PLAYLIST_ITEMS)
+            logger.info("Playlist cached: %s", playlist_id)
             
             return playlist
         except FileNotFoundError as e:
@@ -135,3 +179,38 @@ class MusicApi:
         except Exception as e:
             logger.exception("Failed to generate auth header: %s", e)
             raise
+
+    def invalidate_playlist_cache(self, playlist_ids: list[str]) -> dict[str, Any]:
+        """Invalidate cache for specific playlist IDs.
+        
+        Args:
+            playlist_ids: List of playlist IDs to invalidate from cache.
+            
+        Returns:
+            A dict with 'invalidated' (list of IDs that were in cache)
+            and 'not_found' (list of IDs that weren't cached).
+        """
+        invalidated = []
+        not_found = []
+        
+        for playlist_id in playlist_ids:
+            cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
+            if cache.delete(cache_key):
+                invalidated.append(playlist_id)
+                logger.info("Cache invalidated for playlist: %s", playlist_id)
+            else:
+                not_found.append(playlist_id)
+                logger.info("Playlist not in cache: %s", playlist_id)
+        
+        return {"invalidated": invalidated, "not_found": not_found}
+
+    def clear_all_cache(self) -> dict[str, Any]:
+        """Clear all cached data.
+        
+        Returns:
+            A dict with 'cleared' count of items removed.
+        """
+        count = len(cache)
+        cache.clear()
+        logger.info("All cache cleared (%d items)", count)
+        return {"cleared": count}

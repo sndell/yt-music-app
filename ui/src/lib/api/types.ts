@@ -104,6 +104,19 @@ export interface PlaylistDetails {
 }
 
 // ============================================================
+// Cache Types
+// ============================================================
+
+export interface InvalidateCacheResult {
+  invalidated: string[];
+  not_found: string[];
+}
+
+export interface ClearCacheResult {
+  cleared: number;
+}
+
+// ============================================================
 // API Method Registry - Maps method names to request/response types
 // ============================================================
 
@@ -113,16 +126,24 @@ export interface PlaylistDetails {
  */
 export interface ApiMethods {
   get_playlists: {
-    params: [];
+    params: [forceRefresh?: boolean];
     response: PlaylistSummary[];
   };
   get_playlist_items: {
-    params: [playlistId: string];
+    params: [playlistId: string, forceRefresh?: boolean];
     response: PlaylistDetails;
   };
   generate_auth_header: {
     params: [headers: string];
     response: void;
+  };
+  invalidate_playlist_cache: {
+    params: [playlistIds: string[]];
+    response: InvalidateCacheResult;
+  };
+  clear_all_cache: {
+    params: [];
+    response: ClearCacheResult;
   };
 }
 

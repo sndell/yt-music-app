@@ -13,6 +13,8 @@ export const Playlist = () => {
     if (!id) return;
 
     fetchPlaylistItems(id).then((data) => {
+      console.log(data);
+
       if (data) setPlaylist(data);
     });
   }, [id, fetchPlaylistItems]);

@@ -107,18 +107,34 @@ async function callPython<M extends ApiMethodName>(
 export const PyBridge = {
   /**
    * Fetch all playlists from the user's YouTube Music library
+   * @param forceRefresh - If true, bypass cache and fetch fresh data
    */
-  getPlaylists: () => callPython("get_playlists"),
+  getPlaylists: (forceRefresh?: boolean) => callPython("get_playlists", forceRefresh ?? false),
 
   /**
    * Fetch details and tracks for a specific playlist
+   * @param playlistId - The YouTube Music playlist ID
+   * @param forceRefresh - If true, bypass cache and fetch fresh data
    */
-  getPlaylistItems: (playlistId: string) => callPython("get_playlist_items", playlistId),
+  getPlaylistItems: (playlistId: string, forceRefresh?: boolean) =>
+    callPython("get_playlist_items", playlistId, forceRefresh ?? false),
 
   /**
    * Generate authentication header from raw headers
    */
   generateAuthHeader: (headers: string) => callPython("generate_auth_header", headers),
+
+  /**
+   * Invalidate cache for specific playlist IDs
+   * @param playlistIds - Array of playlist IDs to remove from cache
+   */
+  invalidatePlaylistCache: (playlistIds: string[]) =>
+    callPython("invalidate_playlist_cache", playlistIds),
+
+  /**
+   * Clear all cached data
+   */
+  clearAllCache: () => callPython("clear_all_cache"),
 } as const;
 
 // ============================================================
