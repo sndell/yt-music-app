@@ -24,7 +24,7 @@ const isPyWebView = (): boolean => {
   return typeof window !== "undefined" && window.pywebview !== undefined;
 };
 
-async function callPy<T>(method: string, fallback: T): Promise<T> {
+async function callPy<T>(method: string, fallback: T, ...args: unknown[]): Promise<T> {
   await waitForPyWebView();
   
   if (isPyWebView()) {
@@ -33,7 +33,7 @@ async function callPy<T>(method: string, fallback: T): Promise<T> {
     const fn = api[method];
 
     if (typeof fn === "function") {
-      return fn.call(api);
+      return fn.call(api, ...args);
     }
 
     if (fn === undefined) {
@@ -57,4 +57,18 @@ async function callPy<T>(method: string, fallback: T): Promise<T> {
  */
 export async function getPlaylists(): Promise<GetPlaylistsResponse> {
   return callPy("get_playlists", []);
+}
+
+/**
+ * Fetch all items from a playlist
+ */
+export async function getPlaylistItems(playlist_id: string): Promise<GetPlaylistItemsResponse> {
+  return callPy("get_playlist_items", {} as GetPlaylistItemsResponse, playlist_id);
+}
+
+/**
+ * Generate auth header
+ */
+export async function generateAuthHeader(headers: string): Promise<void> {
+  return callPy("generate_auth_header", undefined, headers);
 }

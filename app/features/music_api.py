@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import string
 from typing import Any
 
-from ytmusicapi import YTMusic
+import ytmusicapi
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,10 @@ _BROWSER_JSON_PATH = Path(__file__).parent.parent / "browser.json"
 class MusicApi:
     """API class for interacting with YouTube Music via ytmusicapi."""
 
-    _ytmusic: YTMusic | None = None
+    _ytmusic: ytmusicapi.YTMusic | None = None
 
     @classmethod
-    def _get_ytmusic(cls) -> YTMusic:
+    def _get_ytmusic(cls) -> ytmusicapi.YTMusic:
         """Lazily initialize and return the YTMusic instance."""
         if cls._ytmusic is None:
             if not _BROWSER_JSON_PATH.exists():
@@ -26,7 +27,7 @@ class MusicApi:
                     f"browser.json not found at {_BROWSER_JSON_PATH}. "
                     "Please configure your authentication."
                 )
-            cls._ytmusic = YTMusic(str(_BROWSER_JSON_PATH))
+            cls._ytmusic = ytmusicapi.YTMusic(str(_BROWSER_JSON_PATH))
         return cls._ytmusic
 
     def get_playlists(self) -> list[dict[str, Any]]:
@@ -47,3 +48,24 @@ class MusicApi:
         except Exception as e:
             logger.exception("Failed to fetch playlists: %s", e)
             return []
+
+    def get_playlist_items(self, playlist_id: str) -> list[dict[str, Any]]:
+        """Fetch all items from a playlist."""
+        try:
+            logger.info("Fetching playlist items for playlist ID: %s", playlist_id)
+            ytmusic = self._get_ytmusic()
+            items = ytmusic.get_playlist(playlist_id)
+            logger.info("Playlist items fetched successfully (count: %d)", len(items))
+            print(items)
+            return items
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return []
+        except Exception as e:
+            logger.exception("Failed to fetch playlist items: %s", e)
+            return []
+
+    def generate_auth_header(self, headers: str):
+        print(headers)
+        ytmusicapi.setup(filepath="browser.json", headers_raw=headers)
+        return

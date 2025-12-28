@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { getPlaylists } from "@/lib/api/bridge";
+import { getPlaylistItems, getPlaylists } from "@/lib/api/bridge";
 
 type UsePlaylistState = {
   playlists: GetPlaylistsResponse;
@@ -9,6 +9,7 @@ type UsePlaylistState = {
 
 type UsePlaylistReturn = UsePlaylistState & {
   fetchPlaylists: () => Promise<void>;
+  fetchPlaylistItems: (playlistId: string) => Promise<void>;
 };
 
 /**
@@ -33,9 +34,20 @@ export const usePlaylist = (): UsePlaylistReturn => {
     }
   }, []);
 
+  const fetchPlaylistItems = useCallback(async (playlistId: string) => {
+    try {
+      await getPlaylistItems(playlistId);
+      console.log("Playlist items fetched successfully");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to fetch playlist items";
+      setState((prev) => ({ ...prev, isLoading: false, error: message }));
+    }
+  }, []);
+
   return {
     ...state,
     fetchPlaylists,
+    fetchPlaylistItems,
   };
 };
 

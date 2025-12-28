@@ -2,7 +2,7 @@ import { useLayoutEffect } from "react";
 import { usePlaylist } from "../hooks/usePlaylist";
 
 export const SidebarList = () => {
-  const { playlists, isLoading, error, fetchPlaylists } = usePlaylist();
+  const { playlists, isLoading, error, fetchPlaylists, fetchPlaylistItems } = usePlaylist();
 
   useLayoutEffect(() => {
     fetchPlaylists();
@@ -31,7 +31,8 @@ export const SidebarList = () => {
         {playlists.map((playlist) => {
           const thumbnailUrl = playlist.thumbnails?.[0]?.url;
           return (
-            <div
+            <button
+              onClick={() => fetchPlaylistItems(playlist.playlistId)}
               key={playlist.playlistId}
               className="p-1.5 rounded-lg hover:bg-primary-light cursor-pointer text-sm text-primary-dark hover:text-primary transition-colors flex items-center gap-2"
             >
@@ -43,7 +44,7 @@ export const SidebarList = () => {
                 </div>
               )}
               <span className="truncate">{playlist.title}</span>
-            </div>
+            </button>
           );
         })}
       </div>
