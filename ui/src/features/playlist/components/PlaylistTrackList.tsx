@@ -1,19 +1,44 @@
+import { useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Track } from "@/lib/api";
 import { cn } from "@/util/cn";
 
+const TRACK_HEIGHT = 56; // Height of each track item in pixels
+
 export const PlaylistTrackList = ({ tracks, gradient }: { tracks: Track[]; gradient: string }) => {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: tracks.length,
+    getScrollElement: () => parentRef.current?.closest(".scrollbar") as HTMLElement | null,
+    estimateSize: () => TRACK_HEIGHT,
+    overscan: 16,
+  });
+
   return (
-    <div className="flex relative flex-col gap-3 p-4 sm:p-6">
+    <div ref={parentRef} className="flex relative flex-col gap-3 p-4 sm:p-6">
       <div className="absolute top-0 right-0 left-0 h-64 pointer-events-none" style={{ background: gradient }} />
       <div className="grid grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark">
         <div>Track</div>
         <div className="max-md:hidden">Album</div>
         <div className="justify-self-end">Duration</div>
       </div>
-      <div className="flex flex-col">
-        {tracks.map((track) => (
-          <PlaylistTrackItem key={track.videoId} track={track} />
-        ))}
+      <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const track = tracks[virtualItem.index];
+          return (
+            <div
+              key={track.videoId}
+              className="absolute left-0 w-full"
+              style={{
+                height: TRACK_HEIGHT,
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              <PlaylistTrackItem track={track} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -23,7 +48,7 @@ const PlaylistTrackItem = ({ track }: { track: Track }) => {
   return (
     <button
       className={cn(
-        "grid gap-4 py-1.5 items-center grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] cursor-pointer hover:bg-primary-light transition-colors rounded-lg",
+        "grid gap-4 py-1.5 px-1 items-center grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] cursor-pointer hover:bg-primary-light transition-colors rounded-lg w-full h-full",
         track.isAvailable ? "opacity-100" : "opacity-25"
       )}
     >

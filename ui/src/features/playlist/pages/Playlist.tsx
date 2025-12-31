@@ -13,6 +13,12 @@ export const Playlist = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
+  // Reset playlist state immediately when ID changes to show spinner
+  useEffect(() => {
+    setPlaylist(null);
+    setIsScrolled(false);
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
     fetchPlaylistItems(id).then((data) => data && setPlaylist(data));

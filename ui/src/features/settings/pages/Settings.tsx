@@ -28,9 +28,8 @@ export const Settings = () => {
         <div className="space-y-1.5">
           <div>Auth Headers</div>
           <div className="flex gap-3">
-            <textarea
+            <input
               value={headerInput}
-              rows={4}
               onChange={(e) => setHeaderInput(e.target.value)}
               placeholder="Enter auth headers"
               className="px-3 py-1.5 w-full rounded-lg outline-none bg-primary-light"

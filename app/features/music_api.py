@@ -180,6 +180,7 @@ class MusicApi:
             headers: Raw HTTP headers string from browser
         """
         try:
+            print(headers)
             logger.info("Generating auth header from raw headers...")
             ytmusicapi.setup(filepath=str(_BROWSER_JSON_PATH), headers_raw=headers)
             # Reset cached instance to pick up new auth
