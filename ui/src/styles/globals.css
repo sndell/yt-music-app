@@ -8,11 +8,12 @@
 }
 
 @theme inline {
-  --background-color-background: oklch(0.15 0 0);
+  --background-color-background: oklch(0 0 0);
   --background-color-primary: oklch(0.17 0 0);
   --background-color-primary-light: oklch(0.2 0 0);
   --background-color-secondary: oklch(0.28 0 0);
   --background-color-secondary-light: oklch(0.32 0 0);
+  --background-color-accent: oklch(0.55 0.21 27.19);
 
   --text-color-primary: oklch(0.9 0 0);
   --text-color-primary-dark: oklch(0.75 0 0);

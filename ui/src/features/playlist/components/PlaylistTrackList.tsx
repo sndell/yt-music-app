@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Track } from "@/lib/api";
 import { cn } from "@/util/cn";
+import { usePlayer } from "@/features/player";
 
 const TRACK_HEIGHT = 56; // Height of each track item in pixels
 
@@ -45,8 +46,15 @@ export const PlaylistTrackList = ({ tracks, gradient }: { tracks: Track[]; gradi
 };
 
 const PlaylistTrackItem = ({ track }: { track: Track }) => {
+  const { setCurrentSong } = usePlayer();
+
+  const handleClick = () => {
+    setCurrentSong(track);
+  };
+
   return (
     <button
+      onClick={handleClick}
       className={cn(
         "grid gap-4 py-1.5 px-1 items-center grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] cursor-pointer hover:bg-primary-light transition-colors rounded-lg w-full h-full",
         track.isAvailable ? "opacity-100" : "opacity-25"
