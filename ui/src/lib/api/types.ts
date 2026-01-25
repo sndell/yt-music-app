@@ -38,6 +38,7 @@ export interface Track {
   artists: Artist[];
   album: Album | null;
   likeStatus: "LIKE" | "INDIFFERENT" | "DISLIKE";
+  
   inLibrary: boolean;
   thumbnails: Thumbnail[];
   isAvailable: boolean;
@@ -66,6 +67,56 @@ export interface PlaylistDetails {
   dominantColor: string | null;
 }
 
+export interface FeedbackTokens {
+  add: string;
+  remove: string;
+}
+
+export interface ListenAgainFeedbackTokens {
+  pin: string;
+  unpin: string;
+}
+
+export interface WatchArtist {
+  name: string;
+  id: string | null;
+}
+
+export interface WatchCounterpart {
+  videoId: string;
+  title: string;
+  length: string;
+  thumbnail: Thumbnail[];
+  feedbackTokens: FeedbackTokens | null;
+  likeStatus: "LIKE" | "INDIFFERENT" | "DISLIKE";
+  artists: WatchArtist[];
+  views: string;
+}
+
+export interface WatchTrack {
+  videoId: string;
+  title: string;
+  length: string;
+  thumbnail: Thumbnail[];
+  likeStatus: "LIKE" | "INDIFFERENT" | "DISLIKE";
+  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV";
+  inLibrary: boolean;
+  feedbackTokens: FeedbackTokens;
+  pinnedToListenAgain: boolean;
+  listenAgainFeedbackTokens: ListenAgainFeedbackTokens;
+  artists: WatchArtist[];
+  album: Album;
+  year: string;
+  counterpart?: WatchCounterpart;
+}
+
+export interface WatchPlaylist {
+  tracks: WatchTrack[];
+  playlistId: string;
+  lyrics: string;
+  related?: string;
+}
+
 /** API method signatures */
 export interface ApiMethods {
   get_playlists: { params: []; response: PlaylistSummary[] };
@@ -73,6 +124,10 @@ export interface ApiMethods {
   generate_auth_header: { params: [headers: string]; response: void };
   invalidate_playlist_cache: { params: [playlistIds: string[]]; response: { invalidated: string[]; not_found: string[] } };
   clear_all_cache: { params: []; response: { cleared: number } };
+    get_watch_playlist: {
+    params: [videoId: string, playlistId: string, radio?: boolean, shuffle?: boolean];
+    response: WatchPlaylist;
+  };
 }
 
 export type ApiMethodName = keyof ApiMethods;

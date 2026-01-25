@@ -107,7 +107,7 @@ export const Playlist = () => {
         </div>
 
         {/* Track list */}
-        <PlaylistTrackList tracks={playlist.tracks} gradient={tracksGradient} />
+        <PlaylistTrackList tracks={playlist.tracks} gradient={tracksGradient} playlistId={id} />
       </div>
     </div>
   );

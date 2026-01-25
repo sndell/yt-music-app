@@ -170,6 +170,32 @@ class MusicApi:
             logger.exception("Failed to fetch playlist items: %s", e)
             return {}
 
+    def get_watch_playlist(self, video_id: str | None = None, playlist_id: str | None = None, radio: bool = False, shuffle: bool = False) -> dict[str, Any]:
+        """Get a watch playlist for a specific video or playlist.
+        
+        Args:
+            video_id: The YouTube Music video ID
+            playlist_id: The YouTube Music playlist ID
+            radio: Whether to fetch a radio playlist
+            shuffle: Whether to shuffle the playlist
+        """
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return watch playlist")
+                return {}
+            
+            # Convert empty strings to None (bridge sends "" for undefined values)
+            video_id = video_id or None
+            playlist_id = playlist_id or None
+            
+            data = self._get_ytmusic().get_watch_playlist(video_id, playlist_id, radio, shuffle)
+            print(data)
+            return 'hello world'
+        except Exception as e:
+            logger.exception("Failed to fetch watch playlist: %s", e)
+            return {}
+
+
     def generate_auth_header(self, headers: str) -> None:
         """Generate browser.json from raw request headers.
         

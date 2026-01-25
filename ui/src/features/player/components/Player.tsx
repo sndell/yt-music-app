@@ -87,6 +87,14 @@ const PlayerControls = ({
             {currentSong.artists.map((artist) => artist.name).join(", ")}
           </span>
         </div>
+        <div className="flex gap-3 items-center pl-3">
+          <button className="cursor-pointer group">
+            <span className="icon-[mingcute--thumb-up-2-line] text-2xl group-hover:icon-[mingcute--thumb-up-2-fill]" />
+          </button>
+          <button className="cursor-pointer group">
+            <span className="icon-[mingcute--thumb-down-2-line] text-2xl group-hover:icon-[mingcute--thumb-down-2-fill]" />
+          </button>
+        </div>
       </div>
       <div className="flex gap-1.5 items-center text-2xl ">
         <button className="icon-[mingcute--skip-previous-fill] text-primary-dark cursor-pointer" />
@@ -111,7 +119,7 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
 
   return (
     <div className="flex gap-3 items-center group">
-      <span className="icon-[mingcute--volume-line] text-primary-dark text-lg" />
+      <span className="icon-[mingcute--volume-line] text-primary-dark text-2xl" />
       <div className="relative w-20 h-1 rounded-full transition-all duration-300 bg-primary-light">
         <div className="absolute top-0 left-0 h-full rounded-full bg-accent" style={{ width: `${progress}%` }} />
         <input

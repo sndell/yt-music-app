@@ -59,6 +59,8 @@ export const PyBridge = {
   getPlaylists: () => callPython("get_playlists"),
   getPlaylistItems: (playlistId: string, forceRefresh = false) =>
     callPython("get_playlist_items", playlistId, forceRefresh),
+  getWatchPlaylist: (videoId?: string, playlistId?: string, radio = false, shuffle = false) =>
+    callPython("get_watch_playlist", videoId ?? "", playlistId ?? "", radio, shuffle),
   generateAuthHeader: (headers: string) => callPython("generate_auth_header", headers),
   invalidatePlaylistCache: (playlistIds: string[]) => callPython("invalidate_playlist_cache", playlistIds),
   clearAllCache: () => callPython("clear_all_cache"),

@@ -6,7 +6,15 @@ import { usePlayer } from "@/features/player";
 
 const TRACK_HEIGHT = 56; // Height of each track item in pixels
 
-export const PlaylistTrackList = ({ tracks, gradient }: { tracks: Track[]; gradient: string }) => {
+export const PlaylistTrackList = ({
+  tracks,
+  gradient,
+  playlistId,
+}: {
+  tracks: Track[];
+  gradient: string;
+  playlistId: string | undefined;
+}) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
   const virtualizer = useVirtualizer({
@@ -36,7 +44,7 @@ export const PlaylistTrackList = ({ tracks, gradient }: { tracks: Track[]; gradi
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              <PlaylistTrackItem track={track} />
+              <PlaylistTrackItem track={track} playlistId={playlistId} />
             </div>
           );
         })}
@@ -45,11 +53,12 @@ export const PlaylistTrackList = ({ tracks, gradient }: { tracks: Track[]; gradi
   );
 };
 
-const PlaylistTrackItem = ({ track }: { track: Track }) => {
-  const { setCurrentSong } = usePlayer();
+const PlaylistTrackItem = ({ track, playlistId }: { track: Track; playlistId?: string }) => {
+  const { setCurrentSong, getWatchPlaylist } = usePlayer();
 
   const handleClick = () => {
     setCurrentSong(track);
+    getWatchPlaylist(track.videoId, playlistId);
   };
 
   return (
