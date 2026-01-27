@@ -196,22 +196,53 @@ class MusicApi:
             return {}
 
 
-    def generate_auth_header(self, headers: str) -> None:
+    def generate_auth_header(self, headers_raw: str) -> None:
         """Generate browser.json from raw request headers.
         
-        This should be called with the raw headers copied from a YouTube Music
-        request in the browser's network tab.
-        
         Args:
-            headers: Raw HTTP headers string from browser
+            headers_raw: Raw HTTP headers string from browser
         """
+        import json
+        import re
+        
         try:
-            print(headers)
             logger.info("Generating auth header from raw headers...")
-            ytmusicapi.setup(filepath=str(_BROWSER_JSON_PATH), headers_raw=headers)
-            # Reset cached instance to pick up new auth
+            
+            # Extract authorization - ends at next common header
+            auth_match = re.search(
+                r'authorization\s+(.+?)\s+(?=content-|cookie|origin|accept)',
+                headers_raw,
+                re.IGNORECASE
+            )
+            if not auth_match:
+                raise ValueError("Authorization header not found in input")
+            
+            # Extract cookie - ends at next common header
+            cookie_match = re.search(
+                r'cookie\s+(.+?)\s+(?=origin|priority|referer|sec-|user-agent|x-)',
+                headers_raw,
+                re.IGNORECASE
+            )
+            if not cookie_match:
+                raise ValueError("Cookie header not found in input")
+            
+            # Build the browser.json structure
+            browser_json = {
+                "Accept": "*/*",
+                "Authorization": auth_match.group(1).strip(),
+                "Content-Type": "application/json",
+                "X-Goog-AuthUser": "0",
+                "x-origin": "https://music.youtube.com",
+                "Cookie": cookie_match.group(1).strip()
+            }
+
+            # Write to file (creates or replaces)
+            with open(_BROWSER_JSON_PATH, 'w', encoding='utf-8') as f:
+                json.dump(browser_json, f, indent=4)
+            
             self._reset_ytmusic()
             logger.info("Auth header generated successfully at %s", _BROWSER_JSON_PATH)
+            
         except Exception as e:
             logger.exception("Failed to generate auth header: %s", e)
             raise

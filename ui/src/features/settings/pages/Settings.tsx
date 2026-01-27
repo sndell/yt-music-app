@@ -23,7 +23,7 @@ export const Settings = () => {
 
   return (
     <div className="flex justify-center">
-      <div className="w-full max-w-7xl p-1.5">
+      <div className="w-full max-w-7xl p-1.5 px-3">
         <div className="pb-3 text-2xl">Settings</div>
         <div className="space-y-1.5">
           <div>Auth Headers</div>
@@ -32,7 +32,7 @@ export const Settings = () => {
               value={headerInput}
               onChange={(e) => setHeaderInput(e.target.value)}
               placeholder="Enter auth headers"
-              className="px-3 py-1.5 w-full rounded-lg outline-none bg-primary-light"
+              className="px-3 py-1.5 w-full rounded-lg outline-none bg-primary-light border border-primary"
             />
             <button
               onClick={handleSave}
