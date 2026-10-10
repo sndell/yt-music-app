@@ -3,3 +3,6 @@ build/work/
 dev/.dev-slot
 dev/.dev-python
 dev/.dev-restarts.jsonl
+
+__pycache__/
+*.py[cod]
