@@ -6,6 +6,7 @@ import type {
   ArtistShelf,
   ArtistVideo,
   LikeStatus,
+  RelatedArtist,
   Track,
 } from "@/lib/api";
 import { PyBridge } from "@/lib/api";
@@ -13,17 +14,13 @@ import { usePlayer } from "@/features/player";
 import { PlaylistDescription } from "@/features/playlist/components/PlaylistDescription";
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { BrowseCard, BrowseRow } from "@/components/ui/BrowseCard";
+import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
 
-const titleClass = "line-clamp-2 pt-1.5 text-3xl font-bold wrap-break-word @2xl:text-5xl";
-const headerLayoutClass = "flex flex-col gap-4 p-6 @lg:flex-row @lg:items-start @lg:gap-6";
-const coverSizeClass = "size-40 shrink-0 @2xl:size-48";
-const actionClass =
-  "flex shrink-0 cursor-pointer items-center gap-2 rounded-full border border-primary px-3 py-1.5 text-sm transition-colors hover:bg-primary-light disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
-const iconButtonClass =
-  "grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-primary transition-colors hover:bg-primary-light";
+const seeAllClass =
+  "inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-sm text-primary-dark hover:underline disabled:cursor-default disabled:opacity-40 disabled:hover:no-underline";
 
 const RELEASES = [
   ["albums", "Albums"],
@@ -138,8 +135,8 @@ const PageFallback = ({ error, onReload }: { error: string | null; onReload: () 
 };
 
 const SeeAllButton = ({ loading, onClick }: { loading: boolean; onClick: () => void }) => (
-  <button type="button" onClick={onClick} disabled={loading} aria-busy={loading} className={actionClass}>
-    {loading && <span className="icon-[solar--loader-linear] animate-spin text-base" />}
+  <button type="button" onClick={onClick} disabled={loading} aria-busy={loading} className={seeAllClass}>
+    {loading && <span className="icon-[solar--loader-linear] animate-spin text-sm" />}
     See all
   </button>
 );
@@ -283,24 +280,27 @@ export const Artist = () => {
   const videos = filled(rated.videos) ? rated.videos : null;
   const related = (rated.related ?? []).filter((item) => item.browseId);
 
-  const play = (playlistId: string, mode: "shuffle" | "mix") => {
-    void playPlaylist(playlistId, mode);
-  };
-
   const playVideo = (index: number) => {
     if (!videos) return;
     playTracks(videos.items.slice(index).map((video) => videoToTrack(video, rated)));
   };
-
-  const detailsGradient = dominantColor
-    ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 1)}, ${hexToRgba(dominantColor, 0.2)})`
-    : "transparent";
 
   const tracksGradient = dominantColor
     ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 0.1)}, #0000)`
     : "transparent";
 
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
+
+  const songsId = songs?.browseId;
+  const onPlay = songsId ? () => void playPlaylist(songsId, "play") : undefined;
+  const onShuffle = shuffleId ? () => void playPlaylist(shuffleId, "shuffle") : undefined;
+  const radio = radioId
+    ? {
+        label: "Radio",
+        iconClass: "icon-[solar--soundwave-linear]",
+        onClick: () => void playPlaylist(radioId, "mix"),
+      }
+    : undefined;
 
   const meta = (className?: string) => (
     <MetaLine
@@ -312,6 +312,8 @@ export const Artist = () => {
     />
   );
 
+  const bio = description?.trim() ? description : null;
+
   return (
     <div className="@container relative flex flex-1 flex-col overflow-hidden">
       <div
@@ -322,72 +324,42 @@ export const Artist = () => {
         }}
       >
         <div className="flex gap-3 items-center p-3 w-full backdrop-blur-2xl" style={{ background: stickyBg }}>
-          <Cover key={thumbnailUrl ?? "empty"} url={thumbnailUrl} alt={name} className="size-12 rounded shadow-md" iconClass="text-lg" />
+          <Cover key={thumbnailUrl ?? "empty"} url={thumbnailUrl} alt="" className="size-12 rounded shadow-md" iconClass="text-lg" />
           <div className="min-w-0 flex-1">
             <h2 title={name} className="truncate text-xl font-bold">
               {name}
             </h2>
             {meta("text-sm leading-5")}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {shuffleId && (
-              <button type="button" aria-label="Shuffle" onClick={() => play(shuffleId, "shuffle")} className={iconButtonClass}>
-                <span className="icon-[solar--shuffle-linear]" />
-              </button>
-            )}
-            {radioId && (
-              <button type="button" aria-label="Radio" onClick={() => play(radioId, "mix")} className={iconButtonClass}>
-                <span className="icon-[solar--soundwave-linear]" />
-              </button>
-            )}
-          </div>
+          <PlaybackButtons variant="icon" onPlay={onPlay} onShuffle={onShuffle} extra={radio} />
         </div>
       </div>
 
-      <div
-        key={id}
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="overflow-y-auto flex-1 scrollbar pb-6 [overflow-anchor:none]"
-      >
-        <div ref={headerRef} className={headerLayoutClass} style={{ background: detailsGradient }}>
-          <Cover
-            key={thumbnailUrl ?? "cover"}
-            url={thumbnailUrl}
-            alt={name}
-            className={cn(coverSizeClass, "rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
-          />
-          <div className="min-w-0 flex-1 text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)] @lg:self-end">
-            <h1 title={name} className={titleClass}>
+      <div key={id} ref={scrollContainerRef} onScroll={handleScroll} className="overflow-y-auto flex-1 scrollbar [overflow-anchor:none]">
+        <div ref={headerRef} className="relative min-h-80 overflow-hidden @2xl:min-h-[28rem]">
+          <Cover key={thumbnailUrl ?? "cover"} url={thumbnailUrl} alt="" className="absolute inset-0 size-full" />
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-linear-to-b from-transparent from-30% via-black/55 via-70% to-black" />
+          <div className="relative flex min-h-80 flex-col justify-end px-6 pt-24 pb-8 text-shadow-[0_2px_16px_rgba(0,0,0,0.55)] @2xl:min-h-[28rem]">
+            <h1 title={name} className="line-clamp-2 text-3xl font-bold wrap-break-word @2xl:text-5xl">
               {name}
             </h1>
-            <PlaylistDescription description={description} />
-            {meta("pt-3")}
-            {(shuffleId || radioId) && (
-              <div className="flex items-center gap-2 pt-4">
-                {shuffleId && (
-                  <button type="button" onClick={() => play(shuffleId, "shuffle")} className={actionClass}>
-                    <span className="icon-[solar--shuffle-linear] text-base" />
-                    Shuffle
-                  </button>
-                )}
-                {radioId && (
-                  <button type="button" onClick={() => play(radioId, "mix")} className={actionClass}>
-                    <span className="icon-[solar--soundwave-linear] text-base" />
-                    Radio
-                  </button>
-                )}
-              </div>
-            )}
+            {meta("pt-2 text-sm")}
+            <PlaybackButtons className="pt-4" onPlay={onPlay} onShuffle={onShuffle} extra={radio} />
           </div>
         </div>
 
+        {bio && (
+          <div className="px-6 pb-8">
+            <PlaylistDescription description={bio} />
+          </div>
+        )}
+
         {songs && (
-          <section>
-            <div className="flex items-center justify-between gap-3 px-6 pt-2">
+          <section className="pb-8">
+            <div className="flex items-center justify-between gap-3 px-6">
               <h2 className="text-xl font-bold">Songs</h2>
               {songs.browseId && (
-                <Link href={`/playlist/${songs.browseId}`} className={actionClass}>
+                <Link href={`/playlist/${songs.browseId}`} className={seeAllClass}>
                   See all
                 </Link>
               )}
@@ -428,18 +400,34 @@ export const Artist = () => {
         {related.length > 0 && (
           <BrowseRow title="Related artists">
             {related.map((item, index) => (
-              <BrowseCard
-                key={`${item.browseId}-${index}`}
-                href={`/artist/${item.browseId}`}
-                title={item.title}
-                subtitle={labeled(item.subscribers, "subscriber", "subscribers")}
-                thumbnails={item.thumbnails}
-              />
+              <RelatedArtistCard key={`${item.browseId}-${index}`} artist={item} />
             ))}
           </BrowseRow>
         )}
       </div>
     </div>
+  );
+};
+
+const RelatedArtistCard = ({ artist }: { artist: RelatedArtist }) => {
+  const [failed, setFailed] = useState(false);
+  const thumbnailUrl = artist.thumbnails?.[0]?.url;
+
+  return (
+    <Link href={`/artist/${artist.browseId}`} aria-label={`Open ${artist.title}`} className="w-36 shrink-0 text-center sm:w-40">
+      <div className="aspect-square overflow-hidden rounded-full bg-secondary">
+        {thumbnailUrl && !failed ? (
+          <img src={thumbnailUrl} alt="" onError={() => setFailed(true)} className="size-full object-cover" />
+        ) : (
+          <span className="grid size-full place-items-center">
+            <span className="icon-[solar--music-note-linear] text-2xl text-primary-dark" />
+          </span>
+        )}
+      </div>
+      <span title={artist.title} className="mt-2 block truncate text-sm font-medium">
+        {artist.title}
+      </span>
+    </Link>
   );
 };
 

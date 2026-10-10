@@ -7,16 +7,13 @@ import { usePlayer } from "@/features/player";
 import { PlaylistDescription } from "@/features/playlist/components/PlaylistDescription";
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { BrowseCard, BrowseRow } from "@/components/ui/BrowseCard";
+import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
 
 const titleClass = "line-clamp-2 pt-1.5 text-3xl font-bold wrap-break-word @2xl:text-5xl";
 const headerLayoutClass = "flex flex-col gap-4 p-6 @lg:flex-row @lg:items-start @lg:gap-6";
 const coverSizeClass = "size-40 shrink-0 @2xl:size-48";
-const actionClass =
-  "flex shrink-0 cursor-pointer items-center gap-2 rounded-full border border-primary px-3 py-1.5 text-sm transition-colors hover:bg-primary-light";
-const iconButtonClass =
-  "grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-primary transition-colors hover:bg-primary-light";
 
 const withRatings = (album: AlbumDetails, ratings: Record<string, LikeStatus>): AlbumDetails => {
   let changed = false;
@@ -220,16 +217,7 @@ export const Album = () => {
   );
 
   const playback = audioPlaylistId ? (
-    <div className="flex items-center gap-2 pt-4">
-      <button type="button" onClick={() => play("play")} className={actionClass}>
-        <span className="icon-[solar--play-bold] text-base" />
-        Play
-      </button>
-      <button type="button" onClick={() => play("shuffle")} className={actionClass}>
-        <span className="icon-[solar--shuffle-linear] text-base" />
-        Shuffle
-      </button>
-    </div>
+    <PlaybackButtons className="pt-4" onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
   ) : null;
 
   return (
@@ -250,15 +238,13 @@ export const Album = () => {
             {meta("text-sm leading-5")}
           </div>
           {audioPlaylistId && (
-            <div className="flex shrink-0 items-center gap-2">
-              <button type="button" aria-label="Play" onClick={() => play("play")} className={iconButtonClass}>
-                <span className="icon-[solar--play-bold]" />
-              </button>
-              <button type="button" aria-label="Shuffle" onClick={() => play("shuffle")} className={iconButtonClass}>
-                <span className="icon-[solar--shuffle-linear]" />
-              </button>
-            </div>
+            <PlaybackButtons variant="icon" onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
           )}
+        </div>
+        <div className="grid grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] border-y border-primary bg-secondary/60 backdrop-blur-2xl py-1.5 px-6">
+          <div>Track</div>
+          <div className="max-md:hidden">Album</div>
+          <div className="justify-self-end">Duration</div>
         </div>
       </div>
 

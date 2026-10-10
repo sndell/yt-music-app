@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { PyBridge, type HomeItem, type HomeShelf, type Track } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
+import { SnapRow } from "@/components/ui/SnapRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { cn } from "@/util/cn";
 
@@ -210,9 +211,9 @@ const HomeRow = ({
   onPlayAlbum: (item: HomeItem) => void;
   onPlayPlaylist: (playlistId: string) => void;
 }) => (
-  <section>
+  <section className="group/snap">
     <h2 className="text-xl font-bold">{shelf.title}</h2>
-    <div className="mt-3 flex w-full gap-3 overflow-x-auto pb-1 scrollbar-thin">
+    <SnapRow>
       {shelf.items.map((item, index) => (
         <HomeCard
           key={itemKey(item, index)}
@@ -226,7 +227,7 @@ const HomeRow = ({
           }}
         />
       ))}
-    </div>
+    </SnapRow>
   </section>
 );
 

@@ -4,6 +4,7 @@ import type { LikeStatus, PlaylistDetails, PlaylistSummary } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
+import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
 import { PlaylistDescription } from "../components/PlaylistDescription";
 import { PlaylistTrackList } from "../components/PlaylistTrackList";
@@ -130,7 +131,7 @@ const PlaylistTracksLoading = ({ summary }: { summary: PlaylistSummary }) => {
 export const Playlist = () => {
   const { id } = useParams();
   const { playlists, fetchPlaylistItems } = usePlaylist();
-  const { trackRatings } = usePlayer();
+  const { playPlaylist, trackRatings } = usePlayer();
   const ratingsRef = useRef(trackRatings);
   ratingsRef.current = trackRatings;
   const [playlist, setPlaylist] = useState<PlaylistDetails | null>(null);
@@ -203,6 +204,11 @@ export const Playlist = () => {
 
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
+  const play = (mode: "play" | "shuffle") => {
+    if (!id) return;
+    void playPlaylist(id, mode);
+  };
+
   return (
     <div className="@container relative flex flex-1 flex-col overflow-hidden">
       {/* Sticky compact header - appears when scrolled */}
@@ -227,6 +233,7 @@ export const Playlist = () => {
               className="text-sm leading-5"
             />
           </div>
+          <PlaybackButtons variant="icon" onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
         </div>
         <div className="grid grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] border-y border-primary bg-secondary/60 backdrop-blur-2xl py-1.5 px-6">
           <div>Track</div>
@@ -268,6 +275,7 @@ export const Playlist = () => {
               privacy={privacy}
               className="pt-3"
             />
+            <PlaybackButtons className="pt-4" onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
           </div>
         </div>
 

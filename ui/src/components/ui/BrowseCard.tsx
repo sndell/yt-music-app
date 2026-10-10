@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import type { Thumbnail } from "@/lib/api/types";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
+import { SnapRow } from "@/components/ui/SnapRow";
 
 export const BrowseCard = ({
   href,
@@ -64,12 +65,12 @@ export const BrowseRow = ({
   error?: string | null;
   children: ReactNode;
 }) => (
-  <section className="px-6 pb-8">
+  <section className="group/snap px-6 pb-8">
     <div className="flex items-center justify-between gap-3">
       <h2 className="text-xl font-bold">{title}</h2>
       {action}
     </div>
     {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-    <div className="mt-3 flex w-full gap-3 overflow-x-auto pb-1 scrollbar-thin">{children}</div>
+    <SnapRow>{children}</SnapRow>
   </section>
 );
