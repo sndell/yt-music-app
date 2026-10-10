@@ -1,5 +1,5 @@
 dist/
-build/
-app/.dev-slot
-app/.dev-python
-app/.dev-restarts.jsonl
+build/work/
+dev/.dev-slot
+dev/.dev-python
+dev/.dev-restarts.jsonl

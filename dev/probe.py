@@ -1,7 +1,7 @@
-"""Localhost probe for the running dev webview.
+"""Localhost probe for the running webview.
 
-Only started when ENV=dev. Agents call it to exercise the Python API and the
-live window.pywebview bridge.
+Started when ENV=dev, and when a packaged exe is launched with DEVTOOLS=1.
+Agents call it to exercise the Python API and the live window.pywebview bridge.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from dev_identity import generation, health_payload, probe_port, restarted_files
+from dev.identity import generation, health_payload, probe_port, restarted_files
 
 logger = logging.getLogger(__name__)
 

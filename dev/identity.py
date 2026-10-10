@@ -1,7 +1,9 @@
 """Ports and restart identity for one dev checkout.
 
-Slot 0 keeps the original ports. A worktree writes app/.dev-slot so its
+Slot 0 keeps the original ports. A worktree writes dev/.dev-slot so its
 window does not take the main checkout's probe, Vite, or DevTools ports.
+If that file is missing, app/.dev-slot is used so an existing worktree
+keeps its ports. This module only reads those files.
 """
 
 from __future__ import annotations
@@ -12,7 +14,9 @@ from pathlib import Path
 
 from util.app_paths import is_frozen
 
-APP_DIR = Path(__file__).resolve().parent
+DEV_DIR = Path(__file__).resolve().parent
+REPO_DIR = DEV_DIR.parent
+APP_DIR = REPO_DIR / "app"
 PROBE_BASE = 8765
 UI_BASE = 5173
 DEBUG_BASE = 9222
@@ -20,8 +24,18 @@ DEBUG_BASE = 9222
 _slot: int | None = None
 
 
+def _read_slot_file() -> str:
+    """Slot text from dev/.dev-slot, then app/.dev-slot. Does not create files."""
+    for path in (DEV_DIR / ".dev-slot", APP_DIR / ".dev-slot"):
+        try:
+            return path.read_text(encoding="utf-8-sig")
+        except OSError:
+            continue
+    return "0"
+
+
 def dev_slot() -> int:
-    """Slot for this process. Env wins, then app/.dev-slot, then 0."""
+    """Slot for this process. Env wins, then dev/.dev-slot, then app/.dev-slot, then 0."""
     global _slot
     if _slot is not None:
         return _slot
@@ -31,10 +45,7 @@ def dev_slot() -> int:
 
     raw = os.environ.get("DEV_SLOT")
     if raw is None or not raw.strip():
-        try:
-            raw = (APP_DIR / ".dev-slot").read_text(encoding="utf-8-sig")
-        except OSError:
-            raw = "0"
+        raw = _read_slot_file()
     try:
         slot = int(raw.strip())
     except ValueError:

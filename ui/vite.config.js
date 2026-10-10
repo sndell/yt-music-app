@@ -4,19 +4,21 @@ import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
 import fs from 'fs';
 import path from 'path';
-// Slot 0 is the main checkout (port 5173). A worktree writes app/.dev-slot.
+// Slot 0 is the main checkout (port 5173). A worktree writes dev/.dev-slot.
+function readDevSlotFile() {
+    for (const relative of ['../dev/.dev-slot', '../app/.dev-slot']) {
+        try {
+            return fs.readFileSync(path.resolve(import.meta.dirname, relative), 'utf8');
+        }
+        catch {
+            // Missing slot file; try the next location.
+        }
+    }
+    return '0';
+}
 function devSlot() {
     const fromEnv = process.env.DEV_SLOT?.trim();
-    const raw = fromEnv
-        ? fromEnv
-        : (() => {
-            try {
-                return fs.readFileSync(path.resolve(import.meta.dirname, '../app/.dev-slot'), 'utf8');
-            }
-            catch {
-                return '0';
-            }
-        })();
+    const raw = fromEnv ? fromEnv : readDevSlotFile();
     const slot = Number.parseInt(raw.trim().replace(/^\uFEFF/, ''), 10);
     return Number.isNaN(slot) || slot < 0 ? 0 : slot;
 }

@@ -1,7 +1,7 @@
 # Build a windowed onefile exe at dist\YTMusic.exe.
 $ErrorActionPreference = "Stop"
 
-$Root = $PSScriptRoot
+$Root = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $Root "app\.venv\Scripts\python.exe"
 
 if (-not (Test-Path $Python)) {
@@ -26,7 +26,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Set-Location $Root
-& $Python -m PyInstaller --noconfirm --distpath (Join-Path $Root "dist") --workpath (Join-Path $Root "build") (Join-Path $Root "YTMusic.spec")
+& $Python -m PyInstaller --noconfirm --distpath (Join-Path $Root "dist") --workpath (Join-Path $Root "build\work") (Join-Path $Root "build\YTMusic.spec")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "Built $(Join-Path $Root 'dist\YTMusic.exe')"

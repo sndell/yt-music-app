@@ -1,5 +1,5 @@
 # Cursor runs this inside a new worktree. $env:ROOT_WORKTREE_PATH is the main checkout.
-# Port bases match app/dev_identity.py. Slot 0 stays with the main checkout.
+# Port bases match dev/identity.py. Slot 0 stays with the main checkout.
 
 $ErrorActionPreference = 'Stop'
 
@@ -38,7 +38,7 @@ if ((Test-Path -LiteralPath $authSource) -and -not (Test-Path -LiteralPath $auth
 
 $python = Join-Path $Root 'app\.venv\Scripts\python.exe'
 if (Test-Path -LiteralPath $python) {
-    [System.IO.File]::WriteAllText((Join-Path $Worktree 'app\.dev-python'), $python)
+    [System.IO.File]::WriteAllText((Join-Path $Worktree 'dev\.dev-python'), $python)
     Write-Host "Recorded $python"
 }
 else {
@@ -76,7 +76,10 @@ try {
         if ($path -eq $Worktree) {
             continue
         }
-        $slotFile = Join-Path $path 'app\.dev-slot'
+        $slotFile = Join-Path $path 'dev\.dev-slot'
+        if (-not (Test-Path -LiteralPath $slotFile)) {
+            $slotFile = Join-Path $path 'app\.dev-slot'
+        }
         if (-not (Test-Path -LiteralPath $slotFile)) {
             continue
         }
@@ -109,7 +112,7 @@ if ($null -eq $slot) {
     Write-Error "No free dev slot. Ports 8766-8815, 5174-5223, and 9223-9272 are in use or already claimed."
 }
 
-[System.IO.File]::WriteAllText((Join-Path $Worktree 'app\.dev-slot'), "$slot")
+[System.IO.File]::WriteAllText((Join-Path $Worktree 'dev\.dev-slot'), "$slot")
 Write-Host "Dev slot $slot"
 Write-Host "Vite http://localhost:$(5173 + $slot)"
 Write-Host "Probe http://127.0.0.1:$(8765 + $slot)/health"

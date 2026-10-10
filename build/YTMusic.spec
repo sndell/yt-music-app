@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Onefile windowed build. Run from the repo root via build.ps1."""
+"""Onefile windowed build. Run from the repo root via build/build.ps1."""
 
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
-root = Path(SPECPATH)
+root = Path(SPECPATH).parent
 ui_dist = root / "ui" / "dist"
 if not (ui_dist / "index.html").is_file():
     raise SystemExit(f"Missing {ui_dist / 'index.html'}. Run the UI build first.")
@@ -22,14 +22,13 @@ for package in ("webview", "pythonnet", "clr_loader", "ytmusicapi"):
 
 a = Analysis(
     [str(root / "app" / "main.py")],
-    pathex=[str(root / "app")],
+    pathex=[str(root / "app"), str(root)],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["dev"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

@@ -76,8 +76,12 @@ if __name__ == "__main__":
     api = Api()
     # A file URL has no origin, and YouTube then blocks most embeds.
     # Slot 0 stays on port 5173. A worktree's slot moves the Vite URL with it.
+    if _DEBUG:
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
     if ENV == "dev":
-        from dev_identity import debug_port, ui_origin
+        from dev.identity import debug_port, ui_origin
 
         url = ui_origin()
     else:
@@ -94,7 +98,7 @@ if __name__ == "__main__":
     window.events.before_show += lambda: media_controls.attach(window)
     window.events.loaded += lambda: _disable_browser_context_menu(window)
     if _DEBUG:
-        from dev_probe import start_dev_probe
+        from dev.probe import start_dev_probe
 
         # A normal dev window can still open DevTools from the page menu.
         # DEVTOOLS=1 opens them and exposes a remote debugging port.
