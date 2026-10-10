@@ -36,9 +36,9 @@ _CACHE_DIR = data_dir() / ("cache" if is_frozen() else ".cache")
 # Initialize persistent disk cache
 cache = diskcache.Cache(str(_CACHE_DIR))
 
-# Cache durations in seconds
-CACHE_DURATION_PLAYLIST_ITEMS = 60 * 30  # 30 minutes
-CACHE_DURATION_HOME = 60 * 15  # 15 minutes
+# Cached home, playlist, album, and artist payloads. Callers show this copy
+# immediately and fetch again with force_refresh once a newer copy is ready.
+CACHE_DURATION = 7 * 24 * 60 * 60  # 7 days
 
 # Cache key prefixes
 CACHE_KEY_PLAYLIST_PREFIX = "playlist:"
@@ -47,6 +47,17 @@ CACHE_KEY_ARTIST_PREFIX = "artist:"
 CACHE_KEY_HOME = "home:shelves:v3"
 CACHE_KEY_THUMB_PREFIX = "thumb:v2:"
 THUMB_CACHE_SECONDS = 60 * 60 * 24
+
+
+def _cached_hit(key: str) -> dict[str, Any] | None:
+    """Return a shallow copy of a cached payload marked for a background refresh."""
+    cached = cache.get(key)
+    if not isinstance(cached, dict):
+        return None
+    payload = dict(cached)
+    payload["fromCache"] = True
+    return payload
+
 
 _LIKE_STATUSES = {"LIKE", "DISLIKE", "INDIFFERENT"}
 _SONG_VIDEO_TYPE = "MUSIC_VIDEO_TYPE_ATV"
@@ -92,7 +103,7 @@ def _update_cached_like_status(video_id: str, rating: str) -> None:
                     track["likeStatus"] = rating
                     changed = True
             if changed:
-                cache.set(key, playlist, expire=CACHE_DURATION_PLAYLIST_ITEMS)
+                cache.set(key, playlist, expire=CACHE_DURATION)
     except Exception as e:
         logger.warning("Could not update cached like status: %s", e)
 
@@ -1059,11 +1070,12 @@ class MusicApi:
             logger.exception("Failed to fetch playlists: %s", e)
             return []
 
-    def get_home(self) -> dict[str, Any]:
+    def get_home(self, force_refresh: bool = False) -> dict[str, Any]:
         """Return Listen again, Quick picks, and Forgotten favorites from home.
 
         Listen again and Forgotten favorites are horizontal rows. Quick picks
         stays a vertical list. Shelves missing from the feed are omitted.
+        A saved feed is returned as-is. Pass force_refresh to fetch a new one.
         """
         empty = _empty_home()
         try:
@@ -1071,10 +1083,11 @@ class MusicApi:
                 logger.warning("Not authenticated - cannot return home")
                 return empty
 
-            cached = cache.get(CACHE_KEY_HOME)
-            if isinstance(cached, dict) and isinstance(cached.get("shelves"), list):
-                logger.info("Returning cached home (shelves: %d)", len(cached["shelves"]))
-                return cached
+            if not force_refresh:
+                cached = _cached_hit(CACHE_KEY_HOME)
+                if cached is not None and isinstance(cached.get("shelves"), list):
+                    logger.info("Returning cached home (shelves: %d)", len(cached["shelves"]))
+                    return cached
 
             logger.info("Fetching home from API...")
             home = self._get_ytmusic().get_home(limit=16)
@@ -1088,7 +1101,7 @@ class MusicApi:
                 return empty
 
             result = {"shelves": shelves}
-            cache.set(CACHE_KEY_HOME, result, expire=CACHE_DURATION_HOME)
+            cache.set(CACHE_KEY_HOME, result, expire=CACHE_DURATION)
             logger.info(
                 "Home fetched (%s)",
                 ", ".join(f"{shelf['title']}: {len(shelf['items'])}" for shelf in shelves),
@@ -1096,9 +1109,13 @@ class MusicApi:
             return result
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
+            if force_refresh:
+                raise
             return empty
         except Exception as e:
             logger.exception("Failed to fetch home: %s", e)
+            if force_refresh:
+                raise
             return empty
 
     def get_quick_picks(self) -> dict[str, Any]:
@@ -1145,9 +1162,8 @@ class MusicApi:
                 logger.warning("Not authenticated - cannot return playlist items")
                 return {}
             
-            # Check cache first (unless force refresh)
             if not force_refresh:
-                cached = cache.get(cache_key)
+                cached = _cached_hit(cache_key)
                 if cached is not None:
                     logger.info(
                         "Returning cached playlist '%s' (tracks: %d)",
@@ -1170,18 +1186,22 @@ class MusicApi:
             _inline_playlist_thumbnails([playlist])
 
             # Store in cache
-            cache.set(cache_key, playlist, expire=CACHE_DURATION_PLAYLIST_ITEMS)
+            cache.set(cache_key, playlist, expire=CACHE_DURATION)
             logger.info("Playlist cached: %s", playlist_id)
             
             return playlist
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
+            if force_refresh:
+                raise
             return {}
         except Exception as e:
             logger.exception("Failed to fetch playlist items: %s", e)
+            if force_refresh:
+                raise
             return {}
 
-    def get_album(self, browse_id: str) -> dict[str, Any]:
+    def get_album(self, browse_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch an album by browse id.
 
         An ``OLAK5uy_`` audio playlist id is resolved to its ``MPREb_`` browse
@@ -1205,14 +1225,15 @@ class MusicApi:
                 browse_id = resolved
 
             cache_key = f"{CACHE_KEY_ALBUM_PREFIX}{browse_id}"
-            cached = cache.get(cache_key)
-            if isinstance(cached, dict):
-                logger.info(
-                    "Returning cached album '%s' (tracks: %d)",
-                    cached.get("title", "Unknown"),
-                    len(cached.get("tracks", [])),
-                )
-                return cached
+            if not force_refresh:
+                cached = _cached_hit(cache_key)
+                if cached is not None:
+                    logger.info(
+                        "Returning cached album '%s' (tracks: %d)",
+                        cached.get("title", "Unknown"),
+                        len(cached.get("tracks", [])),
+                    )
+                    return cached
 
             logger.info("Fetching album from API for ID: %s", browse_id)
             album = ytmusic.get_album(browse_id)
@@ -1220,7 +1241,7 @@ class MusicApi:
                 return {}
 
             payload = _normalize_album(album, browse_id)
-            cache.set(cache_key, payload, expire=CACHE_DURATION_PLAYLIST_ITEMS)
+            cache.set(cache_key, payload, expire=CACHE_DURATION)
             logger.info(
                 "Album '%s' fetched successfully (tracks: %d)",
                 payload.get("title", "Unknown"),
@@ -1230,12 +1251,16 @@ class MusicApi:
             return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
+            if force_refresh:
+                raise
             return {}
         except Exception as e:
             logger.exception("Failed to fetch album: %s", e)
+            if force_refresh:
+                raise
             return {}
 
-    def get_artist(self, channel_id: str) -> dict[str, Any]:
+    def get_artist(self, channel_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch an artist page: header plus songs, releases, videos, and related artists.
 
         A leading ``MPLA`` is removed so the cache key matches the channel id
@@ -1255,10 +1280,11 @@ class MusicApi:
                 return {}
 
             cache_key = f"{CACHE_KEY_ARTIST_PREFIX}{channel_id}"
-            cached = cache.get(cache_key)
-            if isinstance(cached, dict):
-                logger.info("Returning cached artist '%s'", cached.get("name", "Unknown"))
-                return cached
+            if not force_refresh:
+                cached = _cached_hit(cache_key)
+                if cached is not None:
+                    logger.info("Returning cached artist '%s'", cached.get("name", "Unknown"))
+                    return cached
 
             logger.info("Fetching artist from API for ID: %s", channel_id)
             artist = self._get_ytmusic().get_artist(channel_id)
@@ -1266,15 +1292,19 @@ class MusicApi:
                 return {}
 
             payload = _normalize_artist(artist, channel_id)
-            cache.set(cache_key, payload, expire=CACHE_DURATION_PLAYLIST_ITEMS)
+            cache.set(cache_key, payload, expire=CACHE_DURATION)
             logger.info("Artist '%s' fetched successfully", payload.get("name", "Unknown"))
             logger.info("Artist cached: %s", channel_id)
             return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
+            if force_refresh:
+                raise
             return {}
         except Exception as e:
             logger.exception("Failed to fetch artist: %s", e)
+            if force_refresh:
+                raise
             return {}
 
     def get_artist_albums(self, channel_id: str, params: str) -> list[dict[str, Any]]:

@@ -54,15 +54,33 @@ async function callPython<M extends ApiMethodName>(
   }
 }
 
+/** Paint a cached payload, then replace it when the background fetch finishes. */
+export async function showCachedThenRefresh<T extends { fromCache?: boolean }>(
+  load: (forceRefresh: boolean) => Promise<Result<T>>,
+  apply: (data: T) => void,
+  isCurrent: () => boolean,
+): Promise<Result<T> | null> {
+  const first = await load(false);
+  if (!isCurrent()) return null;
+  if (!first.success) return first;
+  apply(first.data);
+  if (!first.data.fromCache) return first;
+
+  const fresh = await load(true);
+  if (!isCurrent() || !fresh.success) return first;
+  apply(fresh.data);
+  return fresh;
+}
+
 /** Type-safe access to all Python API methods */
 export const PyBridge = {
   getPlaylists: () => callPython("get_playlists"),
   getQuickPicks: () => callPython("get_quick_picks"),
-  getHome: () => callPython("get_home"),
+  getHome: (forceRefresh = false) => callPython("get_home", forceRefresh),
   getPlaylistItems: (playlistId: string, forceRefresh = false) =>
     callPython("get_playlist_items", playlistId, forceRefresh),
-  getAlbum: (browseId: string) => callPython("get_album", browseId),
-  getArtist: (channelId: string) => callPython("get_artist", channelId),
+  getAlbum: (browseId: string, forceRefresh = false) => callPython("get_album", browseId, forceRefresh),
+  getArtist: (channelId: string, forceRefresh = false) => callPython("get_artist", channelId, forceRefresh),
   getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),
   getWatchPlaylist: (videoId?: string, playlistId?: string, radio = false, shuffle = false) =>
     callPython("get_watch_playlist", videoId ?? "", playlistId ?? "", radio, shuffle),
