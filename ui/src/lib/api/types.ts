@@ -34,6 +34,50 @@ export interface PlaylistSummary {
   author?: Author[];
 }
 
+export interface QuickPick {
+  videoId: string;
+  title: string;
+  artists: Artist[];
+  album: Album | null;
+  thumbnails: Thumbnail[];
+  duration: string;
+  durationSeconds: number;
+  views?: string | null;
+  isExplicit?: boolean;
+  videoType?: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | null;
+}
+
+export interface QuickPicks {
+  title: string;
+  tracks: QuickPick[];
+}
+
+export type HomeItemKind = "song" | "playlist" | "album" | "artist";
+
+export type HomeLayout = "list" | "row";
+
+export interface HomeItem {
+  kind: HomeItemKind;
+  title: string;
+  subtitle: string;
+  artists: Artist[];
+  thumbnails: Thumbnail[];
+  videoId: string | null;
+  playlistId: string | null;
+  browseId: string | null;
+  explicit: boolean;
+}
+
+export interface HomeShelf {
+  title: string;
+  layout: HomeLayout;
+  items: HomeItem[];
+}
+
+export interface HomeFeed {
+  shelves: HomeShelf[];
+}
+
 export interface Track {
   videoId: string;
   title: string;
@@ -67,6 +111,80 @@ export interface PlaylistDetails {
   tracks: Track[];
   durationSeconds: number;
   dominantColor: string | null;
+}
+
+export interface AlbumVersion {
+  title: string;
+  year: string | null;
+  browseId: string;
+  thumbnails: Thumbnail[];
+  explicit: boolean;
+}
+
+export interface AlbumDetails {
+  browseId: string;
+  title: string;
+  type: string;
+  description: string | null;
+  artists: Artist[];
+  year: string | null;
+  trackCount: number;
+  duration: string;
+  durationSeconds: number;
+  audioPlaylistId: string | null;
+  thumbnails: Thumbnail[];
+  dominantColor: string | null;
+  tracks: Track[];
+  otherVersions: AlbumVersion[];
+}
+
+export interface ArtistRelease {
+  title: string;
+  year: string | null;
+  type: string;
+  browseId: string;
+  thumbnails: Thumbnail[];
+  explicit: boolean;
+}
+
+export interface ArtistShelf<T> {
+  browseId: string | null;
+  params: string | null;
+  items: T[];
+}
+
+export interface ArtistVideo {
+  title: string;
+  videoId: string;
+  views: string | null;
+  thumbnails: Thumbnail[];
+  playlistId: string | null;
+}
+
+export interface RelatedArtist {
+  title: string;
+  browseId: string;
+  subscribers: string | null;
+  thumbnails: Thumbnail[];
+}
+
+export interface ArtistDetails {
+  channelId: string;
+  name: string;
+  description: string | null;
+  views: string | null;
+  subscribers: string | null;
+  monthlyListeners: string | null;
+  thumbnails: Thumbnail[];
+  dominantColor: string | null;
+  shuffleId: string | null;
+  radioId: string | null;
+  songs: ArtistShelf<Track> | null;
+  albums: ArtistShelf<ArtistRelease> | null;
+  singles: ArtistShelf<ArtistRelease> | null;
+  shows: ArtistShelf<ArtistRelease> | null;
+  videos: ArtistShelf<ArtistVideo> | null;
+  related: RelatedArtist[];
 }
 
 export interface FeedbackTokens {
@@ -122,7 +240,12 @@ export interface WatchPlaylist {
 /** API method signatures */
 export interface ApiMethods {
   get_playlists: { params: []; response: PlaylistSummary[] };
+  get_quick_picks: { params: []; response: QuickPicks };
+  get_home: { params: []; response: HomeFeed };
   get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
+  get_album: { params: [browseId: string]; response: AlbumDetails };
+  get_artist: { params: [channelId: string]; response: ArtistDetails };
+  get_artist_albums: { params: [channelId: string, params: string]; response: ArtistRelease[] };
   sign_in: { params: []; response: void };
   is_signed_in: { params: []; response: { signedIn: boolean } };
   sign_out: { params: []; response: void };
@@ -138,6 +261,7 @@ export interface ApiMethods {
   };
   get_song_rating: { params: [videoId: string]; response: { likeStatus: LikeStatus } };
   rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };
+  add_song_to_history: { params: [videoId: string]; response: { added: boolean } };
 }
 
 export type ApiMethodName = keyof ApiMethods;

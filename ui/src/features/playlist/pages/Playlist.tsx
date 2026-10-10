@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "wouter";
 import type { LikeStatus, PlaylistDetails, PlaylistSummary } from "@/lib/api";
 import { usePlayer } from "@/features/player";
+import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
 import { PlaylistDescription } from "../components/PlaylistDescription";
@@ -18,32 +19,108 @@ const withRatings = (playlist: PlaylistDetails, ratings: Record<string, LikeStat
   return changed ? { ...playlist, tracks } : playlist;
 };
 
+const playlistTitleClass = "line-clamp-2 pt-1.5 text-3xl font-bold wrap-break-word @2xl:text-5xl";
+const headerLayoutClass = "flex flex-col gap-4 p-6 @lg:flex-row @lg:items-start @lg:gap-6";
+const coverSizeClass = "size-40 shrink-0 @2xl:size-48";
+
+const PlaylistMeta = ({
+  author,
+  year,
+  trackCount,
+  privacy,
+  className,
+}: {
+  author: string;
+  year: string;
+  trackCount: number;
+  privacy: string;
+  className?: string;
+}) => {
+  const details = [year, `${trackCount} songs`, privacy.toLowerCase()].filter(Boolean);
+
+  return (
+    <p className={cn("flex w-full min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 font-medium text-primary-dark", className)}>
+      <span className="w-max max-w-full shrink-0 text-primary wrap-break-word">{author}</span>
+      {details.map((detail) => (
+        <span key={detail} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap capitalize">
+          <span className="text-sm leading-none" aria-hidden="true">
+            •
+          </span>
+          {detail}
+        </span>
+      ))}
+    </p>
+  );
+};
+
+const SKELETON_ROWS = [
+  { title: "w-40", artist: "w-24", album: "w-28" },
+  { title: "w-56", artist: "w-20", album: "w-36" },
+  { title: "w-32", artist: "w-28", album: "w-24" },
+  { title: "w-48", artist: "w-16", album: "w-32" },
+  { title: "w-36", artist: "w-24", album: "w-20" },
+  { title: "w-44", artist: "w-20", album: "w-28" },
+] as const;
+
 const PlaylistTracksLoading = ({ summary }: { summary: PlaylistSummary }) => {
   const [failed, setFailed] = useState(false);
   const thumbnailUrl = summary.thumbnails?.[0]?.url;
 
   return (
-    <div className="grid h-full place-items-center py-8">
-      <div className="flex w-56 flex-col items-center">
-        <div className="flex max-w-full items-center gap-2">
-          {thumbnailUrl && !failed ? (
-            <img
-              src={thumbnailUrl}
-              alt=""
-              onError={() => setFailed(true)}
-              className="size-10 shrink-0 rounded-sm object-cover"
-            />
-          ) : (
-            <div className="grid size-10 shrink-0 place-items-center rounded-sm bg-primary-light">
-              <span className="icon-[solar--music-note-linear] text-primary-dark" />
-            </div>
-          )}
-          <span className="truncate text-sm">{summary.title}</span>
+    <div className="@container flex flex-1 flex-col overflow-hidden">
+      <div className={headerLayoutClass}>
+        {thumbnailUrl && !failed ? (
+          <img
+            src={thumbnailUrl}
+            alt=""
+            onError={() => setFailed(true)}
+            className={cn(coverSizeClass, "rounded-md object-cover shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
+          />
+        ) : (
+          <div className={cn(coverSizeClass, "grid place-items-center rounded-md bg-primary-light")}>
+            <span className="icon-[solar--music-note-linear] text-4xl text-primary-dark" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1 @lg:self-end">
+          <h1 title={summary.title} className={playlistTitleClass}>
+            {summary.title}
+          </h1>
+          <p className="flex items-center gap-2 pt-3 text-sm text-primary-dark" role="status">
+            <span className="icon-[solar--loader-linear] animate-spin text-base" />
+            Loading tracks
+          </p>
         </div>
-        <div className="my-4 w-full border-t border-primary" />
-        <div className="flex items-center gap-2 text-primary-dark" role="status">
-          <span className="icon-[solar--loader-linear] animate-spin text-2xl" />
-          <span className="text-sm">Loading tracks</span>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col py-4 sm:py-6">
+        <div className="px-4 sm:px-6">
+          <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
+            <div>Track</div>
+            <div className="max-md:hidden">Album</div>
+            <div className="justify-self-end">Duration</div>
+          </div>
+        </div>
+        <div className="relative mt-1 min-h-0 flex-1 overflow-hidden">
+          {Array.from({ length: 14 }, (_, index) => {
+            const row = SKELETON_ROWS[index % SKELETON_ROWS.length];
+            return (
+              <div
+                key={index}
+                className="grid h-14 grid-cols-[5fr_1fr] items-center gap-4 px-5 sm:px-7 md:grid-cols-[7fr_5fr_1fr]"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="size-10 shrink-0 rounded-md bg-secondary sm:size-12" />
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <div className={`h-3 rounded-full bg-secondary ${row.title}`} />
+                    <div className={`h-2.5 rounded-full bg-secondary/70 ${row.artist}`} />
+                  </div>
+                </div>
+                <div className={`hidden h-2.5 rounded-full bg-secondary/70 md:block ${row.album}`} />
+                <div className="h-2.5 w-8 justify-self-end rounded-full bg-secondary/70" />
+              </div>
+            );
+          })}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-primary to-transparent" />
         </div>
       </div>
     </div>
@@ -127,7 +204,7 @@ export const Playlist = () => {
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
   return (
-    <div className="flex overflow-hidden relative flex-col flex-1">
+    <div className="@container relative flex flex-1 flex-col overflow-hidden">
       {/* Sticky compact header - appears when scrolled */}
       <div
         className="absolute top-0 right-0 left-0 z-10 transition-transform duration-300"
@@ -138,15 +215,17 @@ export const Playlist = () => {
       >
         <div className="flex gap-3 items-center p-3 w-full backdrop-blur-2xl" style={{ background: stickyBg }}>
           {thumbnailUrl && <img src={thumbnailUrl} alt={title} className="rounded shadow-md size-12 shrink-0" />}
-          <div>
-            <h2 className="text-xl font-bold truncate">{title}</h2>
-            <p className="font-medium text-primary-dark">
-              <span className="text-primary">{author.name} </span>
-              <span className="capitalize">
-                <span className="text-sm">•</span> {year} <span className="text-sm">•</span> {trackCount} songs{" "}
-                <span className="text-sm">•</span> {privacy.toLowerCase()}
-              </span>
-            </p>
+          <div className="min-w-0 flex-1">
+            <h2 title={title} className="truncate text-xl font-bold">
+              {title}
+            </h2>
+            <PlaylistMeta
+              author={author.name}
+              year={year}
+              trackCount={trackCount}
+              privacy={privacy}
+              className="text-sm leading-5"
+            />
           </div>
         </div>
         <div className="grid grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] border-y border-primary bg-secondary/60 backdrop-blur-2xl py-1.5 px-6">
@@ -166,27 +245,29 @@ export const Playlist = () => {
         {/* Original full header */}
         <div
           ref={headerRef}
-          className="flex flex-col gap-4 p-6 sm:flex-row sm:items-start sm:gap-6"
+          className={headerLayoutClass}
           style={{ background: detailsGradient }}
         >
           {thumbnailUrl && (
             <img
               src={thumbnailUrl}
               alt={title}
-              className="size-40 shrink-0 rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)] sm:size-48"
+              className={cn(coverSizeClass, "rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
             />
           )}
           {/* Stays on the cover's bottom edge while the description height eases, so hiding it doesn't snap the text down. */}
-          <div className="min-w-0 flex-1 text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)] sm:self-end">
-            <h1 className="pt-1.5 text-3xl font-bold wrap-anywhere sm:text-5xl">{title}</h1>
+          <div className="min-w-0 flex-1 text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)] @lg:self-end">
+            <h1 title={title} className={playlistTitleClass}>
+              {title}
+            </h1>
             <PlaylistDescription description={description} />
-            <p className="pt-3 font-medium text-primary-dark">
-              <span className="text-primary">{author.name} </span>
-              <span className="capitalize">
-                <span className="text-sm">•</span> {year} <span className="text-sm">•</span> {trackCount} songs{" "}
-                <span className="text-sm">•</span> {privacy.toLowerCase()}
-              </span>
-            </p>
+            <PlaylistMeta
+              author={author.name}
+              year={year}
+              trackCount={trackCount}
+              privacy={privacy}
+              className="pt-3"
+            />
           </div>
         </div>
 

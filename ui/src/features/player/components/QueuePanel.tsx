@@ -1,4 +1,5 @@
 import type { WatchTrack } from "@/lib/api";
+import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { cn } from "@/util/cn";
 import { useEffect, useRef, useState } from "react";
@@ -27,6 +28,8 @@ export const QueuePanel = () => {
   const listRef = useRef<HTMLDivElement>(null);
   const nowPlayingRef = useRef<HTMLParagraphElement>(null);
 
+  // Only follow the current track. Growing the queue (add, play next, radio fill)
+  // must not pull Now playing back to the top while the list is scrolled.
   useEffect(() => {
     const list = listRef.current;
     const heading = nowPlayingRef.current;
@@ -60,7 +63,7 @@ export const QueuePanel = () => {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [currentSong?.videoId, currentQueueIndex, queue.length]);
+  }, [currentSong?.videoId, currentQueueIndex]);
 
   return (
     <div
@@ -115,7 +118,7 @@ export const QueuePanel = () => {
             <p className="px-2 py-8 text-sm text-center text-primary-dark">Play a song to fill the queue.</p>
           )}
           {played.length > 0 && (
-            <p className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark">Previously played</p>
+            <p className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark">Previous</p>
           )}
           {played.map((track, index) => (
             <QueueItem
@@ -202,18 +205,23 @@ const QueueItem = ({
         onOpenMenu(event.clientX, event.clientY);
       }}
       className={cn(
-        "flex gap-2 items-center p-1.5 w-full text-left rounded-lg transition-colors cursor-pointer",
+        "group flex gap-2 items-center p-1.5 w-full text-left rounded-lg transition-colors cursor-pointer",
         isCurrent ? "bg-primary-light text-primary" : "text-primary-dark hover:text-primary hover:bg-primary-light"
       )}
     >
       <span className={cn("w-0.5 h-8 rounded-full shrink-0", isCurrent ? "bg-accent" : "bg-transparent")} />
-      {thumbnailUrl ? (
-        <img src={thumbnailUrl} alt="" className="object-cover w-10 h-10 rounded-sm shrink-0" />
-      ) : (
-        <span className="grid place-items-center w-10 h-10 rounded-sm shrink-0 bg-primary-light">
-          <span className="icon-[solar--music-note-linear] text-primary-dark" />
+      <span className="relative size-10 shrink-0 overflow-hidden rounded-sm">
+        {thumbnailUrl ? (
+          <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="grid h-full w-full place-items-center bg-primary-light">
+            <span className="icon-[solar--music-note-linear] text-primary-dark" />
+          </span>
+        )}
+        <span className={mediaScrimClass}>
+          <RevealIcon iconClassName="icon-[solar--play-bold] text-base" />
         </span>
-      )}
+      </span>
       <span className="flex flex-col flex-1 min-w-0">
         <span className="text-sm truncate">{track.title}</span>
         <span className="text-xs truncate text-primary-dark">{artists}</span>

@@ -1,10 +1,12 @@
 # Agent notes
 
-The UI is Vite in `ui`. The desktop window is Python (`app/main.py`, pywebview). In dev the window loads `http://localhost:5173` and calls Python through `window.pywebview.api`. That object exists only inside the desktop window. A browser tab on port 5173, including the Cursor browser, does not have it.
+The UI is Vite in `ui`. The desktop window is Python (`app/main.py`, pywebview). In dev the window loads Vite and calls Python through `window.pywebview.api`. That object exists only inside the desktop window. A browser tab on the Vite port, including the Cursor browser, does not have it.
+
+The main checkout is slot 0: Vite `5173`, probe `8765`, remote debugging `9222`. A worktree writes `app/.dev-slot`, and its ports are those numbers plus the slot.
 
 ## Run
 
-One Python window only. A second `dev.py` or debugger session fights for port 8765.
+One Python window per checkout. A second `dev.py` or debugger session on the same slot fights for that probe port.
 
 UI, from `ui`:
 
@@ -21,12 +23,12 @@ Python, from `app`:
 `dev.py` runs `main.py` with unbuffered logs and `ENV=dev`. Saving a `.py` file under `app` closes that window and starts it again. Wait for this line before judging the change:
 
 ```text
-[dev] restarted app/features/music_api.py pid=1234
+[dev] restarted app/features/music_api.py generation=4 pid=1234
 ```
 
-The path is the file that changed. Then read that same terminal for tracebacks and `logger` lines. `GET http://127.0.0.1:8765/health` returns `{"ok": true}` once the new process is listening.
+The path is the file that changed. `generation` increases on every restart. Then read that same terminal for tracebacks and `logger` lines. `GET http://127.0.0.1:<probe>/health` returns `"ok": true` plus `pid`, `slot`, `generation`, and `restarted_files` once the new process is listening. On the main checkout the probe port is 8765. Elsewhere it is `8765` plus the slot from the `[dev] started` line.
 
-If the window is closed or the process crashes, the watcher stays up and prints `[dev] exited code=N`. The next Python save starts it again.
+If the window is closed or the process crashes, the watcher stays up and prints `[dev] exited code=N generation=4 files=app/features/music_api.py`. The same facts are appended to `app/.dev-restarts.jsonl`. The next Python save starts it again.
 
 Vite edits refresh inside the open window. Python edits close and reopen it. Wait for `[dev] restarted` and `/health` again before the next probe call.
 
@@ -34,7 +36,9 @@ Vite edits refresh inside the open window. Python edits close and reopen it. Wai
 
 ## Check a change
 
-The probe listens on `http://127.0.0.1:8765` only while the dev window is running. It uses the same API object the window exposes. Run the commands below from `app`.
+The probe listens on `http://127.0.0.1:<probe>` while the dev window is running, and while a packaged exe was started with `DEVTOOLS=1` (that exe stays on port 8765). It uses the same API object the window exposes. Run the commands below from `app`. The samples use the main checkout's port. Add the slot when `app/.dev-slot` is present.
+
+`/call` and `/eval` responses include `X-Dev-Generation`, `X-Dev-Restart-Files`, and `X-Dev-Pid`. Match those to the generation you are testing.
 
 Health:
 
@@ -66,6 +70,59 @@ A success body is JSON. A failure is HTTP 500 with the error text. The Python te
 
 `/call` can run before the page has finished loading. `/eval` waits until the webview is ready.
 
+## Whose error
+
+Before you edit, read `/health` and remember `generation` and `restarted_files`.
+
+After a Python save, wait until `generation` increases and `/health` returns `"ok": true`.
+
+The failure is yours only when every path in `restarted_files` is a file you wrote, and the traceback names one of those files.
+
+If the list contains any other file, stop. That save owns the failure. The sequence is in `app/.dev-restarts.jsonl` and in the watcher line. Do not edit that file to make your check pass.
+
+A restart whose file list mixes your file with another save is not yours alone. Wait until a later generation lists only your files, then test again.
+
+## Another feature
+
+Cursor creates the worktree. This repo does not. A chat that is already open on this folder stays here.
+
+In the Agents Window, set Cursor Settings → Agents → Conversation → Default Environment to New Worktree (Cursor 3.11.6 or later). New Agent and the "+" on this repo then start in a fresh checkout. The editor chat does not use that setting. Start an editor request with `/worktree`. `/apply-worktree` brings the result back. `/delete-worktree` removes the checkout.
+
+Setup installs the UI dependencies, copies `app/browser.json` when the new checkout has none, and writes `app/.dev-python` and `app/.dev-slot`. Run `pnpm dev` from that worktree's `ui`. Run `dev.py` with the interpreter path stored in `app/.dev-python` (the main checkout's venv). The window and the probe use that slot's ports.
+
+One `dev.py` per worktree. Two agents in the same folder still share one app. The restart log names the files behind the current process.
+
 ## Breakpoints
 
-Use the `Python: YTMusic` launch config. It starts `app/main.py` with the venv, `cwd` `app`, and `ENV=dev`. The probe still listens on port 8765. Do not run `dev.py` at the same time: a save would kill the debug session, and the port is already taken. Stop the debugger and return to `python dev.py` when finished.
+Use the `Python: YTMusic` launch config. It starts `app/main.py` with the venv, `cwd` `app`, and `ENV=dev`. The probe listens on this checkout's slot port (8765 on the main checkout). Do not run `dev.py` at the same time: a save would kill the debug session, and the port is already taken. Stop the debugger and return to `python dev.py` when finished.
+
+## Build
+
+From the repo root:
+
+```powershell
+.\build.ps1
+```
+
+That script typechecks the UI, runs `vite build --base ./`, then PyInstaller with `YTMusic.spec`. The packaged page needs that base path, so build with `build.ps1` rather than `pnpm build` alone. The result is a windowed onefile exe at `dist\YTMusic.exe`.
+
+The exe has no console. Python logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The WebView2 profile, auth file, and cache live in that folder, not under `app\`.
+
+The window serves `ui/dist` at `http://localhost:<port>/index.html`. It does not load the Vite dev server, and the probe on port 8765 stays off.
+
+## Inspect
+
+For ordinary Python and UI changes, use the dev window and this checkout's probe (`http://127.0.0.1:8765` on the main checkout). A browser tab on the Vite port, including the Cursor browser, is not the app.
+
+To inspect the packaged window, or to open DevTools on the real WebView2, stop `dev.py` first. Both would bind this checkout's probe port. Then, from the repo root:
+
+```powershell
+$env:DEVTOOLS = "1"
+.\dist\YTMusic.exe
+```
+
+The same variable works for the Vite window. Set it in the shell before `dev.py`. `dev.py` copies the parent environment into the app process.
+
+`DEVTOOLS=1` turns WebView2 debug on, including for the frozen exe, and still serves the packaged page from that exe. It opens the DevTools window, and it listens for remote debugging on port 9222 plus the slot. The main checkout and the frozen exe use `http://127.0.0.1:9222/json/list`. It also starts the probe, so `/health`, `/call`, and `/eval` work against that window.
+
+A normal `dev.py` session and the `Python: YTMusic` launch config leave the DevTools window closed and do not open that port. Debug mode is still on there, so the page menu can open DevTools.

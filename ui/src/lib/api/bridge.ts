@@ -57,8 +57,13 @@ async function callPython<M extends ApiMethodName>(
 /** Type-safe access to all Python API methods */
 export const PyBridge = {
   getPlaylists: () => callPython("get_playlists"),
+  getQuickPicks: () => callPython("get_quick_picks"),
+  getHome: () => callPython("get_home"),
   getPlaylistItems: (playlistId: string, forceRefresh = false) =>
     callPython("get_playlist_items", playlistId, forceRefresh),
+  getAlbum: (browseId: string) => callPython("get_album", browseId),
+  getArtist: (channelId: string) => callPython("get_artist", channelId),
+  getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),
   getWatchPlaylist: (videoId?: string, playlistId?: string, radio = false, shuffle = false) =>
     callPython("get_watch_playlist", videoId ?? "", playlistId ?? "", radio, shuffle),
   signIn: () => callPython("sign_in"),
@@ -71,4 +76,5 @@ export const PyBridge = {
   getSongRating: (videoId: string) => callPython("get_song_rating", videoId),
   rateSong: (videoId: string, rating: "LIKE" | "DISLIKE" | "INDIFFERENT") =>
     callPython("rate_song", videoId, rating),
+  addSongToHistory: (videoId: string) => callPython("add_song_to_history", videoId),
 } as const;

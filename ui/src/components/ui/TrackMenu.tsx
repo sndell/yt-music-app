@@ -10,6 +10,7 @@ export const TrackMenu = ({
   x,
   y,
   onClose,
+  onShuffle,
   onStartMix,
   onPlayNext,
   onAddToQueue,
@@ -17,6 +18,7 @@ export const TrackMenu = ({
   x: number;
   y: number;
   onClose: () => void;
+  onShuffle?: () => void;
   onStartMix: () => void;
   onPlayNext: () => void;
   onAddToQueue: () => void;
@@ -69,6 +71,12 @@ export const TrackMenu = ({
       onContextMenu={(event) => event.preventDefault()}
       className="fixed z-50 w-44 origin-top-left rounded-2xl overflow-hidden bg-black shadow-[0_10px_28px_rgb(0_0_0/0.65)] transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] starting:scale-95 starting:opacity-0"
     >
+      {onShuffle && (
+        <button type="button" role="menuitem" className={itemClass} onClick={() => choose(onShuffle)}>
+          <span className={`${iconClass} icon-[solar--shuffle-linear]`} />
+          Shuffle
+        </button>
+      )}
       <button type="button" role="menuitem" className={itemClass} onClick={() => choose(onStartMix)}>
         <span className={`${iconClass} icon-[solar--soundwave-linear]`} />
         Start mix

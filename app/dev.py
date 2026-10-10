@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+
+from dev_identity import dev_slot, probe_port
 
 APP_DIR = Path(__file__).resolve().parent
 REPO_DIR = APP_DIR.parent
+RESTART_LOG = APP_DIR / ".dev-restarts.jsonl"
 SKIP_DIRS = {"__pycache__", ".cache", ".venv", "webview-data"}
 POLL_SECONDS = 0.3
 DEBOUNCE_SECONDS = 0.4
@@ -39,15 +44,46 @@ def display_path(path: Path) -> str:
     return path.resolve().relative_to(REPO_DIR).as_posix()
 
 
-def start() -> subprocess.Popen[bytes]:
+def file_list(paths: list[Path]) -> list[str]:
+    return [display_path(path) for path in paths]
+
+
+def start(generation: int, files: list[str]) -> subprocess.Popen[bytes]:
     env = os.environ.copy()
     env["ENV"] = "dev"
     env["PYTHONUNBUFFERED"] = "1"
+    env["DEV_SLOT"] = str(dev_slot())
+    env["DEV_GENERATION"] = str(generation)
+    env["DEV_RESTART_FILES"] = json.dumps(files)
     return subprocess.Popen(
         [sys.executable, "-u", str(APP_DIR / "main.py")],
         cwd=APP_DIR,
         env=env,
     )
+
+
+def append_restart_log(
+    event: str,
+    generation: int,
+    files: list[str],
+    pid: int | None,
+    code: int | None = None,
+) -> None:
+    record: dict[str, object] = {
+        "event": event,
+        "generation": generation,
+        "slot": dev_slot(),
+        "pid": pid,
+        "files": files,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    if code is not None:
+        record["code"] = code
+    try:
+        with RESTART_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+    except OSError as exc:
+        print(f"[dev] could not write {RESTART_LOG.name}: {exc}", flush=True)
 
 
 def stop(proc: subprocess.Popen[bytes]) -> None:
@@ -86,8 +122,15 @@ def wait_for_changes(baseline: dict[Path, int]) -> tuple[dict[Path, int], list[P
 
 def main() -> None:
     baseline = snapshot()
-    proc: subprocess.Popen[bytes] | None = start()
-    print(f"[dev] started pid={proc.pid}", flush=True)
+    generation = 1
+    files: list[str] = []
+    slot = dev_slot()
+    proc: subprocess.Popen[bytes] | None = start(generation, files)
+    append_restart_log("start", generation, files, proc.pid)
+    print(
+        f"[dev] started slot={slot} probe={probe_port(slot)} generation={generation} pid={proc.pid}",
+        flush=True,
+    )
 
     try:
         while True:
@@ -99,16 +142,31 @@ def main() -> None:
                 if not changed:
                     baseline = current
                     continue
-                if proc is not None and proc.poll() is None:
+                if proc is not None and proc.poll() is not None:
+                    names = ", ".join(files)
+                    print(
+                        f"[dev] exited code={proc.returncode} generation={generation} files={names}",
+                        flush=True,
+                    )
+                    append_restart_log("exit", generation, files, proc.pid, proc.returncode)
+                elif proc is not None:
                     stop(proc)
-                proc = start()
+                generation += 1
+                files = file_list(changed)
+                proc = start(generation, files)
                 baseline = current
-                names = ", ".join(display_path(path) for path in changed)
-                print(f"[dev] restarted {names} pid={proc.pid}", flush=True)
+                names = ", ".join(files)
+                append_restart_log("restart", generation, files, proc.pid)
+                print(f"[dev] restarted {names} generation={generation} pid={proc.pid}", flush=True)
                 continue
 
             if proc is not None and proc.poll() is not None:
-                print(f"[dev] exited code={proc.returncode}", flush=True)
+                names = ", ".join(files)
+                print(
+                    f"[dev] exited code={proc.returncode} generation={generation} files={names}",
+                    flush=True,
+                )
+                append_restart_log("exit", generation, files, proc.pid, proc.returncode)
                 proc = None
     except KeyboardInterrupt:
         if proc is not None:

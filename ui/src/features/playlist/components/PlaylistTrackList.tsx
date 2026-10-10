@@ -1,9 +1,17 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Link, useLocation } from "wouter";
 import type { LikeStatus, Track } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
+import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { TrackMenu } from "@/components/ui/TrackMenu";
+
+const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate: (to: string) => void) => {
+  event.preventDefault();
+  event.stopPropagation();
+  navigate(href);
+};
 
 const TRACK_HEIGHT = 56; // Height of each track item in pixels
 
@@ -88,7 +96,10 @@ const PlaylistTrackItem = ({
   onOpenMenu: (x: number, y: number) => void;
 }) => {
   const { playFromPlaylist, rateTrack } = usePlayer();
+  const [, navigate] = useLocation();
   const likeStatus = track.likeStatus ?? "INDIFFERENT";
+  const albumName = track.album?.name || "Unknown Album";
+  const albumId = track.album?.id;
 
   const handleClick = () => {
     playFromPlaylist(track, playlistId);
@@ -118,7 +129,7 @@ const PlaylistTrackItem = ({
       />
       <div className="pointer-events-none relative z-0 grid h-full grid-cols-[5fr_1fr] items-center gap-4 px-5 py-1.5 md:grid-cols-[7fr_5fr_1fr] sm:px-7">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light sm:h-12 sm:w-12">
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light sm:h-12 sm:w-12">
             {track.thumbnails[0]?.url ? (
               <img src={track.thumbnails[0].url} alt="" className="h-full w-full object-cover" />
             ) : (
@@ -126,16 +137,51 @@ const PlaylistTrackItem = ({
                 <span className="icon-[solar--music-note-linear] text-primary-dark" />
               </div>
             )}
+            <span className={mediaScrimClass}>
+              <RevealIcon iconClassName="icon-[solar--play-bold] text-lg" />
+            </span>
           </div>
           <div className="flex min-w-0 flex-col items-start overflow-hidden text-start">
             <span className="w-full truncate font-medium">{track.title}</span>
-            <span className="w-full truncate text-sm text-primary-dark">
-              {track.artists.map((artist) => artist.name).join(", ")}
+            <span className="flex w-full min-w-0 items-center gap-1 text-sm text-primary-dark">
+              {track.isExplicit && (
+                <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] border border-current text-[9px] leading-none">
+                  E
+                </span>
+              )}
+              <span className="truncate">
+                {track.artists.map((artist, index) => (
+                  <span key={`${artist.id}-${artist.name}-${index}`}>
+                    {index > 0 && ", "}
+                    {artist.id ? (
+                      <Link
+                        href={`/artist/${artist.id}`}
+                        onClick={(event) => followLink(event, `/artist/${artist.id}`, navigate)}
+                        className="pointer-events-auto relative z-10 hover:underline"
+                      >
+                        {artist.name}
+                      </Link>
+                    ) : (
+                      artist.name
+                    )}
+                  </span>
+                ))}
+              </span>
             </span>
           </div>
         </div>
         <div className="flex min-w-0 text-start text-primary-dark max-md:hidden">
-          <span className="w-full truncate">{track.album?.name ?? "Unknown Album"}</span>
+          {albumId ? (
+            <Link
+              href={`/album/${albumId}`}
+              onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
+              className="pointer-events-auto relative z-10 w-full truncate hover:underline"
+            >
+              {albumName}
+            </Link>
+          ) : (
+            <span className="w-full truncate">{albumName}</span>
+          )}
         </div>
         <div className="shrink-0 justify-self-end text-sm text-primary-dark transition-opacity duration-200 group-hover:opacity-0">
           {track.duration}

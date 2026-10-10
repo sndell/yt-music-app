@@ -1,0 +1,5 @@
+dist/
+build/
+app/.dev-slot
+app/.dev-python
+app/.dev-restarts.jsonl

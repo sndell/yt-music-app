@@ -23,6 +23,9 @@ type PlayerContextType = {
   playTrackNext: (track: Track | WatchTrack) => void;
   addTrackToQueue: (track: Track | WatchTrack) => void;
   startMix: (track: Track | WatchTrack) => void;
+  playPlaylist: (playlistId: string, mode: "play" | "shuffle" | "mix") => Promise<void>;
+  queuePlaylist: (playlistId: string, position: "next" | "end") => Promise<void>;
+  playTracks: (tracks: Track[]) => void;
   playNext: () => Promise<boolean>;
   playPrevious: () => void;
   hasNext: boolean;
@@ -146,8 +149,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const playGenerationRef = useRef(0);
   const fillPromiseRef = useRef<Promise<boolean> | null>(null);
   const freshLoadRef = useRef<Promise<unknown> | null>(null);
-  // Video ids already handled this session, including tracks dropped from the
-  // front of a watch playlist. Extend uses this so those tracks are not appended later.
+  // Video ids already returned for this session. Extend uses this so those
+  // tracks are not appended again.
   const knownVideoIdsRef = useRef<Set<string>>(new Set());
 
   const currentQueueIndex =
@@ -233,12 +236,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
               nextIndex = 0;
             }
           }
-          // The watch playlist includes earlier playlist tracks. They were not
-          // played in this session, so the queue starts at the chosen song.
-          if (nextIndex > 0) {
-            nextQueue = nextQueue.slice(nextIndex);
-            nextIndex = 0;
-          }
           if (shuffleRef.current) {
             const { played, upcoming } = splitAtIndex(nextQueue, nextIndex);
             normalUpcomingRef.current = upcoming.slice();
@@ -250,6 +247,18 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
           currentQueueIndexRef.current = nextIndex;
           setQueue(nextQueue);
           setQueueIndex(nextIndex);
+          const playing = nextIndex >= 0 ? nextQueue[nextIndex] : undefined;
+          const song = currentSongRef.current;
+          const playingArtists = playing?.artists ?? [];
+          if (playing && song?.videoId === playing.videoId && !song.artists?.length && playingArtists.length > 0) {
+            const nextSong = {
+              ...song,
+              artists: playingArtists.map((artist) => ({ name: artist.name, id: artist.id ?? "" })),
+              album: song.album ?? playing.album ?? null,
+            };
+            currentSongRef.current = nextSong;
+            setCurrentSong(nextSong);
+          }
           setQueueRevision((revision) => revision + 1);
           if (openQueue && nextQueue.length > 0) setQueueOpen(true);
           added = nextQueue.length > 0;
@@ -525,6 +534,107 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     [getWatchPlaylist]
   );
 
+  const playPlaylist = useCallback(
+    async (playlistId: string, mode: "play" | "shuffle" | "mix") => {
+      if (!playlistId) return;
+      if (mode === "play") {
+        shuffleRef.current = false;
+        setShuffleOn(false);
+      } else if (mode === "shuffle") {
+        shuffleRef.current = true;
+        setShuffleOn(true);
+      }
+
+      playGenerationRef.current += 1;
+      playlistExhaustedRef.current = false;
+      radioStartedRef.current = false;
+      sourcePlaylistIdRef.current = libraryPlaylistId(playlistId);
+      fillPromiseRef.current = null;
+      normalUpcomingRef.current = null;
+      watchPlaylistIdRef.current = null;
+      knownVideoIdsRef.current = new Set();
+      queueRef.current = [];
+      currentQueueIndexRef.current = -1;
+      setQueue([]);
+      setQueueIndex(-1);
+
+      const generation = playGenerationRef.current;
+      const load = loadWatchPlaylist("", playlistId, mode === "mix", mode === "shuffle", false, true, generation);
+      freshLoadRef.current = load;
+      try {
+        await load;
+      } finally {
+        if (freshLoadRef.current === load) freshLoadRef.current = null;
+      }
+      if (playGenerationRef.current !== generation) return;
+
+      const first = queueRef.current[0];
+      if (!first?.videoId) return;
+      currentQueueIndexRef.current = 0;
+      setQueueIndex(0);
+      const song = watchTrackToTrack(first);
+      currentSongRef.current = song;
+      setCurrentSong(song);
+    },
+    [loadWatchPlaylist]
+  );
+
+  const queuePlaylist = useCallback(async (playlistId: string, position: "next" | "end") => {
+    if (!playlistId) return;
+    const result = await PyBridge.getPlaylistItems(playlistId);
+    if (!result.success || !Array.isArray(result.data?.tracks)) return;
+    const tracks = result.data.tracks.filter((track) => track.videoId && track.isAvailable).map(trackToWatchTrack);
+    if (tracks.length === 0) return;
+
+    rememberVideoIds(knownVideoIdsRef.current, tracks);
+    const current = queueRef.current;
+    const index = currentQueueIndexRef.current;
+    const insertAt = position === "end" ? current.length : index >= 0 ? index + 1 : 0;
+    const next = current.slice();
+    next.splice(insertAt, 0, ...tracks);
+    queueRef.current = next;
+    setQueue(next);
+
+    if (shuffleRef.current && normalUpcomingRef.current) {
+      normalUpcomingRef.current =
+        position === "next" ? [...tracks, ...normalUpcomingRef.current] : [...normalUpcomingRef.current, ...tracks];
+    }
+  }, []);
+
+  const playTracks = useCallback((tracks: Track[]) => {
+    const playable = tracks.filter((track) => track.videoId && track.isAvailable);
+    if (playable.length === 0) return;
+    const song = playable[0];
+    const next = playable.map(trackToWatchTrack);
+    playGenerationRef.current += 1;
+    requestIdRef.current += 1;
+    setQueueLoading(false);
+    playlistExhaustedRef.current = false;
+    radioStartedRef.current = false;
+    sourcePlaylistIdRef.current = null;
+    fillPromiseRef.current = null;
+    freshLoadRef.current = null;
+    watchPlaylistIdRef.current = null;
+    knownVideoIdsRef.current = new Set(next.map((track) => track.videoId));
+
+    let queued = next;
+    if (shuffleRef.current) {
+      const upcoming = next.slice(1);
+      normalUpcomingRef.current = upcoming.slice();
+      queued = [next[0], ...shuffleCopy(upcoming)];
+    } else {
+      normalUpcomingRef.current = null;
+    }
+
+    currentSongRef.current = song;
+    setCurrentSong(song);
+    queueRef.current = queued;
+    currentQueueIndexRef.current = 0;
+    setQueue(queued);
+    setQueueIndex(0);
+    setQueueRevision((revision) => revision + 1);
+  }, []);
+
   const playFromQueue = useCallback(
     (track: WatchTrack, index?: number) => {
       if (!track.videoId) return;
@@ -552,16 +662,21 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         const existingIndex = queueRef.current.findIndex((item) => item.videoId === track.videoId);
         if (existingIndex >= 0) {
           if (existingIndex !== currentQueueIndexRef.current) {
-            const next = queueRef.current.slice(existingIndex);
+            const queue = queueRef.current;
+            const oldIndex = currentQueueIndexRef.current;
             if (shuffleRef.current && normalUpcomingRef.current) {
-              const stillUpcoming = new Set(next.slice(1));
-              normalUpcomingRef.current = normalUpcomingRef.current.filter((item) => stillUpcoming.has(item));
+              const stillUpcoming = new Set(queue.slice(existingIndex + 1));
+              const kept = normalUpcomingRef.current.filter((item) => stillUpcoming.has(item));
+              const keptIds = new Set(kept);
+              const reentered =
+                existingIndex < oldIndex
+                  ? queue.slice(existingIndex + 1, oldIndex + 1).filter((item) => !keptIds.has(item))
+                  : [];
+              normalUpcomingRef.current = [...reentered, ...kept];
             }
-            queueRef.current = next;
-            currentQueueIndexRef.current = 0;
-            setQueue(next);
-            setQueueIndex(0);
-            if (next.length === 1) void fillQueue();
+            currentQueueIndexRef.current = existingIndex;
+            setQueueIndex(existingIndex);
+            if (existingIndex === queue.length - 1) void fillQueue();
           }
           currentSongRef.current = track;
           setCurrentSong(track);
@@ -625,6 +740,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         playTrackNext,
         addTrackToQueue,
         startMix,
+        playPlaylist,
+        queuePlaylist,
+        playTracks,
         playNext,
         playPrevious,
         hasNext,

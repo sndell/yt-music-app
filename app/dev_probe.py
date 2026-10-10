@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+
+from dev_identity import generation, health_payload, probe_port, restarted_files
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,6 @@ class ProbeError(Exception):
 
 
 HOST = "127.0.0.1"
-PORT = 8765
 EVAL_TIMEOUT_SECONDS = 30
 MAX_BODY_BYTES = 1_000_000
 
@@ -86,7 +88,8 @@ class ProbeServer(ThreadingHTTPServer):
     def __init__(self, api: Any, window: Any) -> None:
         self.api = api
         self.window = window
-        super().__init__((HOST, PORT), ProbeHandler)
+        self.probe_port = probe_port()
+        super().__init__((HOST, self.probe_port), ProbeHandler)
 
 
 class ProbeHandler(BaseHTTPRequestHandler):
@@ -99,7 +102,7 @@ class ProbeHandler(BaseHTTPRequestHandler):
         if self.path.split("?", 1)[0] != "/health":
             self._send_text(404, "not found")
             return
-        self._send_json(200, {"ok": True})
+        self._send_json(200, health_payload())
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
@@ -164,17 +167,19 @@ class ProbeHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, status: int, payload: Any) -> None:
         body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._send(status, "application/json; charset=utf-8", body)
 
     def _send_text(self, status: int, text: str) -> None:
-        body = text.encode("utf-8")
+        self._send(status, "text/plain; charset=utf-8", text.encode("utf-8"))
+
+    def _send(self, status: int, content_type: str, body: bytes) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Dev-Pid", str(os.getpid()))
+        self.send_header("X-Dev-Generation", str(generation()))
+        files = ",".join(restarted_files()).replace("\r", " ").replace("\n", " ")
+        self.send_header("X-Dev-Restart-Files", files.encode("latin-1", "replace").decode("latin-1"))
         self.end_headers()
         self.wfile.write(body)
 
@@ -182,6 +187,7 @@ class ProbeHandler(BaseHTTPRequestHandler):
 def start_dev_probe(api: Any, window: Any) -> None:
     server: ProbeServer | None = None
     last_error: OSError | None = None
+    port = probe_port()
     for _ in range(20):
         try:
             server = ProbeServer(api, window)
@@ -190,9 +196,9 @@ def start_dev_probe(api: Any, window: Any) -> None:
             last_error = exc
             time.sleep(0.1)
     if server is None:
-        logger.error("probe failed to bind http://%s:%s: %s", HOST, PORT, last_error)
+        logger.error("probe failed to bind http://%s:%s: %s", HOST, port, last_error)
         return
 
     thread = threading.Thread(target=server.serve_forever, name="dev-probe", daemon=True)
     thread.start()
-    logger.info("probe listening on http://%s:%s", HOST, PORT)
+    logger.info("probe listening on http://%s:%s", HOST, port)

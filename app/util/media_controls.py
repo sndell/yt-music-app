@@ -573,35 +573,67 @@ class MediaControls:
 media_controls = MediaControls()
 
 
+# Edge partitions third-party cookies. The YouTube embed then cannot see the
+# login from the sign-in window, so age-restricted songs stay blocked.
+_EMBED_COOKIE_FEATURES = ("ThirdPartyStoragePartitioning", "TrackingProtection3pcd")
+
+
+def _with_disabled_features(args: str, features: tuple[str, ...]) -> str:
+    missing = [feature for feature in features if feature not in args]
+    if not missing:
+        return args
+    addition = ",".join(missing)
+    if "--disable-features=" in args:
+        return args.replace("--disable-features=", f"--disable-features={addition},", 1)
+    return f"{args} --disable-features={addition}".strip()
+
+
+def _allow_embed_cookies(sender: object) -> None:
+    core = getattr(sender, "CoreWebView2", None)
+    if core is None:
+        return
+    from Microsoft.Web.WebView2.Core import CoreWebView2TrackingPreventionLevel
+
+    from util.embed_cookies import write_login_cookies
+
+    # "None" is not a valid attribute lookup in Python.
+    core.Profile.PreferredTrackingPreventionLevel = getattr(CoreWebView2TrackingPreventionLevel, "None")
+    write_login_cookies(core)
+    logger.info("WebView2 tracking prevention disabled so the YouTube embed stays signed in")
+
+
 def prepare_webview() -> None:
     """Stop WebView2 from taking hardware media keys for the YouTube iframe."""
     if sys.platform != "win32":
         return
 
     extra = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
-    if "HardwareMediaKeyHandling" not in extra:
-        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
-            f"{extra} --disable-features=HardwareMediaKeyHandling".strip()
-        )
+    extra = _with_disabled_features(extra, ("HardwareMediaKeyHandling", *_EMBED_COOKIE_FEATURES))
+    os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = extra
 
     import webview.platforms.edgechromium as edge
 
     original = edge.EdgeChrome.__init__
 
     def init(self, form, window, cache_dir):
+        ready = self.on_webview_ready
+
+        def on_ready(sender, args):
+            if getattr(args, "IsSuccess", False):
+                try:
+                    _allow_embed_cookies(sender)
+                except Exception as exc:
+                    logger.warning("Could not share login cookies with the YouTube embed: %s", exc)
+            ready(sender, args)
+
+        self.on_webview_ready = on_ready
         original(self, form, window, cache_dir)
         props = self.webview.CreationProperties
-        args = props.AdditionalBrowserArguments or ""
-        if "HardwareMediaKeyHandling" in args:
-            return
-        if "--disable-features=" in args:
-            props.AdditionalBrowserArguments = args.replace(
-                "--disable-features=",
-                "--disable-features=HardwareMediaKeyHandling,",
-                1,
-            )
-        else:
-            props.AdditionalBrowserArguments = f"{args} --disable-features=HardwareMediaKeyHandling".strip()
+        args = _with_disabled_features(
+            props.AdditionalBrowserArguments or "",
+            ("HardwareMediaKeyHandling", *_EMBED_COOKIE_FEATURES),
+        )
+        props.AdditionalBrowserArguments = args
         logger.info("WebView2 browser arguments: %s", props.AdditionalBrowserArguments)
 
     edge.EdgeChrome.__init__ = init

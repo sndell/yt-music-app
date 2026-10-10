@@ -4,7 +4,7 @@ import { SidebarList } from "@/features/playlist";
 
 export const Sidebar = () => {
   return (
-    <div className="flex flex-col gap-1.5 p-1.5 w-72 overflow-hidden ">
+    <div className="flex w-20 shrink-0 flex-col gap-1.5 overflow-hidden p-1 transition-[width] duration-200 lg:w-72 lg:p-1.5">
       <div className="p-1.5 rounded-xl bg-primary">
         {/* <div className="flex gap-2 justify-center items-center pt-1.5 pb-3">
           <span className="icon-[solar--music-note-linear]" />
@@ -50,13 +50,15 @@ const SidebarItem = ({
   return (
     <button
       onClick={() => navigate(path)}
+      title={text}
+      aria-label={text}
       className={cn(
-        "flex gap-3 items-center px-3 py-1.5 rounded-lg transition-colors cursor-pointer",
+        "flex cursor-pointer items-center gap-3 rounded-lg px-3 py-1.5 transition-colors max-lg:justify-center max-lg:px-2",
         isActive ? "text-primary-light bg-primary-light" : "text-primary-dark hover:text-primary hover:bg-primary-light"
       )}
     >
       <span className={cn("text-lg", icon)} />
-      {text}
+      <span className="hidden lg:inline">{text}</span>
     </button>
   );
 };

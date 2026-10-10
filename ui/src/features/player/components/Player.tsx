@@ -1,12 +1,25 @@
-import { useState, useRef, useCallback, useEffect, type FocusEvent, type KeyboardEvent, type PointerEvent, type SyntheticEvent } from "react";
+import { useState, useRef, useCallback, useEffect, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
+import { Link, useLocation } from "wouter";
 import { usePlayer } from "../context/PlayerContext";
 import ReactPlayer from "react-player";
 import { PyBridge } from "@/lib/api";
 import { cn } from "@/util/cn";
 import type { LikeStatus, Track } from "@/lib/api/types";
 
+const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate: (to: string) => void) => {
+  event.preventDefault();
+  event.stopPropagation();
+  navigate(href);
+};
+
 const EMBED_BLOCKED_CODES = new Set([101, 150]);
+
+// YouTube requires this when the iframe API is enabled. file:// reports "null".
+const embedOrigin =
+  window.location.protocol === "http:" || window.location.protocol === "https:"
+    ? window.location.origin
+    : undefined;
 
 type YoutubePlayerElement = HTMLElement & {
   error?: { code?: number } | null;
@@ -45,6 +58,7 @@ export const Player = () => {
   const [duration, setDuration] = useState(0);
   const playerRef = useRef<HTMLVideoElement | null>(null);
   const elapsedRef = useRef(0);
+  const historyVideoIdRef = useRef<string | null>(null);
   const [volume, setVolume] = useState(50);
   const lastGainRef = useRef(sliderToGain(50));
   const lastSeekTime = useRef(0);
@@ -95,6 +109,17 @@ export const Player = () => {
 
   const toggleLoop = useCallback(() => {
     setLoop((on) => !on);
+  }, []);
+
+  const recordHistory = useCallback((song: Track) => {
+    if (!song.videoId || song.videoType !== "MUSIC_VIDEO_TYPE_ATV") return;
+    if (historyVideoIdRef.current === song.videoId) return;
+    historyVideoIdRef.current = song.videoId;
+    void PyBridge.addSongToHistory(song.videoId).then((result) => {
+      if (!result.success && historyVideoIdRef.current === song.videoId) {
+        historyVideoIdRef.current = null;
+      }
+    });
   }, []);
 
   const handleEnded = useCallback(() => {
@@ -174,7 +199,10 @@ export const Player = () => {
             key={currentSong.videoId}
             volume={gain === 0 ? lastGainRef.current : gain}
             muted={gain === 0}
-            onPlay={() => setIsPlaying(true)}
+            onPlay={() => {
+              setIsPlaying(true);
+              if (currentSong) recordHistory(currentSong);
+            }}
             onPause={() => {
               const player = playerRef.current;
               const duration = player?.duration ?? 0;
@@ -185,6 +213,7 @@ export const Player = () => {
             ref={playerRef}
             style={{ height: "100%", width: "100%" }}
             src={`https://www.youtube.com/watch?v=${currentSong.videoId}`}
+            config={embedOrigin ? { youtube: { origin: embedOrigin } } : undefined}
             playing={isPlaying}
             onTimeUpdate={(e) => setElapsedTime(e.currentTarget.currentTime)}
             onDurationChange={(e) => setDuration(e.currentTarget.duration)}
@@ -204,6 +233,39 @@ const iconButtonClass = (active = false) =>
       ? "bg-[oklch(0.24_0_0)] text-primary hover:bg-[oklch(0.27_0_0)]"
       : "text-primary-dark hover:bg-primary-light hover:text-primary"
   );
+
+const RatingButtons = ({
+  likeStatus,
+  pending,
+  onRate,
+}: {
+  likeStatus: LikeStatus;
+  pending: boolean;
+  onRate: (rating: LikeStatus) => void;
+}) => (
+  <>
+    <button
+      type="button"
+      aria-label="Like"
+      aria-pressed={likeStatus === "LIKE"}
+      disabled={pending}
+      onClick={() => onRate("LIKE")}
+      className={cn(iconButtonClass(false), "text-xl")}
+    >
+      <span className={likeStatus === "LIKE" ? "icon-[solar--like-bold]" : "icon-[solar--like-linear]"} />
+    </button>
+    <button
+      type="button"
+      aria-label="Dislike"
+      aria-pressed={likeStatus === "DISLIKE"}
+      disabled={pending}
+      onClick={() => onRate("DISLIKE")}
+      className={cn(iconButtonClass(likeStatus === "DISLIKE"), "text-xl")}
+    >
+      <span className={likeStatus === "DISLIKE" ? "icon-[solar--dislike-bold]" : "icon-[solar--dislike-linear]"} />
+    </button>
+  </>
+);
 
 const PlayerControls = ({
   currentSong,
@@ -245,37 +307,77 @@ const PlayerControls = ({
   onRate: (rating: LikeStatus) => void;
 }) => {
   const likeStatus = currentSong.likeStatus ?? "INDIFFERENT";
+  const [, navigate] = useLocation();
+  const albumName = currentSong.album?.name;
+  const albumId = currentSong.album?.id;
+  const trackTitle = () => (
+    <>
+      <span className="block truncate text-sm text-primary">{currentSong.title}</span>
+      <span className="block truncate text-sm text-primary-dark">
+        {currentSong.artists.map((artist, index) => (
+          <span key={`${artist.id}-${artist.name}-${index}`}>
+            {index > 0 && ", "}
+            {artist.id ? (
+              <Link
+                href={`/artist/${artist.id}`}
+                onClick={(event) => followLink(event, `/artist/${artist.id}`, navigate)}
+                className="hover:underline"
+              >
+                {artist.name}
+              </Link>
+            ) : (
+              artist.name
+            )}
+          </span>
+        ))}
+        {albumName && (
+          <>
+            {currentSong.artists.length > 0 && <span aria-hidden="true"> • </span>}
+            {albumId ? (
+              <Link
+                href={`/album/${albumId}`}
+                onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
+                className="hover:underline"
+              >
+                {albumName}
+              </Link>
+            ) : (
+              albumName
+            )}
+          </>
+        )}
+      </span>
+    </>
+  );
+
   return (
     <div className="grid grid-cols-[1fr_auto_1fr] col-span-2 items-center">
-      <div className="flex gap-1.5  items-center">
-        <img src={currentSong.thumbnails[0].url} alt={currentSong.title} className="w-12 h-12 rounded-lg shrink-0" />
-        <div className="flex flex-col">
-          <span className="text-sm text-primary">{currentSong.title}</span>
-          <span className="text-sm text-primary-dark">
-            {currentSong.artists.map((artist) => artist.name).join(", ")}
-          </span>
-        </div>
-        <div className="flex gap-1 items-center pl-3">
-          <button
-            type="button"
-            aria-label="Like"
-            aria-pressed={likeStatus === "LIKE"}
-            disabled={ratingPending}
-            onClick={() => onRate("LIKE")}
-            className={cn(iconButtonClass(likeStatus === "LIKE"), "text-xl")}
-          >
-            <span className={likeStatus === "LIKE" ? "icon-[solar--like-bold]" : "icon-[solar--like-linear]"} />
-          </button>
-          <button
-            type="button"
-            aria-label="Dislike"
-            aria-pressed={likeStatus === "DISLIKE"}
-            disabled={ratingPending}
-            onClick={() => onRate("DISLIKE")}
-            className={cn(iconButtonClass(likeStatus === "DISLIKE"), "text-xl")}
-          >
-            <span className={likeStatus === "DISLIKE" ? "icon-[solar--dislike-bold]" : "icon-[solar--dislike-linear]"} />
-          </button>
+      <div className="flex min-w-0 items-center">
+        <div className="group/track relative flex w-fit max-w-full items-center gap-1.5">
+          <img src={currentSong.thumbnails[0].url} alt="" className="h-12 w-12 shrink-0 rounded-lg" />
+          <div className="relative min-w-0 max-md:min-w-24">
+            <div className="min-w-0 max-md:hidden">{trackTitle()}</div>
+            <div
+              className={cn(
+                "hidden min-w-0 transition-opacity duration-200 ease-out max-md:block",
+                "group-hover/track:opacity-0 group-focus-within/track:opacity-0"
+              )}
+            >
+              {trackTitle()}
+            </div>
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-y-0 left-0 z-10 hidden translate-x-4 items-center gap-1 opacity-0 transition-[opacity,translate] duration-200 ease-out max-md:flex",
+                "group-hover/track:pointer-events-auto group-hover/track:translate-x-0 group-hover/track:opacity-100",
+                "group-focus-within/track:pointer-events-auto group-focus-within/track:translate-x-0 group-focus-within/track:opacity-100"
+              )}
+            >
+              <RatingButtons likeStatus={likeStatus} pending={ratingPending} onRate={onRate} />
+            </div>
+          </div>
+          <div className="flex items-center gap-1 pl-3 max-md:hidden">
+            <RatingButtons likeStatus={likeStatus} pending={ratingPending} onRate={onRate} />
+          </div>
         </div>
       </div>
       <div className="flex gap-1 items-center text-xl ">
@@ -335,7 +437,7 @@ const PlayerControls = ({
           onClick={onToggleQueue}
           aria-pressed={queueOpen}
           aria-label={queueOpen ? "Close queue" : "Show queue"}
-          className={cn(iconButtonClass(queueOpen), "text-2xl")}
+          className={cn(iconButtonClass(), "text-2xl", queueOpen && "text-primary")}
         >
           <span
             className={cn(
@@ -357,6 +459,7 @@ const VolumeIcon = ({ volume }: { volume: number }) => {
 
 const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volume: number) => void }) => {
   const rootRef = useRef<HTMLDivElement>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef(volume);
   const draggingRef = useRef(false);
@@ -364,7 +467,7 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
   const fromPointer = useRef(false);
   const lastAudible = useRef(volume || 50);
   const [dragging, setDragging] = useState(false);
-  const [hovered, setHovered] = useState(true);
+  const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const revealed = hovered || focused || dragging;
 
@@ -386,6 +489,7 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
     if (!node) return;
     const onWheel = (event: globalThis.WheelEvent) => {
       event.preventDefault();
+      sliderRef.current?.focus({ preventScroll: true });
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
       const change = Math.max(-8, Math.min(8, -(event.deltaY * unit) / 16));
       if (change !== 0) commitVolumeRef.current(volumeRef.current + change);
@@ -393,6 +497,11 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
   }, []);
+
+  const focusSlider = () => {
+    const slider = sliderRef.current;
+    if (slider && document.activeElement !== slider) slider.focus({ preventScroll: true });
+  };
 
   const valueFromClientY = (clientY: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
@@ -425,6 +534,7 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
+    focusSlider();
     draggingRef.current = true;
     setDragging(true);
     if (volumeRef.current > 0) lastAudible.current = volumeRef.current;
@@ -500,6 +610,7 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
           )}
         >
           <div
+            ref={sliderRef}
             role="slider"
             tabIndex={0}
             aria-label="Volume"
@@ -513,7 +624,7 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
             onPointerCancel={endDrag}
             onLostPointerCapture={endDrag}
             onKeyDown={onKeyDown}
-            className="flex h-26 w-7 cursor-pointer touch-none items-center justify-center rounded-full bg-black shadow-[0_10px_28px_rgb(0_0_0/0.65)] focus:outline-2 focus:outline-offset-2 focus:outline-white"
+            className="flex h-26 w-7 cursor-pointer touch-none items-center justify-center rounded-full bg-black shadow-[0_10px_28px_rgb(0_0_0/0.65)] outline-none"
           >
             <div ref={trackRef} className="pointer-events-none relative h-20 w-6">
               <div

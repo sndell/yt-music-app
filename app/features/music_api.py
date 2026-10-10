@@ -15,7 +15,6 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -26,26 +25,31 @@ import diskcache
 import ytmusicapi
 from ytmusicapi.helpers import initialize_headers, sapisid_from_cookie
 
+from util.app_paths import data_dir, is_frozen
 from util.get_dominant_color import get_dominant_color_hex
 
 logger = logging.getLogger(__name__)
 
-# Resolve paths relative to this module
-_BROWSER_JSON_PATH = Path(__file__).parent.parent / "browser.json"
-_CACHE_DIR = Path(__file__).parent.parent / ".cache"
+_BROWSER_JSON_PATH = data_dir() / "browser.json"
+_CACHE_DIR = data_dir() / ("cache" if is_frozen() else ".cache")
 
 # Initialize persistent disk cache
 cache = diskcache.Cache(str(_CACHE_DIR))
 
 # Cache durations in seconds
 CACHE_DURATION_PLAYLIST_ITEMS = 60 * 30  # 30 minutes
+CACHE_DURATION_HOME = 60 * 15  # 15 minutes
 
 # Cache key prefixes
 CACHE_KEY_PLAYLIST_PREFIX = "playlist:"
+CACHE_KEY_ALBUM_PREFIX = "album:"
+CACHE_KEY_ARTIST_PREFIX = "artist:"
+CACHE_KEY_HOME = "home:shelves:v3"
 CACHE_KEY_THUMB_PREFIX = "thumb:v2:"
 THUMB_CACHE_SECONDS = 60 * 60 * 24
 
 _LIKE_STATUSES = {"LIKE", "DISLIKE", "INDIFFERENT"}
+_SONG_VIDEO_TYPE = "MUSIC_VIDEO_TYPE_ATV"
 MAX_THUMB_BYTES = 250_000
 
 
@@ -146,6 +150,495 @@ def _inline_playlist_thumbnails(playlists: list[dict[str, Any]]) -> None:
     _inline_thumbnail_field(playlists, "thumbnails")
 
 
+def _empty_quick_picks() -> dict[str, Any]:
+    return {"title": "Quick picks", "tracks": []}
+
+
+def _empty_home() -> dict[str, Any]:
+    return {"shelves": []}
+
+
+def _people(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    people: list[dict[str, str]] = []
+    for person in value:
+        if not isinstance(person, dict):
+            continue
+        name = person.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        person_id = person.get("id")
+        people.append({"name": name, "id": person_id if isinstance(person_id, str) else ""})
+    return people
+
+
+def _joined_names(people: Any) -> str:
+    return ", ".join(person["name"] for person in _people(people))
+
+
+def _song_subtitle(item: dict[str, Any]) -> str:
+    album = item.get("album")
+    album_name = album.get("name") if isinstance(album, dict) and isinstance(album.get("name"), str) else ""
+    views = item.get("views") if isinstance(item.get("views"), str) else ""
+    parts = [_joined_names(item.get("artists"))]
+    if views:
+        parts.append(f"{views} plays")
+    if album_name:
+        parts.append(album_name)
+    return " • ".join(part for part in parts if part)
+
+
+def _playlist_subtitle(item: dict[str, Any]) -> str:
+    count = item.get("count")
+    count_label = ""
+    if isinstance(count, str) and count.strip():
+        digits = count.replace(",", "").strip()
+        count_label = "1 song" if digits == "1" else f"{count} songs"
+    subtitle = " • ".join(part for part in (_joined_names(item.get("author")), count_label) if part)
+    if subtitle:
+        return subtitle
+    description = item.get("description")
+    return description if isinstance(description, str) else ""
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _as_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return ""
+
+
+def _as_int(value: Any) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return 0
+
+
+def _thumbnails(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return [dict(thumb) if isinstance(thumb, dict) else thumb for thumb in value]
+
+
+def _dominant_color(thumbnails: Any) -> str | None:
+    if not isinstance(thumbnails, list) or not thumbnails:
+        return None
+    largest_thumb = max(thumbnails, key=lambda thumb: thumb.get("width", 0) if isinstance(thumb, dict) else 0)
+    if not isinstance(largest_thumb, dict):
+        return None
+    thumbnail_url = largest_thumb.get("url")
+    if not thumbnail_url:
+        return None
+    logger.info("Extracting dominant color from thumbnail...")
+    dominant_color = get_dominant_color_hex(thumbnail_url)
+    if dominant_color:
+        logger.info("Dominant color extracted: %s", dominant_color)
+        return dominant_color
+    return None
+
+
+def _inline_items(items: list[dict[str, Any]]) -> None:
+    if items:
+        _inline_thumbnail_field(items, "thumbnails")
+
+
+def _album_home_subtitle(item: dict[str, Any], artists: list[dict[str, str]]) -> str:
+    album_type = item.get("type") if isinstance(item.get("type"), str) and item["type"] else "Album"
+    return " • ".join(part for part in (album_type, _joined_names(artists)) if part)
+
+
+def _named_album(album: Any, string_id: str) -> dict[str, str] | None:
+    if isinstance(album, str):
+        return {"name": album, "id": string_id} if album else None
+    if isinstance(album, dict):
+        name = album.get("name")
+        if isinstance(name, str) and name:
+            album_id = album.get("id")
+            return {"name": name, "id": album_id if isinstance(album_id, str) else ""}
+    return None
+
+
+def _album_track(
+    track: Any,
+    album_title: str,
+    album_browse_id: str,
+    album_thumbnails: list[Any],
+) -> dict[str, Any] | None:
+    if not isinstance(track, dict):
+        return None
+    video_id = track.get("videoId") if isinstance(track.get("videoId"), str) else ""
+    album = _named_album(track.get("album"), album_browse_id)
+    if album is None and album_title:
+        album = {"name": album_title, "id": album_browse_id}
+    like_status = track.get("likeStatus")
+    if like_status not in _LIKE_STATUSES:
+        like_status = "INDIFFERENT"
+    own_thumbnails = track.get("thumbnails")
+    if isinstance(own_thumbnails, list) and own_thumbnails:
+        thumbnails = _thumbnails(own_thumbnails)
+    else:
+        thumbnails = _thumbnails(album_thumbnails)
+    video_type = track.get("videoType")
+    if video_type not in {_SONG_VIDEO_TYPE, "MUSIC_VIDEO_TYPE_OMV"}:
+        video_type = _SONG_VIDEO_TYPE
+    set_video_id = track.get("setVideoId") if isinstance(track.get("setVideoId"), str) else ""
+    return {
+        "videoId": video_id,
+        "title": track.get("title") if isinstance(track.get("title"), str) else "",
+        "artists": _people(track.get("artists")),
+        "album": album,
+        "likeStatus": like_status,
+        "inLibrary": bool(track.get("inLibrary")),
+        "thumbnails": thumbnails,
+        "isAvailable": bool(track.get("isAvailable")),
+        "isExplicit": bool(track.get("isExplicit")),
+        "videoType": video_type,
+        "views": None,
+        "duration": track.get("duration") if isinstance(track.get("duration"), str) else "",
+        "durationSeconds": _as_int(track.get("duration_seconds")),
+        "setVideoId": set_video_id,
+    }
+
+
+def _artist_track(track: Any, channel_id: str) -> dict[str, Any] | None:
+    if not isinstance(track, dict):
+        return None
+    video_id = track.get("videoId") if isinstance(track.get("videoId"), str) else ""
+    artists = _people(track.get("artists"))
+    if not artists:
+        artist = track.get("artist")
+        if isinstance(artist, str) and artist:
+            artists = [{"name": artist, "id": channel_id}]
+        elif isinstance(artist, dict):
+            artists = _people([artist])
+            if len(artists) == 1 and not artists[0]["id"]:
+                artists[0]["id"] = channel_id
+    set_video_id = track.get("setVideoId") if isinstance(track.get("setVideoId"), str) else ""
+    return {
+        "videoId": video_id,
+        "title": track.get("title") if isinstance(track.get("title"), str) else "",
+        "artists": artists,
+        "album": _named_album(track.get("album"), ""),
+        "likeStatus": "INDIFFERENT",
+        "inLibrary": bool(track.get("inLibrary")),
+        "thumbnails": _thumbnails(track.get("thumbnails")),
+        "isAvailable": bool(video_id),
+        "isExplicit": bool(track.get("isExplicit")),
+        "videoType": _SONG_VIDEO_TYPE,
+        "views": None,
+        "duration": track.get("duration") if isinstance(track.get("duration"), str) else "",
+        "durationSeconds": _as_int(track.get("duration_seconds")),
+        "setVideoId": set_video_id,
+    }
+
+
+def _other_version(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    browse_id = item.get("browseId")
+    if not isinstance(browse_id, str) or not browse_id:
+        return None
+    return {
+        "title": item.get("title") if isinstance(item.get("title"), str) else "",
+        "year": _as_text(item.get("year")),
+        "browseId": browse_id,
+        "thumbnails": _thumbnails(item.get("thumbnails")),
+        "explicit": bool(item.get("isExplicit")),
+    }
+
+
+def _release_item(item: Any, default_type: str) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    browse_id = item.get("browseId")
+    if not isinstance(browse_id, str) or not browse_id.startswith("MPRE"):
+        return None
+    item_type = item.get("type")
+    if not isinstance(item_type, str) or not item_type:
+        item_type = default_type
+    return {
+        "title": item.get("title") if isinstance(item.get("title"), str) else "",
+        "year": _as_text(item.get("year")),
+        "type": item_type,
+        "browseId": browse_id,
+        "thumbnails": _thumbnails(item.get("thumbnails")),
+        "explicit": bool(item.get("isExplicit")),
+    }
+
+
+def _release_shelf(shelf: Any, default_type: str) -> dict[str, Any] | None:
+    if not isinstance(shelf, dict) or not isinstance(shelf.get("results"), list):
+        return None
+    items: list[dict[str, Any]] = []
+    for result in shelf["results"]:
+        item = _release_item(result, default_type)
+        if item is not None:
+            items.append(item)
+    return {
+        "browseId": _optional_str(shelf.get("browseId")),
+        "params": _optional_str(shelf.get("params")),
+        "items": items,
+    }
+
+
+def _songs_shelf(shelf: Any, channel_id: str) -> dict[str, Any] | None:
+    if not isinstance(shelf, dict) or not isinstance(shelf.get("results"), list):
+        return None
+    items: list[dict[str, Any]] = []
+    for result in shelf["results"]:
+        track = _artist_track(result, channel_id)
+        if track is not None:
+            items.append(track)
+    return {
+        "browseId": _optional_str(shelf.get("browseId")),
+        "params": None,
+        "items": items,
+    }
+
+
+def _videos_shelf(shelf: Any) -> dict[str, Any] | None:
+    if not isinstance(shelf, dict) or not isinstance(shelf.get("results"), list):
+        return None
+    items: list[dict[str, Any]] = []
+    for result in shelf["results"]:
+        if not isinstance(result, dict):
+            continue
+        video_id = result.get("videoId")
+        if not isinstance(video_id, str) or not video_id:
+            continue
+        views = result.get("views")
+        items.append(
+            {
+                "title": result.get("title") if isinstance(result.get("title"), str) else "",
+                "videoId": video_id,
+                "views": views if isinstance(views, str) else "",
+                "thumbnails": _thumbnails(result.get("thumbnails")),
+                "playlistId": _optional_str(result.get("playlistId")),
+            }
+        )
+    return {
+        "browseId": _optional_str(shelf.get("browseId")),
+        "params": None,
+        "items": items,
+    }
+
+
+def _related_artists(shelf: Any) -> list[dict[str, Any]]:
+    results = shelf.get("results") if isinstance(shelf, dict) else None
+    if not isinstance(results, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        browse_id = result.get("browseId")
+        if not isinstance(browse_id, str) or not browse_id.startswith("UC"):
+            continue
+        subscribers = result.get("subscribers")
+        items.append(
+            {
+                "title": result.get("title") if isinstance(result.get("title"), str) else "",
+                "browseId": browse_id,
+                "subscribers": subscribers if isinstance(subscribers, str) else "",
+                "thumbnails": _thumbnails(result.get("thumbnails")),
+            }
+        )
+    return items
+
+
+def _normalize_album(raw: dict[str, Any], browse_id: str) -> dict[str, Any]:
+    title = raw.get("title") if isinstance(raw.get("title"), str) else ""
+    album_type = raw.get("type") if isinstance(raw.get("type"), str) and raw["type"] else "Album"
+    description = raw.get("description") if isinstance(raw.get("description"), str) else None
+    thumbnails = _thumbnails(raw.get("thumbnails"))
+    tracks_raw = raw.get("tracks") if isinstance(raw.get("tracks"), list) else []
+    tracks: list[dict[str, Any]] = []
+    for track in tracks_raw:
+        normalized = _album_track(track, title, browse_id, thumbnails)
+        if normalized is not None:
+            tracks.append(normalized)
+    versions_raw = raw.get("other_versions") if isinstance(raw.get("other_versions"), list) else []
+    other_versions: list[dict[str, Any]] = []
+    for version in versions_raw:
+        normalized = _other_version(version)
+        if normalized is not None:
+            other_versions.append(normalized)
+    duration = raw.get("duration") if isinstance(raw.get("duration"), str) else ""
+    payload = {
+        "browseId": browse_id,
+        "title": title,
+        "type": album_type,
+        "description": description,
+        "artists": _people(raw.get("artists")),
+        "year": _as_text(raw.get("year")),
+        "trackCount": _as_int(raw.get("trackCount")),
+        "duration": duration,
+        "durationSeconds": _as_int(raw.get("duration_seconds")),
+        "audioPlaylistId": _optional_str(raw.get("audioPlaylistId")),
+        "thumbnails": thumbnails,
+        "dominantColor": _dominant_color(thumbnails),
+        "tracks": tracks,
+        "otherVersions": other_versions,
+    }
+    _inline_items([payload])
+    _inline_items(tracks)
+    _inline_items(other_versions)
+    return payload
+
+
+def _normalize_artist(raw: dict[str, Any], channel_id: str) -> dict[str, Any]:
+    thumbnails = _thumbnails(raw.get("thumbnails"))
+    songs = _songs_shelf(raw.get("songs"), channel_id)
+    albums = _release_shelf(raw.get("albums"), "Album")
+    singles = _release_shelf(raw.get("singles"), "Single")
+    shows = _release_shelf(raw.get("shows"), "Show")
+    videos = _videos_shelf(raw.get("videos"))
+    related = _related_artists(raw.get("related"))
+    description = raw.get("description") if isinstance(raw.get("description"), str) else None
+    views = raw.get("views") if isinstance(raw.get("views"), str) else ""
+    subscribers = raw.get("subscribers") if isinstance(raw.get("subscribers"), str) else ""
+    monthly_listeners = raw.get("monthlyListeners") if isinstance(raw.get("monthlyListeners"), str) else ""
+    payload = {
+        "channelId": channel_id,
+        "name": raw.get("name") if isinstance(raw.get("name"), str) else "",
+        "description": description,
+        "views": views,
+        "subscribers": subscribers,
+        "monthlyListeners": monthly_listeners,
+        "thumbnails": thumbnails,
+        "dominantColor": _dominant_color(thumbnails),
+        "shuffleId": _optional_str(raw.get("shuffleId")),
+        "radioId": _optional_str(raw.get("radioId")),
+        "songs": songs,
+        "albums": albums,
+        "singles": singles,
+        "shows": shows,
+        "videos": videos,
+        "related": related,
+    }
+    _inline_items([payload])
+    for shelf in (songs, albums, singles, shows, videos):
+        if shelf is not None:
+            _inline_items(shelf["items"])
+    _inline_items(related)
+    return payload
+
+
+def _home_layout(title: str) -> str | None:
+    key = title.strip().lower()
+    if key == "quick picks":
+        return "list"
+    if key in {"listen again", "forgotten favorites", "forgotten favourites"}:
+        return "row"
+    return None
+
+
+def _home_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    title = item.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return None
+    thumbnails = item.get("thumbnails") if isinstance(item.get("thumbnails"), list) else []
+    explicit = bool(item.get("isExplicit"))
+    video_id = _optional_str(item.get("videoId"))
+    browse_id = _optional_str(item.get("browseId"))
+    audio_playlist_id = _optional_str(item.get("audioPlaylistId"))
+    playlist_id = _optional_str(item.get("playlistId"))
+    if video_id:
+        return {
+            "kind": "song",
+            "title": title,
+            "subtitle": _song_subtitle(item),
+            "artists": _people(item.get("artists")),
+            "thumbnails": thumbnails,
+            "videoId": video_id,
+            "playlistId": None,
+            "browseId": browse_id,
+            "explicit": explicit,
+        }
+
+    if browse_id and browse_id.startswith("MPRE"):
+        artists = _people(item.get("artists"))
+        return {
+            "kind": "album",
+            "title": title,
+            "subtitle": _album_home_subtitle(item, artists),
+            "artists": artists,
+            "thumbnails": thumbnails,
+            "videoId": None,
+            "playlistId": audio_playlist_id,
+            "browseId": browse_id,
+            "explicit": explicit,
+        }
+    if browse_id and browse_id.startswith("UC"):
+        subscribers = item.get("subscribers")
+        return {
+            "kind": "artist",
+            "title": title,
+            "subtitle": subscribers if isinstance(subscribers, str) else "",
+            "artists": _people(item.get("artists")),
+            "thumbnails": thumbnails,
+            "videoId": None,
+            "playlistId": None,
+            "browseId": browse_id,
+            "explicit": explicit,
+        }
+    if audio_playlist_id and audio_playlist_id.startswith("OLAK5uy_"):
+        artists = _people(item.get("artists"))
+        return {
+            "kind": "album",
+            "title": title,
+            "subtitle": _album_home_subtitle(item, artists),
+            "artists": artists,
+            "thumbnails": thumbnails,
+            "videoId": None,
+            "playlistId": audio_playlist_id,
+            "browseId": None,
+            "explicit": explicit,
+        }
+    if playlist_id:
+        return {
+            "kind": "playlist",
+            "title": title,
+            "subtitle": _playlist_subtitle(item),
+            "artists": _people(item.get("author")),
+            "thumbnails": thumbnails,
+            "videoId": None,
+            "playlistId": playlist_id,
+            "browseId": None,
+            "explicit": explicit,
+        }
+    return None
+
+
+def _home_shelves(home: list[Any]) -> list[dict[str, Any]]:
+    shelves: list[dict[str, Any]] = []
+    for row in home:
+        if not isinstance(row, dict):
+            continue
+        title = row.get("title")
+        if not isinstance(title, str):
+            continue
+        layout = _home_layout(title)
+        if layout is None:
+            continue
+        contents = row.get("contents")
+        if not isinstance(contents, list):
+            continue
+        items = [_home_item(item) for item in contents if isinstance(item, dict)]
+        shelf_items = [item for item in items if item is not None]
+        if not shelf_items:
+            continue
+        _inline_thumbnail_field(shelf_items, "thumbnails")
+        shelves.append({"title": title, "layout": layout, "items": shelf_items})
+    return shelves
+
+
 def _header_value(headers: dict[str, Any], name: str) -> str | None:
     for key, value in headers.items():
         if key.lower() == name and isinstance(value, str):
@@ -200,6 +693,9 @@ def _save_browser_json(headers: dict[str, str]) -> None:
         if not account:
             raise ValueError("YouTube Music did not accept these headers.")
         tmp_path.replace(_BROWSER_JSON_PATH)
+        from util.embed_cookies import sync_login_cookies
+
+        sync_login_cookies()
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -563,6 +1059,74 @@ class MusicApi:
             logger.exception("Failed to fetch playlists: %s", e)
             return []
 
+    def get_home(self) -> dict[str, Any]:
+        """Return Listen again, Quick picks, and Forgotten favorites from home.
+
+        Listen again and Forgotten favorites are horizontal rows. Quick picks
+        stays a vertical list. Shelves missing from the feed are omitted.
+        """
+        empty = _empty_home()
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return home")
+                return empty
+
+            cached = cache.get(CACHE_KEY_HOME)
+            if isinstance(cached, dict) and isinstance(cached.get("shelves"), list):
+                logger.info("Returning cached home (shelves: %d)", len(cached["shelves"]))
+                return cached
+
+            logger.info("Fetching home from API...")
+            home = self._get_ytmusic().get_home(limit=16)
+            if not isinstance(home, list):
+                return empty
+
+            shelves = _home_shelves(home)
+            if not shelves:
+                titles = [row.get("title") for row in home if isinstance(row, dict)]
+                logger.warning("Home feed had none of the requested shelves: %s", titles)
+                return empty
+
+            result = {"shelves": shelves}
+            cache.set(CACHE_KEY_HOME, result, expire=CACHE_DURATION_HOME)
+            logger.info(
+                "Home fetched (%s)",
+                ", ".join(f"{shelf['title']}: {len(shelf['items'])}" for shelf in shelves),
+            )
+            return result
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return empty
+        except Exception as e:
+            logger.exception("Failed to fetch home: %s", e)
+            return empty
+
+    def get_quick_picks(self) -> dict[str, Any]:
+        """Return the Quick picks shelf in the older title-and-tracks shape."""
+        home = self.get_home()
+        for shelf in home.get("shelves", []):
+            if not isinstance(shelf, dict) or shelf.get("layout") != "list":
+                continue
+            tracks = []
+            for item in shelf.get("items", []):
+                if not isinstance(item, dict) or item.get("kind") != "song" or not item.get("videoId"):
+                    continue
+                artists = item.get("artists") if isinstance(item.get("artists"), list) else []
+                tracks.append(
+                    {
+                        "videoId": item["videoId"],
+                        "title": item.get("title") or "",
+                        "artists": artists,
+                        "album": None,
+                        "thumbnails": item.get("thumbnails") or [],
+                        "duration": "",
+                        "durationSeconds": 0,
+                        "isExplicit": bool(item.get("explicit")),
+                    }
+                )
+            return {"title": shelf.get("title") or "Quick picks", "tracks": tracks}
+        return _empty_quick_picks()
+
     def get_playlist_items(self, playlist_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch all items from a specific playlist.
         
@@ -601,24 +1165,7 @@ class MusicApi:
                 len(playlist.get("tracks", []))
             )
             
-            # Extract dominant color from thumbnail
-            thumbnails = playlist.get("thumbnails", [])
-            if thumbnails:
-                # Use the largest thumbnail for better color accuracy
-                largest_thumb = max(thumbnails, key=lambda t: t.get("width", 0))
-                thumbnail_url = largest_thumb.get("url")
-                if thumbnail_url:
-                    logger.info("Extracting dominant color from thumbnail...")
-                    dominant_color = get_dominant_color_hex(thumbnail_url)
-                    if dominant_color:
-                        playlist["dominantColor"] = dominant_color
-                        logger.info("Dominant color extracted: %s", dominant_color)
-                    else:
-                        playlist["dominantColor"] = None
-                else:
-                    playlist["dominantColor"] = None
-            else:
-                playlist["dominantColor"] = None
+            playlist["dominantColor"] = _dominant_color(playlist.get("thumbnails", []))
 
             _inline_playlist_thumbnails([playlist])
 
@@ -633,6 +1180,136 @@ class MusicApi:
         except Exception as e:
             logger.exception("Failed to fetch playlist items: %s", e)
             return {}
+
+    def get_album(self, browse_id: str) -> dict[str, Any]:
+        """Fetch an album by browse id.
+
+        An ``OLAK5uy_`` audio playlist id is resolved to its ``MPREb_`` browse
+        id first. The normalized album is cached under that browse id.
+        """
+        try:
+            if not isinstance(browse_id, str) or not browse_id:
+                logger.warning("Album browse id is required")
+                return {}
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return album")
+                return {}
+
+            ytmusic = self._get_ytmusic()
+            if browse_id.startswith("OLAK5uy_"):
+                resolved = ytmusic.get_album_browse_id(browse_id)
+                if not isinstance(resolved, str) or not resolved:
+                    logger.warning("Could not resolve album browse id for %s", browse_id)
+                    return {}
+                logger.info("Resolved album %s to %s", browse_id, resolved)
+                browse_id = resolved
+
+            cache_key = f"{CACHE_KEY_ALBUM_PREFIX}{browse_id}"
+            cached = cache.get(cache_key)
+            if isinstance(cached, dict):
+                logger.info(
+                    "Returning cached album '%s' (tracks: %d)",
+                    cached.get("title", "Unknown"),
+                    len(cached.get("tracks", [])),
+                )
+                return cached
+
+            logger.info("Fetching album from API for ID: %s", browse_id)
+            album = ytmusic.get_album(browse_id)
+            if not isinstance(album, dict):
+                return {}
+
+            payload = _normalize_album(album, browse_id)
+            cache.set(cache_key, payload, expire=CACHE_DURATION_PLAYLIST_ITEMS)
+            logger.info(
+                "Album '%s' fetched successfully (tracks: %d)",
+                payload.get("title", "Unknown"),
+                len(payload.get("tracks", [])),
+            )
+            logger.info("Album cached: %s", browse_id)
+            return payload
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return {}
+        except Exception as e:
+            logger.exception("Failed to fetch album: %s", e)
+            return {}
+
+    def get_artist(self, channel_id: str) -> dict[str, Any]:
+        """Fetch an artist page: header plus songs, releases, videos, and related artists.
+
+        A leading ``MPLA`` is removed so the cache key matches the channel id
+        passed to ytmusicapi. ``channelId`` in the result is that requested id.
+        """
+        try:
+            if not isinstance(channel_id, str) or not channel_id:
+                logger.warning("Artist channel id is required")
+                return {}
+            if channel_id.startswith("MPLA"):
+                channel_id = channel_id.removeprefix("MPLA")
+            if not channel_id:
+                logger.warning("Artist channel id is required")
+                return {}
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return artist")
+                return {}
+
+            cache_key = f"{CACHE_KEY_ARTIST_PREFIX}{channel_id}"
+            cached = cache.get(cache_key)
+            if isinstance(cached, dict):
+                logger.info("Returning cached artist '%s'", cached.get("name", "Unknown"))
+                return cached
+
+            logger.info("Fetching artist from API for ID: %s", channel_id)
+            artist = self._get_ytmusic().get_artist(channel_id)
+            if not isinstance(artist, dict):
+                return {}
+
+            payload = _normalize_artist(artist, channel_id)
+            cache.set(cache_key, payload, expire=CACHE_DURATION_PLAYLIST_ITEMS)
+            logger.info("Artist '%s' fetched successfully", payload.get("name", "Unknown"))
+            logger.info("Artist cached: %s", channel_id)
+            return payload
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return {}
+        except Exception as e:
+            logger.exception("Failed to fetch artist: %s", e)
+            return {}
+
+    def get_artist_albums(self, channel_id: str, params: str) -> list[dict[str, Any]]:
+        """Fetch the rest of an artist release shelf.
+
+        ``channel_id`` and ``params`` are the shelf browse id and params from
+        :meth:`get_artist`, not the subscribe channel id. The list is not cached.
+        """
+        try:
+            if not isinstance(channel_id, str) or not channel_id or not isinstance(params, str) or not params:
+                logger.warning("Artist albums require a shelf browse id and params")
+                return []
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return artist albums")
+                return []
+
+            logger.info("Fetching artist albums for %s", channel_id)
+            albums = self._get_ytmusic().get_artist_albums(channel_id, params, limit=None)
+            if not isinstance(albums, list):
+                return []
+
+            items: list[dict[str, Any]] = []
+            for album in albums:
+                item = _release_item(album, "Album")
+                if item is not None:
+                    items.append(item)
+            _inline_items(items)
+            logger.info("Artist albums fetched (count: %d)", len(items))
+            return items
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return []
+        except Exception as e:
+            logger.exception("Failed to fetch artist albums: %s", e)
+            return []
 
     def get_watch_playlist(self, video_id: str | None = None, playlist_id: str | None = None, radio: bool = False, shuffle: bool = False) -> dict[str, Any]:
         """Get a watch playlist for a specific video or playlist.
@@ -712,6 +1389,47 @@ class MusicApi:
         _update_cached_like_status(video_id, rating)
         logger.info("Rated %s as %s", video_id, rating)
         return {"likeStatus": rating}
+
+    def add_song_to_history(self, video_id: str) -> dict[str, bool]:
+        """Register one played song in the account history.
+
+        Uses the playback URL from ``get_song`` on the same client. Music
+        videos and other non-song videos are not added.
+
+        Args:
+            video_id: YouTube video id of the track that started playing.
+
+        Returns:
+            A dict with added set when YouTube Music accepted the song.
+        """
+        if not video_id:
+            return {"added": False}
+        if not self._is_authenticated():
+            logger.warning("Not authenticated - cannot add song to history")
+            return {"added": False}
+
+        try:
+            ytmusic = self._get_ytmusic()
+            song = ytmusic.get_song(video_id)
+            details = song.get("videoDetails") if isinstance(song, dict) else None
+            video_type = details.get("musicVideoType") if isinstance(details, dict) else None
+            if video_type != _SONG_VIDEO_TYPE:
+                logger.info("Skipped history for %s (%s)", video_id, video_type)
+                return {"added": False}
+            response = ytmusic.add_history_item(song)
+            added = getattr(response, "status_code", None) == 204
+            if added:
+                logger.info("Added %s to history", video_id)
+            else:
+                logger.warning(
+                    "History update for %s returned %s",
+                    video_id,
+                    getattr(response, "status_code", None),
+                )
+            return {"added": added}
+        except Exception as e:
+            logger.exception("Failed to add %s to history: %s", video_id, e)
+            return {"added": False}
 
     def sign_in(self) -> None:
         """Open YouTube Music, follow the signed-in page, and store its API headers.

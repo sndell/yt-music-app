@@ -5,24 +5,32 @@ import os
 import sys
 from pathlib import Path
 
+from util.app_paths import data_dir, is_frozen
+
+# Frozen builds have no console. Log before importing the app so startup
+# failures land in the data folder.
+ENV = "prod" if is_frozen() else os.getenv("ENV", "dev")
+# Opt-in inspector. Stays off for a normal dev window and for the release exe.
+# Does not change which UI is loaded: dev still uses Vite, a frozen exe still
+# serves the packaged page.
+DEVTOOLS = os.getenv("DEVTOOLS") == "1"
+_DEBUG = ENV == "dev" or DEVTOOLS
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+if is_frozen():
+    logging.basicConfig(
+        level=logging.INFO,
+        format=_LOG_FORMAT,
+        handlers=[logging.FileHandler(data_dir() / "ytmusic.log", encoding="utf-8")],
+    )
+else:
+    logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT)
+
 import webview
 
-from dev_probe import start_dev_probe
 from features.music_api import MusicApi
 from util.media_controls import media_controls, prepare_webview
+from util.ui_server import serve_ui
 from util.webview_controller import WebViewController
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-
-# Determine environment
-if getattr(sys, "frozen", False):  # running as PyInstaller exe
-    ENV = "prod"
-else:
-    ENV = os.getenv("ENV", "dev")
 
 
 class Api(MusicApi):
@@ -41,10 +49,39 @@ def resource_path(*relative_parts: str) -> Path:
     return base.joinpath(*relative_parts)
 
 
+def _disable_browser_context_menu(window: webview.Window) -> None:
+    """Hide the WebView2 menu. Track and playlist menus stay in the page."""
+    native = window.native
+    control = getattr(native, "webview", None)
+    if control is None:
+        return
+
+    def apply() -> None:
+        try:
+            core = control.CoreWebView2
+            if core is not None:
+                core.Settings.AreDefaultContextMenusEnabled = False
+        except Exception:
+            logging.getLogger(__name__).exception("Could not disable the browser context menu")
+
+    from System import Action
+
+    # BeginInvoke posts to the window thread and returns. Invoke would wait on
+    # that thread and can stall the dev probe.
+    control.BeginInvoke(Action(apply))
+
+
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
-    url = "http://localhost:5173" if ENV == "dev" else str(resource_path("ui", "index.html"))
+    # A file URL has no origin, and YouTube then blocks most embeds.
+    # Slot 0 stays on port 5173. A worktree's slot moves the Vite URL with it.
+    if ENV == "dev":
+        from dev_identity import debug_port, ui_origin
+
+        url = ui_origin()
+    else:
+        url = serve_ui(resource_path("ui"))
     window = webview.create_window(
         "YTMusic",
         url,
@@ -55,9 +92,19 @@ if __name__ == "__main__":
     )
     WebViewController.set_window(window)
     window.events.before_show += lambda: media_controls.attach(window)
-    if ENV == "dev":
-        webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
+    window.events.loaded += lambda: _disable_browser_context_menu(window)
+    if _DEBUG:
+        from dev_probe import start_dev_probe
+
+        # A normal dev window can still open DevTools from the page menu.
+        # DEVTOOLS=1 opens them and exposes a remote debugging port.
+        webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = DEVTOOLS
+        if DEVTOOLS:
+            # A frozen exe stays on 9222. A dev worktree uses 9222 plus its slot.
+            remote_port = debug_port() if ENV == "dev" else 9222
+            webview.settings["REMOTE_DEBUGGING_PORT"] = remote_port
         start_dev_probe(api, window)
-    storage_path = Path(__file__).resolve().parent / "webview-data"
-    webview.start(debug=(ENV == "dev"), private_mode=False, storage_path=str(storage_path))
+    storage_path = data_dir() / "webview-data"
+    storage_path.mkdir(parents=True, exist_ok=True)
+    webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
 
