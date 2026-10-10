@@ -1,4 +1,4 @@
-export { PyBridge } from "./bridge";
+export { PyBridge, showCachedThenRefresh } from "./bridge";
 export type {
   LikeStatus,
   PlaylistSummary,
@@ -6,6 +6,7 @@ export type {
   QuickPick,
   HomeItem,
   HomeShelf,
+  HomeFeed,
   Track,
   WatchTrack,
   AlbumVersion,

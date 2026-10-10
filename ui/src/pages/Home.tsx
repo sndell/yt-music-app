@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { PyBridge, type HomeItem, type HomeShelf, type Track } from "@/lib/api";
+import { PyBridge, showCachedThenRefresh, type HomeFeed, type HomeItem, type HomeShelf, type Track } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { SnapRow } from "@/components/ui/SnapRow";
@@ -55,26 +55,49 @@ export const Home = () => {
   const [, navigate] = useLocation();
   const { currentSong, startMix, playTracks, playTrackNext, addTrackToQueue, playPlaylist, queuePlaylist } = usePlayer();
 
-  const load = useCallback(() => {
+  const load = useCallback((options?: { clear?: boolean; force?: boolean }) => {
     const requestId = ++requestIdRef.current;
-    setShelves(null);
+    if (options?.clear) {
+      setShelves(null);
+      setPage(0);
+    }
     setError(null);
-    setPage(0);
-    return PyBridge.getHome().then((result) => {
-      if (requestId !== requestIdRef.current) return;
-      if (result.success) {
-        setShelves(result.data.shelves);
-        setError(null);
-      } else {
+
+    const apply = (data: HomeFeed) => {
+      if (!Array.isArray(data.shelves)) return;
+      setShelves((current) => {
+        if (data.shelves.length === 0 && current && current.length > 0) return current;
+        return data.shelves;
+      });
+      setError(null);
+    };
+
+    if (options?.force) {
+      return PyBridge.getHome(true).then((result) => {
+        if (requestId !== requestIdRef.current) return;
+        if (result.success) {
+          apply(result.data);
+          return;
+        }
         setShelves([]);
         setError(result.error.message);
-      }
+      });
+    }
+
+    return showCachedThenRefresh(
+      (forceRefresh) => PyBridge.getHome(forceRefresh),
+      apply,
+      () => requestId === requestIdRef.current,
+    ).then((result) => {
+      if (requestId !== requestIdRef.current || !result || result.success) return;
+      setShelves([]);
+      setError(result.error.message);
     });
   }, []);
 
   useEffect(() => {
     void load();
-    const refresh = () => void load();
+    const refresh = () => void load({ clear: true, force: true });
     window.addEventListener("ytmusic-auth-changed", refresh);
     return () => {
       requestIdRef.current += 1;
@@ -126,7 +149,7 @@ export const Home = () => {
         {shelves !== null && shelves.length === 0 && !error && (
           <div className="py-8 text-sm text-primary-dark">
             Sign in from Settings.{" "}
-            <button type="button" onClick={() => void load()} className="cursor-pointer text-primary hover:underline">
+            <button type="button" onClick={() => void load({ force: true })} className="cursor-pointer text-primary hover:underline">
               Reload
             </button>
           </div>
