@@ -7,6 +7,7 @@ type PyWebViewApi = {
 declare global {
   interface Window {
     pywebview?: { api: PyWebViewApi };
+    pythonEvent?: (action: string, payload?: unknown) => void;
   }
   interface WindowEventMap {
     pywebviewready: CustomEvent;

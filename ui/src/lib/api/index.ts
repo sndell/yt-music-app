@@ -1,2 +1,2 @@
 export { PyBridge } from "./bridge";
-export type { PlaylistSummary, PlaylistDetails, Track } from "./types";
+export type { LikeStatus, PlaylistSummary, PlaylistDetails, Track, WatchTrack } from "./types";

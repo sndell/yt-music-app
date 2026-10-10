@@ -2,6 +2,8 @@
 
 export type Result<T> = { success: true; data: T } | { success: false; error: { code: string; message: string } };
 
+export type LikeStatus = "LIKE" | "DISLIKE" | "INDIFFERENT";
+
 export interface Thumbnail {
   url: string;
   width: number;
@@ -37,7 +39,7 @@ export interface Track {
   title: string;
   artists: Artist[];
   album: Album | null;
-  likeStatus: "LIKE" | "INDIFFERENT" | "DISLIKE";
+  likeStatus: LikeStatus;
   
   inLibrary: boolean;
   thumbnails: Thumbnail[];
@@ -88,7 +90,7 @@ export interface WatchCounterpart {
   length: string;
   thumbnail: Thumbnail[];
   feedbackTokens: FeedbackTokens | null;
-  likeStatus: "LIKE" | "INDIFFERENT" | "DISLIKE";
+  likeStatus: LikeStatus;
   artists: WatchArtist[];
   views: string;
 }
@@ -96,38 +98,46 @@ export interface WatchCounterpart {
 export interface WatchTrack {
   videoId: string;
   title: string;
-  length: string;
-  thumbnail: Thumbnail[];
-  likeStatus: "LIKE" | "INDIFFERENT" | "DISLIKE";
-  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV";
-  inLibrary: boolean;
-  feedbackTokens: FeedbackTokens;
-  pinnedToListenAgain: boolean;
-  listenAgainFeedbackTokens: ListenAgainFeedbackTokens;
-  artists: WatchArtist[];
-  album: Album;
-  year: string;
+  length: string | null;
+  thumbnail: Thumbnail[] | null;
+  likeStatus: LikeStatus | null;
+  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | null;
+  inLibrary: boolean | null;
+  feedbackTokens: FeedbackTokens | null;
+  pinnedToListenAgain: boolean | null;
+  listenAgainFeedbackTokens: ListenAgainFeedbackTokens | null;
+  artists?: WatchArtist[];
+  album?: Album | null;
+  year?: string | null;
   counterpart?: WatchCounterpart;
 }
 
 export interface WatchPlaylist {
   tracks: WatchTrack[];
-  playlistId: string;
-  lyrics: string;
-  related?: string;
+  playlistId: string | null;
+  lyrics: string | null;
+  related?: string | null;
 }
 
 /** API method signatures */
 export interface ApiMethods {
   get_playlists: { params: []; response: PlaylistSummary[] };
   get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
-  generate_auth_header: { params: [headers: string]; response: void };
+  sign_in: { params: []; response: void };
+  is_signed_in: { params: []; response: { signedIn: boolean } };
+  sign_out: { params: []; response: void };
   invalidate_playlist_cache: { params: [playlistIds: string[]]; response: { invalidated: string[]; not_found: string[] } };
   clear_all_cache: { params: []; response: { cleared: number } };
+  update_media_controls: {
+    params: [title: string, artist: string, playing: boolean, hasNext: boolean, artwork: string];
+    response: void;
+  };
     get_watch_playlist: {
     params: [videoId: string, playlistId: string, radio?: boolean, shuffle?: boolean];
     response: WatchPlaylist;
   };
+  get_song_rating: { params: [videoId: string]; response: { likeStatus: LikeStatus } };
+  rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };
 }
 
 export type ApiMethodName = keyof ApiMethods;

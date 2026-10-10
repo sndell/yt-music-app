@@ -7,25 +7,22 @@ export const Sidebar = () => {
     <div className="flex flex-col gap-1.5 p-1.5 w-72 overflow-hidden ">
       <div className="p-1.5 rounded-xl bg-primary">
         {/* <div className="flex gap-2 justify-center items-center pt-1.5 pb-3">
-          <span className="icon-[material-symbols--youtube-music]" />
+          <span className="icon-[solar--music-note-linear]" />
           <div className="font-bold">YTMusic</div>
         </div> */}
         <div className="flex flex-col gap-1.5">
           <SidebarItem
-            icon="icon-[mingcute--home-3-line]"
-            iconHighlighted="icon-[mingcute--home-3-fill]"
+            icon="icon-[solar--home-2-linear]"
             path="/"
             text="Home"
           />
           <SidebarItem
-            icon="icon-[mingcute--book-5-line]"
-            iconHighlighted="icon-[mingcute--book-5-fill]"
+            icon="icon-[solar--library-linear]"
             path="/library"
             text="Library"
           />
           <SidebarItem
-            icon="icon-[mingcute--settings-3-line]"
-            iconHighlighted="icon-[mingcute--settings-3-fill]"
+            icon="icon-[solar--settings-linear]"
             path="/settings"
             text="Settings"
           />
@@ -40,12 +37,10 @@ export const Sidebar = () => {
 
 const SidebarItem = ({
   icon,
-  iconHighlighted,
   path,
   text,
 }: {
   icon: string;
-  iconHighlighted: string;
   path: string;
   text: string;
 }) => {
@@ -60,7 +55,7 @@ const SidebarItem = ({
         isActive ? "text-primary-light bg-primary-light" : "text-primary-dark hover:text-primary hover:bg-primary-light"
       )}
     >
-      <span className={cn("text-lg", isActive ? iconHighlighted : icon)} />
+      <span className={cn("text-lg", icon)} />
       {text}
     </button>
   );

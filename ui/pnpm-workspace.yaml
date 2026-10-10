@@ -1,0 +1,7 @@
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@iconify/json@2.2.541'
+  - '@tanstack/react-virtual@3.14.14'
+  - '@tanstack/virtual-core@3.18.0'
+  - '@types/node@26.6.5'

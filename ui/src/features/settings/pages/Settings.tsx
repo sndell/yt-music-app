@@ -1,23 +1,54 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PyBridge } from "@/lib/api/bridge";
 
+const notifyAuthChanged = () => {
+  window.dispatchEvent(new Event("ytmusic-auth-changed"));
+};
+
 export const Settings = () => {
-  const [headerInput, setHeaderInput] = useState("");
-  const [status, setStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [signInStatus, setSignInStatus] = useState<"idle" | "working" | "error">("idle");
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
-  const handleSave = async () => {
-    setStatus("saving");
-    setErrorMessage(null);
+  useEffect(() => {
+    let cancelled = false;
+    PyBridge.isSignedIn().then((result) => {
+      if (!cancelled) setSignedIn(result.success ? result.data.signedIn : false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    const result = await PyBridge.generateAuthHeader(headerInput);
+  const handleSignIn = async () => {
+    setSignInStatus("working");
+    setSignInError(null);
+
+    const result = await PyBridge.signIn();
 
     if (result.success) {
-      setStatus("success");
-      setHeaderInput("");
+      setSignedIn(true);
+      setSignInStatus("idle");
+      notifyAuthChanged();
     } else {
-      setStatus("error");
-      setErrorMessage(result.error.message);
+      setSignInStatus("error");
+      setSignInError(result.error.message);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setSignInStatus("working");
+    setSignInError(null);
+
+    const result = await PyBridge.signOut();
+
+    if (result.success) {
+      setSignedIn(false);
+      setSignInStatus("idle");
+      notifyAuthChanged();
+    } else {
+      setSignInStatus("error");
+      setSignInError(result.error.message);
     }
   };
 
@@ -26,24 +57,24 @@ export const Settings = () => {
       <div className="w-full max-w-7xl p-1.5 px-3">
         <div className="pb-3 text-2xl">Settings</div>
         <div className="space-y-1.5">
-          <div>Auth Headers</div>
-          <div className="flex gap-3">
-            <input
-              value={headerInput}
-              onChange={(e) => setHeaderInput(e.target.value)}
-              placeholder="Enter auth headers"
-              className="px-3 py-1.5 w-full rounded-lg outline-none bg-primary-light border border-primary"
-            />
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1.5">
+              <div>YouTube Music</div>
+              <p className="text-sm text-primary-dark">
+                {signedIn
+                  ? "Signed in to YouTube Music."
+                  : "Opens YouTube Music and reads the signed-in API request itself. Log in if YouTube asks; the window closes when the headers are captured."}
+              </p>
+            </div>
             <button
-              onClick={handleSave}
-              disabled={status === "saving" || !headerInput.trim()}
-              className="px-3 py-1.5 rounded-lg transition-colors cursor-pointer bg-secondary hover:bg-secondary-light disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={signedIn ? handleSignOut : handleSignIn}
+              disabled={signInStatus === "working" || signedIn == null}
+              className="px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0 bg-secondary hover:bg-secondary-light disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {status === "saving" ? "Saving..." : "Save"}
+              {signInStatus === "working" ? "Working..." : signedIn == null ? "..." : signedIn ? "Sign out" : "Sign in"}
             </button>
           </div>
-          {status === "success" && <div className="text-sm text-green-500">Headers saved successfully!</div>}
-          {status === "error" && errorMessage && <div className="text-sm text-red-500">{errorMessage}</div>}
+          {signInStatus === "error" && signInError && <div className="text-sm text-red-500">{signInError}</div>}
         </div>
       </div>
     </div>

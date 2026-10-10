@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: YTMusic",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app/main.py",
+      "python": "${workspaceFolder}/app/.venv/Scripts/python.exe",
+      "cwd": "${workspaceFolder}/app",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "ENV": "dev"
+      }
+    }
+  ]
+}

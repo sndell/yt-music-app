@@ -1,7 +1,7 @@
 # YTMusic App - Python Dependencies
 # Install with: pip install -r requirements.txt
 
-pywebview>=5.0.0
-ytmusicapi>=1.0.0
+pywebview>=6.2.1
+ytmusicapi>=1.12.3
 colorthief>=0.2.1
-diskcache>=5.6.0
+diskcache>=5.6.3

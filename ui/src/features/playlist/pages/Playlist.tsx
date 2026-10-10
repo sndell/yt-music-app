@@ -1,46 +1,120 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "wouter";
-import type { PlaylistDetails } from "@/lib/api";
+import type { LikeStatus, PlaylistDetails, PlaylistSummary } from "@/lib/api";
+import { usePlayer } from "@/features/player";
 import { hexToRgba } from "@/util/hex_to_rgba";
-import { usePlaylist } from "../hooks/usePlaylist";
+import { usePlaylist } from "../hooks/usePlaylist.tsx";
+import { PlaylistDescription } from "../components/PlaylistDescription";
 import { PlaylistTrackList } from "../components/PlaylistTrackList";
+
+const withRatings = (playlist: PlaylistDetails, ratings: Record<string, LikeStatus>): PlaylistDetails => {
+  let changed = false;
+  const tracks = playlist.tracks.map((track) => {
+    const status = ratings[track.videoId];
+    if (!status || status === track.likeStatus) return track;
+    changed = true;
+    return { ...track, likeStatus: status };
+  });
+  return changed ? { ...playlist, tracks } : playlist;
+};
+
+const PlaylistTracksLoading = ({ summary }: { summary: PlaylistSummary }) => {
+  const [failed, setFailed] = useState(false);
+  const thumbnailUrl = summary.thumbnails?.[0]?.url;
+
+  return (
+    <div className="grid h-full place-items-center py-8">
+      <div className="flex w-56 flex-col items-center">
+        <div className="flex max-w-full items-center gap-2">
+          {thumbnailUrl && !failed ? (
+            <img
+              src={thumbnailUrl}
+              alt=""
+              onError={() => setFailed(true)}
+              className="size-10 shrink-0 rounded-sm object-cover"
+            />
+          ) : (
+            <div className="grid size-10 shrink-0 place-items-center rounded-sm bg-primary-light">
+              <span className="icon-[solar--music-note-linear] text-primary-dark" />
+            </div>
+          )}
+          <span className="truncate text-sm">{summary.title}</span>
+        </div>
+        <div className="my-4 w-full border-t border-primary" />
+        <div className="flex items-center gap-2 text-primary-dark" role="status">
+          <span className="icon-[solar--loader-linear] animate-spin text-2xl" />
+          <span className="text-sm">Loading tracks</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const Playlist = () => {
   const { id } = useParams();
-  const { fetchPlaylistItems } = usePlaylist();
+  const { playlists, fetchPlaylistItems } = usePlaylist();
+  const { trackRatings } = usePlayer();
+  const ratingsRef = useRef(trackRatings);
+  ratingsRef.current = trackRatings;
   const [playlist, setPlaylist] = useState<PlaylistDetails | null>(null);
+  const [loadedId, setLoadedId] = useState(id);
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
-  // Reset playlist state immediately when ID changes to show spinner
-  useEffect(() => {
+  if (id !== loadedId) {
+    setLoadedId(id);
     setPlaylist(null);
     setIsScrolled(false);
-  }, [id]);
+  }
 
   useEffect(() => {
     if (!id) return;
-    fetchPlaylistItems(id).then((data) => data && setPlaylist(data));
+    let active = true;
+    fetchPlaylistItems(id).then((data) => {
+      if (active && data) setPlaylist(withRatings(data, ratingsRef.current));
+    });
+    return () => {
+      active = false;
+    };
   }, [id, fetchPlaylistItems]);
 
+  useEffect(() => {
+    setPlaylist((current) => (current ? withRatings(current, trackRatings) : current));
+  }, [trackRatings]);
+
+  // Leaving a scrolled playlist can emit a scroll event after the route change
+  // clears this flag. The next playlist then paints with the compact header
+  // already open, and a short list never scrolls again to close it.
+  const playlistReadyId = playlist?.title && loadedId === id ? id : null;
+  useLayoutEffect(() => {
+    if (!playlistReadyId) return;
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    setIsScrolled(false);
+  }, [playlistReadyId]);
+
   const handleScroll = () => {
-    if (!scrollContainerRef.current || !headerRef.current) return;
-    const scrollTop = scrollContainerRef.current.scrollTop;
-    const headerHeight = headerRef.current.offsetHeight;
-    // Trigger sticky header after scrolling past ~60% of original header
-    setIsScrolled(scrollTop > headerHeight * 0.75);
+    const container = scrollContainerRef.current;
+    const header = headerRef.current;
+    if (!container || !header || !container.isConnected) return;
+    const headerHeight = header.offsetHeight;
+    if (headerHeight <= 0) return;
+    setIsScrolled(container.scrollTop > headerHeight * 0.75);
   };
 
-  if (!playlist)
+  if (!playlist?.title) {
+    const summary = playlists.find((item) => item.playlistId === id);
+    if (summary?.title) return <PlaylistTracksLoading summary={summary} />;
+
     return (
       <div className="grid place-items-center py-8 h-full">
-        <span className="icon-[svg-spinners--ring-resize] text-2xl text-primary-dark" />
+        <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
       </div>
     );
+  }
 
   const { title, description, thumbnails, author, year, trackCount, privacy, dominantColor } = playlist;
-  const thumbnailUrl = thumbnails[0]?.url;
+  const thumbnailUrl = thumbnails?.[0]?.url;
 
   const detailsGradient = dominantColor
     ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 1)}, ${hexToRgba(dominantColor, 0.2)})`
@@ -83,19 +157,29 @@ export const Playlist = () => {
       </div>
 
       {/* Scrollable content */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="overflow-y-auto flex-1 scrollbar">
+      <div
+        key={id}
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="overflow-y-auto flex-1 scrollbar [overflow-anchor:none]"
+      >
         {/* Original full header */}
-        <div ref={headerRef} className="flex gap-6 items-end p-6" style={{ background: detailsGradient }}>
+        <div
+          ref={headerRef}
+          className="flex flex-col gap-4 p-6 sm:flex-row sm:items-start sm:gap-6"
+          style={{ background: detailsGradient }}
+        >
           {thumbnailUrl && (
             <img
               src={thumbnailUrl}
               alt={title}
-              className="size-48 shrink-0 rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]"
+              className="size-40 shrink-0 rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)] sm:size-48"
             />
           )}
-          <div className="text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)]">
-            <h1 className="pt-1.5 text-5xl font-bold">{title}</h1>
-            <p className="pt-1.5 font-medium text-primary-dark opacity-90">{description ?? "No description"}</p>
+          {/* Stays on the cover's bottom edge while the description height eases, so hiding it doesn't snap the text down. */}
+          <div className="min-w-0 flex-1 text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)] sm:self-end">
+            <h1 className="pt-1.5 text-3xl font-bold wrap-anywhere sm:text-5xl">{title}</h1>
+            <PlaylistDescription description={description} />
             <p className="pt-3 font-medium text-primary-dark">
               <span className="text-primary">{author.name} </span>
               <span className="capitalize">

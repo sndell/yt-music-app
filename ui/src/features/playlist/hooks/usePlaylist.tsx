@@ -1,8 +1,18 @@
-import { useCallback, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { PyBridge } from "@/lib/api/bridge";
 import type { PlaylistSummary, PlaylistDetails } from "@/lib/api/types";
 
-export const usePlaylist = () => {
+type PlaylistContextValue = {
+  playlists: PlaylistSummary[];
+  isLoading: boolean;
+  error: string | null;
+  fetchPlaylists: () => Promise<void>;
+  fetchPlaylistItems: (playlistId: string) => Promise<PlaylistDetails | null>;
+};
+
+const PlaylistContext = createContext<PlaylistContextValue | null>(null);
+
+export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,5 +41,16 @@ export const usePlaylist = () => {
     return result.success ? result.data : null;
   }, []);
 
-  return { playlists, isLoading, error, fetchPlaylists, fetchPlaylistItems };
+  const value = useMemo(
+    () => ({ playlists, isLoading, error, fetchPlaylists, fetchPlaylistItems }),
+    [playlists, isLoading, error, fetchPlaylists, fetchPlaylistItems],
+  );
+
+  return <PlaylistContext.Provider value={value}>{children}</PlaylistContext.Provider>;
+};
+
+export const usePlaylist = () => {
+  const value = useContext(PlaylistContext);
+  if (!value) throw new Error("usePlaylist must be used within PlaylistProvider");
+  return value;
 };
