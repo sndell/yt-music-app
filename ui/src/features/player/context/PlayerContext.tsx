@@ -1,6 +1,6 @@
 import { PyBridge, type LikeStatus, type Track, type WatchTrack } from "@/lib/api";
 import { moveItem } from "@/lib/orderMap";
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 type PlayerContextType = {
   currentSong: Track | null;
@@ -8,10 +8,7 @@ type PlayerContextType = {
   queue: WatchTrack[];
   queueOpen: boolean;
   queueLoading: boolean;
-  videoVisible: boolean;
   toggleQueue: () => void;
-  toggleVideo: () => void;
-  showBlockedEmbed: (videoId: string) => void;
   shuffle: boolean;
   toggleShuffle: () => void;
   ratingPending: boolean;
@@ -129,8 +126,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [queue, setQueue] = useState<WatchTrack[]>([]);
   const [queueOpen, setQueueOpen] = useState(false);
   const [queueLoading, setQueueLoading] = useState(false);
-  const [videoVisible, setVideoVisible] = useState(false);
-  const playingVideoId = currentSong?.videoId ?? null;
   const [queueIndex, setQueueIndex] = useState(-1);
   const [queueRevision, setQueueRevision] = useState(0);
   const [queueFill, setQueueFill] = useState(0);
@@ -178,20 +173,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const toggleQueue = useCallback(() => {
     setQueueOpen((open) => !open);
   }, []);
-
-  const toggleVideo = useCallback(() => {
-    setVideoVisible((visible) => !visible);
-  }, []);
-
-  const showBlockedEmbed = useCallback((videoId: string) => {
-    if (!videoId || currentSongRef.current?.videoId !== videoId) return;
-    setQueueOpen(true);
-    setVideoVisible(true);
-  }, []);
-
-  useLayoutEffect(() => {
-    setVideoVisible(false);
-  }, [playingVideoId]);
 
   const loadWatchPlaylist = useCallback(
     async (
@@ -746,10 +727,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         queue,
         queueOpen,
         queueLoading,
-        videoVisible,
         toggleQueue,
-        toggleVideo,
-        showBlockedEmbed,
         shuffle: shuffleOn,
         toggleShuffle,
         ratingPending,

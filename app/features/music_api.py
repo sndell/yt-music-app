@@ -26,6 +26,7 @@ import ytmusicapi
 from ytmusicapi.helpers import initialize_headers, sapisid_from_cookie
 
 from util.app_paths import data_dir, is_frozen
+from util.audio_stream import audio_stream
 from util.get_dominant_color import get_dominant_color_hex
 
 logger = logging.getLogger(__name__)
@@ -788,9 +789,6 @@ def _save_browser_json(headers: dict[str, str]) -> None:
         if not account:
             raise ValueError("YouTube Music did not accept these headers.")
         tmp_path.replace(_BROWSER_JSON_PATH)
-        from util.embed_cookies import sync_login_cookies
-
-        sync_login_cookies()
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -1485,6 +1483,20 @@ class MusicApi:
         except Exception as e:
             logger.exception("Failed to fetch watch playlist: %s", e)
             return {}
+
+    def get_audio_stream(self, video_id: str, refresh: bool = False) -> dict[str, Any]:
+        """Direct audio URL for a song on the signed-in account.
+
+        The highest bitrate is used. A Premium account receives YouTube
+        Music's high-quality stream, about 256 kbps, when that file is offered.
+        """
+        if not isinstance(video_id, str) or not video_id.strip():
+            raise ValueError("video id is required")
+        try:
+            ytmusic = self._get_ytmusic()
+        except FileNotFoundError as exc:
+            raise RuntimeError("Sign in to play music.") from exc
+        return audio_stream(ytmusic, video_id.strip(), refresh=bool(refresh))
 
     def get_song_rating(self, video_id: str) -> dict[str, str]:
         """Return the signed-in user's like status for a song.

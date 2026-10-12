@@ -10,7 +10,7 @@ A Windows desktop client for [YouTube Music](https://music.youtube.com). Sign in
 
 - Home shelves of songs, albums, and playlists, tinted from the cover art
 - Playlist, album, and artist pages, with your playlists listed in the sidebar
-- Playback through the YouTube player: seek, volume, shuffle, and repeat
+- Playback of the song's own audio stream: seek, volume, shuffle, and repeat. A Premium account plays YouTube Music's high-quality stream, about 256 kbps, when that file is offered
 - A queue with what already played, what is playing, and what is next
 - Track actions: start a mix, play next, or add to the queue
 - Like and dislike, written back to your YouTube Music account

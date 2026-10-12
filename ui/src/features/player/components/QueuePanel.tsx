@@ -335,14 +335,13 @@ const CoverWash = ({ url, sampleUrl, color }: { url?: string; sampleUrl?: string
   );
 };
 
-const EMBED_EASE = "ease-[cubic-bezier(0.22,1,0.36,1)]";
+const QUEUE_EASE = "ease-[cubic-bezier(0.22,1,0.36,1)]";
 
 export const QueuePanel = () => {
   const {
     queue,
     queueOpen,
     queueLoading,
-    videoVisible,
     currentSong,
     currentQueueIndex,
     queueRevision,
@@ -354,7 +353,6 @@ export const QueuePanel = () => {
     startMix,
   } = usePlayer();
   const [menu, setMenu] = useState<{ track: WatchTrack; x: number; y: number } | null>(null);
-  const embedOpen = videoVisible && Boolean(currentSong);
   const currentTrack = currentQueueIndex >= 0 ? queue[currentQueueIndex] : null;
   const upcoming = currentTrack ? queue.slice(currentQueueIndex + 1) : queue;
   const dragIds = queue.map((track) => stableDragId(track));
@@ -429,44 +427,17 @@ export const QueuePanel = () => {
       aria-hidden={!queueOpen}
       inert={!queueOpen}
       className={cn(
-        `flex flex-col shrink-0 my-1.5 min-h-0 overflow-hidden transition-[width,margin-right] duration-500 ${EMBED_EASE}`,
+        `flex flex-col shrink-0 my-1.5 min-h-0 overflow-hidden transition-[width,margin-right] duration-500 ${QUEUE_EASE}`,
         queueOpen ? "mr-1.5 w-72" : "mr-0 w-0"
       )}
     >
-      <div
-        aria-hidden={!embedOpen}
-        style={{ gridTemplateRows: embedOpen ? "1fr" : "0fr" }}
-        className={`grid shrink-0 transition-[grid-template-rows] duration-500 ${EMBED_EASE}`}
-      >
-        <div className="overflow-hidden min-h-0">
-          <div className="mb-1.5 overflow-hidden rounded-xl bg-primary p-1.5">
-            <div id="queue-embed" className="overflow-hidden w-full bg-black rounded-lg aspect-video" />
-          </div>
-        </div>
-      </div>
       <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden rounded-xl bg-primary">
         <CoverWash url={coverUrl} sampleUrl={sampleUrl} color={coverColor} />
         <div className="relative z-10 flex gap-1 items-center px-2 py-2">
-          
-          {/* <span className="size-10 shrink-0" /> */}
           <div className="flex flex-1 gap-2 justify-center items-center min-w-0">
             <h2 className="font-semibold">Queue</h2>
             {queue.length > 0 && <span className="text-sm text-primary-dark">{queue.length}</span>}
           </div>
-          {/* <button
-            type="button"
-            onClick={toggleVideo}
-            aria-pressed={embedOpen}
-            aria-label={embedOpen ? "Hide video" : "Show video"}
-            className={cn(
-              "grid size-10 cursor-pointer place-items-center rounded-full transition-colors duration-200",
-              embedOpen
-                ? "bg-control-active text-primary hover:bg-control-active-hover"
-                : "text-primary-dark hover:bg-primary-light hover:text-primary"
-            )}
-          >
-            <span className="text-lg icon-[solar--video-frame-play-horizontal-linear]" />
-          </button> */}
         </div>
         <ReorderList
           ids={dragIds}
