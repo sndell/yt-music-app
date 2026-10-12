@@ -1,7 +1,7 @@
 """Discord rich presence for the song that is playing.
 
 Discord's desktop app exposes a local pipe. This module talks to that pipe with
-an application ID from the developer portal. A bot token is not used, and nothing
+an application ID that ships with the app. A bot token is not used, and nothing
 is sent if Discord is closed or the setting is off.
 """
 
@@ -31,12 +31,12 @@ from util.app_paths import data_dir
 logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = data_dir() / "discord.json"
-# Application id from the Discord developer portal. It is not a bot token.
-# The dev window stores a copy under app/. A packaged exe has its own data
-# folder, so this default is what a fresh build uses until Settings changes it.
+# Application id from the Discord developer portal. It is not a bot token and it
+# is not a secret: Discord's local pipe has no authentication, so the id only
+# decides which application name and art the presence shows under. It ships with
+# the app, which is why Settings is a plain on/off switch and cannot change it.
 _DEFAULT_CLIENT_ID = "1558993268094668981"
 _VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
-_CLIENT_ID = re.compile(r"\d{17,20}")
 _MAX_IMAGE_LEN = 256
 _MIN_INTERVAL = 1.0
 _IDLE = object()
@@ -67,19 +67,6 @@ def _clip(value: str, limit: int) -> str:
     if limit <= 1:
         return value[:limit]
     return value[: limit - 1].rstrip() + "…"
-
-
-def _normalize_client_id(value: str) -> str | None:
-    """Return a bare application ID, '' when the field is empty, or None when it is unusable."""
-    text = value.strip()
-    if not text:
-        return ""
-    if _CLIENT_ID.fullmatch(text):
-        return text
-    found = _CLIENT_ID.findall(text)
-    if len(found) == 1:
-        return found[0]
-    return None
 
 
 def _flag(value: object) -> bool:
@@ -222,23 +209,13 @@ class DiscordPresence:
 
     def status(self) -> dict[str, Any]:
         with self._lock:
-            return self._snapshot(True)
+            return self._snapshot()
 
-    def configure(self, enabled: object, client_id: object) -> dict[str, Any]:
-        normalized = _normalize_client_id(str(client_id or ""))
+    def configure(self, enabled: object) -> dict[str, Any]:
         turned_on = _flag(enabled)
         with self._lock:
-            if normalized is None or (turned_on and not normalized):
-                snapshot = self._snapshot(False)
-                snapshot["message"] = (
-                    "Paste the application ID from the Discord developer portal. "
-                    "It is the long number under the application name."
-                )
-                return snapshot
-            if normalized != self._client_id:
-                self._rejected = ""
-            self._client_id = normalized
-            self._enabled = turned_on and bool(normalized)
+            self._enabled = turned_on
+            self._rejected = ""
             self._epoch += 1
             self._connected = False
             if self._enabled:
@@ -251,10 +228,10 @@ class DiscordPresence:
                 self._save()
             except OSError:
                 logger.exception("Could not save Discord settings")
-                snapshot = self._snapshot(False)
+                snapshot = self._snapshot()
                 snapshot["message"] = "Couldn't save the Discord setting."
                 return snapshot
-            snapshot = self._snapshot(True)
+            snapshot = self._snapshot()
         self._wake.set()
         return snapshot
 
@@ -300,14 +277,12 @@ class DiscordPresence:
         self._wake.set()
         self._thread.join(timeout=2)
 
-    def _snapshot(self, accepted: bool) -> dict[str, Any]:
+    def _snapshot(self) -> dict[str, Any]:
         return {
             "enabled": self._enabled,
-            "clientId": self._client_id,
             "connected": self._connected,
             "state": self._state,
             "message": self._message,
-            "accepted": accepted,
         }
 
     def _set(self, state: str, message: str) -> None:
@@ -326,15 +301,11 @@ class DiscordPresence:
             return
         if not isinstance(raw, dict):
             return
-        normalized = _normalize_client_id(str(raw.get("clientId") or ""))
-        if not normalized:
-            return
-        self._client_id = normalized
         self._enabled = bool(raw.get("enabled"))
 
     def _save(self) -> None:
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"enabled": self._enabled, "clientId": self._client_id}
+        payload = {"enabled": self._enabled}
         temporary = _CONFIG_PATH.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         temporary.replace(_CONFIG_PATH)
@@ -389,7 +360,7 @@ class DiscordPresence:
             with self._lock:
                 self._rejected = client_id
             self._drop(clear=False)
-            self._set("invalid", "Discord rejected that application ID.")
+            self._set("invalid", "Discord rejected this app's application ID.")
             logger.warning("Discord rejected the application ID")
         except _UNAVAILABLE:
             self._drop(clear=False)

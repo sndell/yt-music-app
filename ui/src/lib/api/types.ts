@@ -236,11 +236,9 @@ export interface WatchTrack {
 
 export interface DiscordPresenceStatus {
   enabled: boolean;
-  clientId: string;
   connected: boolean;
   state: "off" | "connecting" | "connected" | "waiting" | "invalid" | "error";
   message: string;
-  accepted: boolean;
 }
 
 export interface WatchPlaylist {
@@ -289,7 +287,7 @@ export interface ApiMethods {
     response: void;
   };
   get_discord_presence: { params: []; response: DiscordPresenceStatus };
-  set_discord_presence: { params: [enabled: boolean, clientId: string]; response: DiscordPresenceStatus };
+  set_discord_presence: { params: [enabled: boolean]; response: DiscordPresenceStatus };
   update_discord_presence: {
     params: [
       title: string,

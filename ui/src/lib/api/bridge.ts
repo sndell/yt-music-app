@@ -96,7 +96,7 @@ export const PyBridge = {
   updateMediaControls: (title: string, artist: string, playing: boolean, hasNext: boolean, artwork: string) =>
     callPython("update_media_controls", title, artist, playing, hasNext, artwork),
   getDiscordPresence: () => callPython("get_discord_presence"),
-  setDiscordPresence: (enabled: boolean, clientId: string) => callPython("set_discord_presence", enabled, clientId),
+  setDiscordPresence: (enabled: boolean) => callPython("set_discord_presence", enabled),
   updateDiscordPresence: (
     title: string,
     artist: string,

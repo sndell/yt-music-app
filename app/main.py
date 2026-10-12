@@ -47,9 +47,9 @@ class Api(MusicApi):
         """Whether Discord rich presence is on, and if the desktop app is connected."""
         return discord_presence.status()
 
-    def set_discord_presence(self, enabled: bool, client_id: str) -> dict:
-        """Store the Discord application ID and connect or disconnect."""
-        return discord_presence.configure(enabled, client_id or "")
+    def set_discord_presence(self, enabled: bool) -> dict:
+        """Turn Discord rich presence on or off."""
+        return discord_presence.configure(enabled)
 
     def update_discord_presence(
         self,
