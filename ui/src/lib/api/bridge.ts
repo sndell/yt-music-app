@@ -87,6 +87,7 @@ export const PyBridge = {
   getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),
   getWatchPlaylist: (videoId?: string, playlistId?: string, radio = false, shuffle = false) =>
     callPython("get_watch_playlist", videoId ?? "", playlistId ?? "", radio, shuffle),
+  getQueueTuner: (videoId: string) => callPython("get_queue_tuner", videoId),
   signIn: () => callPython("sign_in"),
   isSignedIn: () => callPython("is_signed_in"),
   signOut: () => callPython("sign_out"),

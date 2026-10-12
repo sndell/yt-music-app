@@ -98,11 +98,67 @@ body {
   @apply text-primary;
 }
 
+/*
+ * Press feedback: every clickable control eases down a touch on press.
+ * `scale` (not `transform`) so it composes with drag transforms and with the
+ * rotate/translate utilities. Left unlayered so it stays consistent even where
+ * a utility sets its own transition.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  :is(
+    button,
+    a[href],
+    summary,
+    [role="button"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="tab"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"]
+  ) {
+    transition:
+      scale 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 150ms ease,
+      background-color 150ms ease,
+      border-color 150ms ease,
+      opacity 200ms ease,
+      box-shadow 200ms ease;
+  }
+
+  :is(
+    button:not(:disabled),
+    a[href],
+    summary,
+    [role="button"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="tab"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"]
+  ):active {
+    scale: 0.97;
+  }
+}
+
 @theme {
   --animate-qp-next: qp-next 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-qp-prev: qp-prev 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-queue-wash: queue-wash 18s ease-in-out infinite;
   --animate-queue-wash-low: queue-wash-low 24s ease-in-out infinite;
+  --animate-tuner-swap: tuner-swap 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes tuner-swap {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 
   @keyframes queue-wash {
     0%,

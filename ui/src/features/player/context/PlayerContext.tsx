@@ -1,4 +1,4 @@
-import { PyBridge, type LikeStatus, type Track, type WatchTrack } from "@/lib/api";
+import { PyBridge, type LikeStatus, type Track, type WatchTrack, type WatchTunerChip } from "@/lib/api";
 import { moveItem } from "@/lib/orderMap";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
@@ -8,6 +8,11 @@ type PlayerContextType = {
   queue: WatchTrack[];
   queueOpen: boolean;
   queueLoading: boolean;
+  /** Selected mix tuner chip id; "All" is the plain song mix. */
+  queueTuner: string;
+  /** Genre chips for the playing song's mix. Empty when the queue has none. */
+  queueChips: WatchTunerChip[];
+  selectQueueTuner: (chip: WatchTunerChip) => void;
   toggleQueue: () => void;
   shuffle: boolean;
   toggleShuffle: () => void;
@@ -126,6 +131,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [queue, setQueue] = useState<WatchTrack[]>([]);
   const [queueOpen, setQueueOpen] = useState(false);
   const [queueLoading, setQueueLoading] = useState(false);
+  const [queueTuner, setQueueTuner] = useState("All");
+  const [queueChips, setQueueChips] = useState<WatchTunerChip[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [queueRevision, setQueueRevision] = useState(0);
   const [queueFill, setQueueFill] = useState(0);
@@ -135,6 +142,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const requestIdRef = useRef(0);
   const queueRef = useRef<WatchTrack[]>([]);
   const queueOpenRef = useRef(false);
+  const queueTunerRef = useRef("All");
   const currentQueueIndexRef = useRef(-1);
   const shuffleRef = useRef(false);
   const currentSongRef = useRef<Track | null>(null);
@@ -275,6 +283,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       normalUpcomingRef.current = null;
       watchPlaylistIdRef.current = null;
       knownVideoIdsRef.current = new Set();
+      // A fresh queue starts untuned. Genre chips only exist for song mixes, so
+      // a library playlist leaves the row empty.
+      queueTunerRef.current = "All";
+      setQueueTuner("All");
+      setQueueChips([]);
       const seeded = seed?.videoId ? (isPlaylistTrack(seed) ? trackToWatchTrack(seed) : { ...seed }) : null;
       if (seeded) {
         knownVideoIdsRef.current.add(seeded.videoId);
@@ -291,6 +304,12 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         if (!queueOpenRef.current) setQueueOpen(false);
       }
       const generation = playGenerationRef.current;
+      if (videoId && libraryPlaylistId(playlistId) === null) {
+        void PyBridge.getQueueTuner(videoId).then((result) => {
+          if (playGenerationRef.current !== generation) return;
+          if (result.success && Array.isArray(result.data)) setQueueChips(result.data);
+        });
+      }
       const load = loadWatchPlaylist(videoId, playlistId, radio, apiShuffle, false, true, generation);
       freshLoadRef.current = load;
       try {
@@ -300,6 +319,58 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }
     },
     [loadWatchPlaylist]
+  );
+
+  // A tuner change only swaps what is still ahead. Played tracks and the
+  // current song stay where they are, like the real queue tuner.
+  const refreshUpcoming = useCallback(async (videoId: string, playlistId: string, generation: number) => {
+    const requestId = ++requestIdRef.current;
+    setQueueLoading(true);
+    try {
+      const result = await PyBridge.getWatchPlaylist(videoId, playlistId, false, false);
+      if (requestId !== requestIdRef.current || playGenerationRef.current !== generation) return;
+      if (!result.success || !result.data || !Array.isArray(result.data.tracks)) return;
+
+      const incoming = result.data.tracks.filter((track) => track.videoId);
+      const current = queueRef.current;
+      const index = currentQueueIndexRef.current;
+      const played = index >= 0 ? current.slice(0, index + 1) : current.slice();
+      const seen = new Set(played.map((track) => track.videoId));
+      const upcoming = incoming.filter((track) => track.videoId && !seen.has(track.videoId));
+      rememberVideoIds(knownVideoIdsRef.current, upcoming);
+
+      const next = [...played, ...upcoming];
+      queueRef.current = next;
+      setQueue(next);
+      normalUpcomingRef.current = shuffleRef.current ? upcoming.slice() : null;
+      if (result.data.playlistId) watchPlaylistIdRef.current = result.data.playlistId;
+      playlistExhaustedRef.current = false;
+      radioStartedRef.current = false;
+      setQueueRevision((revision) => revision + 1);
+    } finally {
+      if (requestId === requestIdRef.current) setQueueLoading(false);
+    }
+  }, []);
+
+  const selectQueueTuner = useCallback(
+    (chip: WatchTunerChip) => {
+      const song = currentSongRef.current;
+      if (!song?.videoId || !chip.playlistId) return;
+      if (queueTunerRef.current === chip.id) return;
+      queueTunerRef.current = chip.id;
+      setQueueTuner(chip.id);
+      playGenerationRef.current += 1;
+      playlistExhaustedRef.current = false;
+      radioStartedRef.current = false;
+      sourcePlaylistIdRef.current = null;
+      fillPromiseRef.current = null;
+      normalUpcomingRef.current = null;
+      watchPlaylistIdRef.current = null;
+      knownVideoIdsRef.current = new Set([song.videoId]);
+      const generation = playGenerationRef.current;
+      void refreshUpcoming(song.videoId, chip.playlistId, generation);
+    },
+    [refreshUpcoming]
   );
 
   const hasUpcoming = () => {
@@ -727,6 +798,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         queue,
         queueOpen,
         queueLoading,
+        queueTuner,
+        queueChips,
+        selectQueueTuner,
         toggleQueue,
         shuffle: shuffleOn,
         toggleShuffle,
