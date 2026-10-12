@@ -1,6 +1,9 @@
 # Build a windowed onefile exe under build\dist\<date>_<time>\.
 # Each run gets its own folder, so older builds stay where they are.
-$ErrorActionPreference = "Stop"
+# Native commands (pnpm, PyInstaller) write progress and warnings to stderr.
+# Treat those as output, not fatal errors; failures are checked with
+# $LASTEXITCODE below.
+$ErrorActionPreference = "Continue"
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $Root "app\.venv\Scripts\python.exe"
