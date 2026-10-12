@@ -320,7 +320,7 @@ export const Artist = () => {
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
   const songsId = songs?.browseId;
-  const onPlay = songsId ? () => void playPlaylist(songsId, "play") : undefined;
+  const onPlay = songsId ? () => void playPlaylist(songsId, "play", true) : undefined;
   const onShuffle = shuffleId ? () => void playPlaylist(shuffleId, "shuffle") : undefined;
   const radio = radioId
     ? {
@@ -382,6 +382,7 @@ export const Artist = () => {
               tracks={songs.items}
               gradient="transparent"
               playlistId={songs.browseId ?? undefined}
+              tunable
               title="Popular"
               variant="popular"
               footer={

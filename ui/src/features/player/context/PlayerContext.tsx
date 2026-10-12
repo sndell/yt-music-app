@@ -23,11 +23,11 @@ type PlayerContextType = {
   getWatchPlaylist: (videoId: string, playlistId?: string, radio?: boolean, shuffle?: boolean) => Promise<void>;
   playFromQueue: (track: WatchTrack, index?: number) => void;
   reorderQueue: (from: number, to: number) => void;
-  playFromPlaylist: (track: Track, playlistId?: string) => void;
+  playFromPlaylist: (track: Track, playlistId?: string, tunable?: boolean) => void;
   playTrackNext: (track: Track | WatchTrack) => void;
   addTrackToQueue: (track: Track | WatchTrack) => void;
   startMix: (track: Track | WatchTrack) => void;
-  playPlaylist: (playlistId: string, mode: "play" | "shuffle" | "mix") => Promise<void>;
+  playPlaylist: (playlistId: string, mode: "play" | "shuffle" | "mix", tunable?: boolean) => Promise<void>;
   queuePlaylist: (playlistId: string, position: "next" | "end") => Promise<void>;
   playTracks: (tracks: Track[]) => void;
   playNext: () => Promise<boolean>;
@@ -274,7 +274,14 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const getWatchPlaylist = useCallback(
-    async (videoId: string, playlistId?: string, radio = false, apiShuffle = false, seed?: Track | WatchTrack) => {
+    async (
+      videoId: string,
+      playlistId?: string,
+      radio = false,
+      apiShuffle = false,
+      seed?: Track | WatchTrack,
+      tunable?: boolean
+    ) => {
       playGenerationRef.current += 1;
       playlistExhaustedRef.current = false;
       radioStartedRef.current = false;
@@ -283,8 +290,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       normalUpcomingRef.current = null;
       watchPlaylistIdRef.current = null;
       knownVideoIdsRef.current = new Set();
-      // A fresh queue starts untuned. Genre chips only exist for song mixes, so
-      // a library playlist leaves the row empty.
+      // A fresh queue starts untuned. Genre chips exist for song and mix plays,
+      // not for a fixed album or library playlist.
       queueTunerRef.current = "All";
       setQueueTuner("All");
       setQueueChips([]);
@@ -304,7 +311,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         if (!queueOpenRef.current) setQueueOpen(false);
       }
       const generation = playGenerationRef.current;
-      if (videoId && libraryPlaylistId(playlistId) === null) {
+      // Tuner chips track the playing song's automix. Default to song and mix
+      // plays (a bare video or an RD radio); callers can opt a fixed collection
+      // in or out explicitly.
+      const tunerAllowed = tunable ?? libraryPlaylistId(playlistId) === null;
+      if (videoId && tunerAllowed) {
         void PyBridge.getQueueTuner(videoId).then((result) => {
           if (playGenerationRef.current !== generation) return;
           if (result.success && Array.isArray(result.data)) setQueueChips(result.data);
@@ -595,7 +606,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const playPlaylist = useCallback(
-    async (playlistId: string, mode: "play" | "shuffle" | "mix") => {
+    async (playlistId: string, mode: "play" | "shuffle" | "mix", tunable?: boolean) => {
       if (!playlistId) return;
       if (mode === "play") {
         shuffleRef.current = false;
@@ -617,6 +628,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       currentQueueIndexRef.current = -1;
       setQueue([]);
       setQueueIndex(-1);
+      queueTunerRef.current = "All";
+      setQueueTuner("All");
+      setQueueChips([]);
 
       const generation = playGenerationRef.current;
       const load = loadWatchPlaylist("", playlistId, mode === "mix", mode === "shuffle", false, true, generation);
@@ -635,6 +649,16 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       const song = watchTrackToTrack(first);
       currentSongRef.current = song;
       setCurrentSong(song);
+
+      // A playlist mix is a tunable automix; a plain album or playlist is not.
+      // Callers can opt a fixed collection in explicitly (the artist song list).
+      const tunerAllowed = tunable ?? mode === "mix";
+      if (tunerAllowed && first.videoId) {
+        void PyBridge.getQueueTuner(first.videoId).then((result) => {
+          if (playGenerationRef.current !== generation) return;
+          if (result.success && Array.isArray(result.data)) setQueueChips(result.data);
+        });
+      }
     },
     [loadWatchPlaylist]
   );
@@ -728,7 +752,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   );
 
   const playFromPlaylist = useCallback(
-    (track: Track, playlistId?: string) => {
+    (track: Track, playlistId?: string, tunable?: boolean) => {
       if (!track.videoId) return;
       const source = libraryPlaylistId(playlistId);
       const samePlaylist = source !== null && source === sourcePlaylistIdRef.current;
@@ -759,7 +783,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }
       currentSongRef.current = track;
       setCurrentSong(track);
-      void getWatchPlaylist(track.videoId, playlistId, false, false, track);
+      void getWatchPlaylist(track.videoId, playlistId, false, false, track, tunable);
     },
     [fillQueue, getWatchPlaylist]
   );

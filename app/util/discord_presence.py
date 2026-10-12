@@ -107,16 +107,13 @@ def cover_url(artwork: str, video_id: str) -> str | None:
     return None
 
 
-def listening_state(artist: str, album: str, playing: bool) -> str:
+def listening_state(artist: str, album: str) -> str:
     artist = _clip(artist, 128)
     album = _clip(album, 128)
     if artist and album and album.casefold() not in artist.casefold():
         line = f"{artist} — {album}"
     else:
         line = artist or album or "YouTube Music"
-    if not playing:
-        suffix = " · Paused"
-        line = _clip(line, 128 - len(suffix)) + suffix
     return _clip(line, 128)
 
 
@@ -150,7 +147,7 @@ def _payload(track: dict[str, Any], *, buttons: bool, image_mode: int) -> dict[s
         "activity_type": ActivityType.LISTENING,
         "status_display_type": StatusDisplayType.DETAILS,
         "details": details,
-        "state": listening_state(str(track["artist"]), str(track["album"]), bool(track["playing"])),
+        "state": listening_state(str(track["artist"]), str(track["album"])),
     }
     if url:
         payload["details_url"] = url
@@ -265,6 +262,10 @@ class DiscordPresence:
                     "artwork": str(artwork or "").strip(),
                     "video_id": str(video_id or "").strip(),
                 }
+                # A paused song is not shown at all. Discord would otherwise keep
+                # a frozen progress bar and the old track on screen after a pause.
+                if not desired["playing"]:
+                    desired = None
         except Exception:
             logger.exception("Ignored a bad Discord presence update")
             return

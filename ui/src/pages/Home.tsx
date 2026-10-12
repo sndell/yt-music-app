@@ -53,6 +53,12 @@ export const Home = () => {
   const [menu, setMenu] = useState<
     { kind: "track"; track: Track; x: number; y: number } | { kind: "playlist"; playlistId: string; x: number; y: number } | null
   >(null);
+  const isMenuTarget = (item: HomeItem) =>
+    menu?.kind === "track"
+      ? menu.track.videoId === item.videoId
+      : menu?.kind === "playlist"
+        ? menu.playlistId === item.playlistId
+        : false;
   const requestIdRef = useRef(0);
   const [, navigate] = useLocation();
   const { currentSong, startMix, playTracks, playTrackNext, addTrackToQueue, playPlaylist, queuePlaylist } = usePlayer();
@@ -165,6 +171,7 @@ export const Home = () => {
                   key={shelf.title}
                   shelf={shelf}
                   currentVideoId={currentSong?.videoId}
+                  isMenuTarget={isMenuTarget}
                   onOpen={openItem}
                   onPlayAlbum={playAlbum}
                   onPlayPlaylist={(playlistId) => void playPlaylist(playlistId, "play")}
@@ -184,6 +191,7 @@ export const Home = () => {
                   page={page}
                   setPage={setPage}
                   currentVideoId={currentSong?.videoId}
+                  isMenuTarget={isMenuTarget}
                   onPlayAll={() => playTracks(shelf.items.filter((item) => item.videoId).map(toTrack))}
                   onOpen={openItem}
                   onOpenMenu={(item, x, y) => {
@@ -224,6 +232,7 @@ export const Home = () => {
 const HomeRow = ({
   shelf,
   currentVideoId,
+  isMenuTarget,
   onOpen,
   onOpenMenu,
   onPlayAlbum,
@@ -231,6 +240,7 @@ const HomeRow = ({
 }: {
   shelf: HomeShelf;
   currentVideoId: string | undefined;
+  isMenuTarget: (item: HomeItem) => boolean;
   onOpen: (item: HomeItem) => void;
   onOpenMenu: (item: HomeItem, x: number, y: number) => void;
   onPlayAlbum: (item: HomeItem) => void;
@@ -244,6 +254,7 @@ const HomeRow = ({
           key={itemKey(item, index)}
           item={item}
           playing={Boolean(item.videoId) && currentVideoId === item.videoId}
+          menuOpen={isMenuTarget(item)}
           onOpen={() => onOpen(item)}
           onOpenMenu={(x, y) => onOpenMenu(item, x, y)}
           onPlayAlbum={() => onPlayAlbum(item)}
@@ -259,6 +270,7 @@ const HomeRow = ({
 const HomeCard = ({
   item,
   playing,
+  menuOpen,
   onOpen,
   onOpenMenu,
   onPlayAlbum,
@@ -266,6 +278,7 @@ const HomeCard = ({
 }: {
   item: HomeItem;
   playing: boolean;
+  menuOpen: boolean;
   onOpen: () => void;
   onOpenMenu: (x: number, y: number) => void;
   onPlayAlbum: () => void;
@@ -290,6 +303,7 @@ const HomeCard = ({
         event.preventDefault();
         if (isPlaylist || (item.kind === "song" && item.videoId)) onOpenMenu(event.clientX, event.clientY);
       }}
+      data-menu-open={menuOpen ? "true" : undefined}
       className="group w-36 shrink-0 sm:w-40"
     >
       <div
@@ -316,7 +330,7 @@ const HomeCard = ({
         {isPlaylist || isAlbum ? (
           <span
             onClick={onOpen}
-            className="pointer-events-none absolute inset-0 cursor-pointer opacity-0 transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+            className="pointer-events-none absolute inset-0 cursor-pointer opacity-0 transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-data-[menu-open=true]:pointer-events-auto group-data-[menu-open=true]:opacity-100"
           >
             {isPlaylist && (
               <span
@@ -325,14 +339,14 @@ const HomeCard = ({
                   const rect = event.currentTarget.getBoundingClientRect();
                   onOpenMenu(rect.left, rect.bottom);
                 }}
-                className="pointer-events-none absolute top-1 right-1 group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+                className="pointer-events-none absolute top-1 right-1 group-hover:pointer-events-auto group-focus-within:pointer-events-auto group-data-[menu-open=true]:pointer-events-auto"
               >
                 <IconButton
                   iconClass="icon-[solar--menu-dots-bold]"
                   label={`More options for ${item.title}`}
                   size="sm"
                   tone="ghost"
-                  className="pointer-events-none text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.8)] group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+                  className="pointer-events-none text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.8)] group-hover:pointer-events-auto group-focus-within:pointer-events-auto group-data-[menu-open=true]:pointer-events-auto"
                 />
               </span>
             )}
@@ -344,7 +358,7 @@ const HomeCard = ({
                 if (isAlbum) onPlayAlbum();
                 else onPlayPlaylist();
               }}
-              className="group/play pointer-events-none absolute right-1.5 bottom-1.5 grid size-10 cursor-pointer place-items-center text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.8)] group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+              className="group/play pointer-events-none absolute right-1.5 bottom-1.5 grid size-10 cursor-pointer place-items-center text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.8)] group-hover:pointer-events-auto group-focus-within:pointer-events-auto group-data-[menu-open=true]:pointer-events-auto"
             >
               <RevealIcon grow iconClassName="icon-[solar--play-bold] text-2xl" />
             </button>
@@ -385,6 +399,7 @@ const QuickPicks = ({
   page,
   setPage,
   currentVideoId,
+  isMenuTarget,
   onPlayAll,
   onOpen,
   onOpenMenu,
@@ -393,6 +408,7 @@ const QuickPicks = ({
   page: number;
   setPage: (value: number | ((value: number) => number)) => void;
   currentVideoId: string | undefined;
+  isMenuTarget: (item: HomeItem) => boolean;
   onPlayAll: () => void;
   onOpen: (item: HomeItem) => void;
   onOpenMenu: (item: HomeItem, x: number, y: number) => void;
@@ -467,6 +483,7 @@ const QuickPicks = ({
       className={className}
       items={itemsFor(pageIndex)}
       currentVideoId={currentVideoId}
+      isMenuTarget={isMenuTarget}
       onOpen={onOpen}
       onOpenMenu={onOpenMenu}
     />
@@ -544,12 +561,14 @@ const QuickPicks = ({
 const QuickPickGrid = ({
   items,
   currentVideoId,
+  isMenuTarget,
   onOpen,
   onOpenMenu,
   className,
 }: {
   items: HomeItem[];
   currentVideoId: string | undefined;
+  isMenuTarget: (item: HomeItem) => boolean;
   onOpen: (item: HomeItem) => void;
   onOpenMenu: (item: HomeItem, x: number, y: number) => void;
   className?: string;
@@ -560,6 +579,7 @@ const QuickPickGrid = ({
         key={itemKey(item, index)}
         item={item}
         playing={Boolean(item.videoId) && currentVideoId === item.videoId}
+        menuOpen={isMenuTarget(item)}
         onPlay={() => onOpen(item)}
         onOpenMenu={(x, y) => onOpenMenu(item, x, y)}
       />
@@ -570,11 +590,13 @@ const QuickPickGrid = ({
 const QuickPickRow = ({
   item,
   playing,
+  menuOpen,
   onPlay,
   onOpenMenu,
 }: {
   item: HomeItem;
   playing: boolean;
+  menuOpen: boolean;
   onPlay: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) => {
@@ -594,8 +616,9 @@ const QuickPickRow = ({
         type="button"
         onClick={onPlay}
         aria-label={`Play ${item.title}`}
+        data-menu-open={menuOpen ? "true" : undefined}
         className={cn(
-          "group flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-light",
+          "group flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-light data-[menu-open=true]:bg-primary-light",
           playing && "bg-primary-light"
         )}
       >
