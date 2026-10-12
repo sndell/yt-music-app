@@ -250,6 +250,12 @@ export interface WatchPlaylist {
   related?: string | null;
 }
 
+export interface WatchTunerChip {
+  id: string;
+  text: string;
+  playlistId: string;
+}
+
 export interface AudioStream {
   url: string;
   mimeType: string;
@@ -301,6 +307,7 @@ export interface ApiMethods {
     params: [videoId: string, playlistId: string, radio?: boolean, shuffle?: boolean];
     response: WatchPlaylist;
   };
+  get_queue_tuner: { params: [videoId: string]; response: WatchTunerChip[] };
   get_audio_stream: { params: [videoId: string, refresh?: boolean]; response: AudioStream };
   get_song_rating: { params: [videoId: string]; response: { likeStatus: LikeStatus } };
   rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };

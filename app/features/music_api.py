@@ -186,6 +186,64 @@ def _radio_playlist_id(playlist_id: str) -> str:
     return "RDAMPL" + bare
 
 
+def _chip_text(renderer: dict[str, Any]) -> str:
+    """Read the label runs of one chipCloudChipRenderer."""
+    text = renderer.get("text")
+    runs = text.get("runs") if isinstance(text, dict) else None
+    if not isinstance(runs, list):
+        return ""
+    return "".join(run.get("text", "") for run in runs if isinstance(run, dict))
+
+
+def _queue_tuner_chips(ytmusic: "ytmusicapi.YTMusic", video_id: str) -> list[dict[str, str]]:
+    """Read the genre tuner chips YouTube Music shows for a song's mix.
+
+    The chips live in ``musicQueueRenderer.subHeaderChipCloud`` of the ``next``
+    response, which ytmusicapi does not expose. Each chip carries the playlist
+    id that swaps the queue, so the frontend can reload the mix with it.
+    """
+    body = {
+        "enablePersistentPlaylistPanel": True,
+        "isAudioOnly": True,
+        "tunerSettingValue": "AUTOMIX_SETTING_NORMAL",
+        "videoId": video_id,
+        "playlistId": "RDAMVM" + video_id,
+        "params": "wAEB",
+    }
+    response = ytmusic._send_request("next", body)
+    queue = (
+        response.get("contents", {})
+        .get("singleColumnMusicWatchNextResultsRenderer", {})
+        .get("tabbedRenderer", {})
+        .get("watchNextTabbedResultsRenderer", {})
+        .get("tabs", [{}])[0]
+        .get("tabRenderer", {})
+        .get("content", {})
+        .get("musicQueueRenderer", {})
+    )
+    cloud = queue.get("subHeaderChipCloud") if isinstance(queue, dict) else None
+    chips_renderer = cloud.get("chipCloudRenderer") if isinstance(cloud, dict) else None
+    chips: list[dict[str, str]] = []
+    for chip in chips_renderer.get("chips", []) if isinstance(chips_renderer, dict) else []:
+        renderer = chip.get("chipCloudChipRenderer") if isinstance(chip, dict) else None
+        if not isinstance(renderer, dict):
+            continue
+        text = _chip_text(renderer)
+        if not text or text == "Save":
+            continue
+        endpoint = (
+            renderer.get("navigationEndpoint", {})
+            .get("queueUpdateCommand", {})
+            .get("fetchContentsCommand", {})
+            .get("watchEndpoint", {})
+        )
+        playlist_id = endpoint.get("playlistId") if isinstance(endpoint, dict) else None
+        if not isinstance(playlist_id, str) or not playlist_id:
+            continue
+        chips.append({"id": text, "text": text, "playlistId": playlist_id})
+    return chips
+
+
 def _inline_playlist_thumbnails(playlists: list[dict[str, Any]]) -> None:
     _inline_thumbnail_field(playlists, "thumbnails")
 
@@ -1483,6 +1541,25 @@ class MusicApi:
         except Exception as e:
             logger.exception("Failed to fetch watch playlist: %s", e)
             return {}
+
+    def get_queue_tuner(self, video_id: str) -> list[dict[str, str]]:
+        """Genre chips that retune the mix around one song.
+
+        Returns an empty list when YouTube Music shows no tuner for this song
+        (playlists and albums have none). ``playlistId`` is safe to pass back to
+        :meth:`get_watch_playlist` to load the chosen genre.
+        """
+        if not isinstance(video_id, str) or not video_id.strip():
+            return []
+        try:
+            ytmusic = self._get_ytmusic()
+        except FileNotFoundError:
+            return []
+        try:
+            return _queue_tuner_chips(ytmusic, video_id.strip())
+        except Exception as e:
+            logger.exception("Failed to fetch queue tuner: %s", e)
+            return []
 
     def get_audio_stream(self, video_id: str, refresh: bool = False) -> dict[str, Any]:
         """Direct audio URL for a song on the signed-in account.

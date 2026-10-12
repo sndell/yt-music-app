@@ -1,10 +1,11 @@
-import type { WatchTrack } from "@/lib/api";
+import type { WatchTrack, WatchTunerChip } from "@/lib/api";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { cn } from "@/util/cn";
 import { applyEdgeMask } from "@/components/ui/useEdgeFade";
 import { hexToRgba } from "@/util/hex_to_rgba";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ReorderItem, ReorderList, consumeDragClick, stableDragId } from "@/components/ui/reorder";
 import { usePlayer } from "../context/PlayerContext";
 
@@ -342,6 +343,9 @@ export const QueuePanel = () => {
     queue,
     queueOpen,
     queueLoading,
+    queueTuner,
+    queueChips,
+    selectQueueTuner,
     currentSong,
     currentQueueIndex,
     queueRevision,
@@ -353,6 +357,23 @@ export const QueuePanel = () => {
     startMix,
   } = usePlayer();
   const [menu, setMenu] = useState<{ track: WatchTrack; x: number; y: number } | null>(null);
+  const [tunerAnchor, setTunerAnchor] = useState<HTMLButtonElement | null>(null);
+  const [tunerOpen, setTunerOpen] = useState(false);
+  const tunerCloseRef = useRef(0);
+
+  const openTuner = (element: HTMLButtonElement) => {
+    window.clearTimeout(tunerCloseRef.current);
+    setTunerAnchor(element);
+    setTunerOpen(true);
+  };
+
+  const closeTuner = () => {
+    setTunerOpen(false);
+    window.clearTimeout(tunerCloseRef.current);
+    tunerCloseRef.current = window.setTimeout(() => setTunerAnchor(null), 200);
+  };
+
+  useEffect(() => () => window.clearTimeout(tunerCloseRef.current), []);
   const currentTrack = currentQueueIndex >= 0 ? queue[currentQueueIndex] : null;
   const upcoming = currentTrack ? queue.slice(currentQueueIndex + 1) : queue;
   const dragIds = queue.map((track) => stableDragId(track));
@@ -495,6 +516,41 @@ export const QueuePanel = () => {
             })}
           </div>
         </ReorderList>
+        {queueChips.length > 1 && (
+          <div className="relative z-10 shrink-0 border-t border-white/5 px-1.5 pb-1.5 pt-1.5">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={tunerOpen}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                const element = event.currentTarget;
+                if (tunerAnchor) closeTuner();
+                else openTuner(element);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  const element = event.currentTarget;
+                  if (tunerAnchor) closeTuner();
+                  else openTuner(element);
+                }
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-primary-dark transition-colors duration-200 hover:bg-white/10 hover:text-primary"
+            >
+              <span className="shrink-0 text-sm icon-[solar--tuning-2-linear]" />
+              <span key={queueTuner} className="flex-1 min-w-0 text-left truncate animate-tuner-swap">
+                {queueTuner}
+              </span>
+              <span
+                className={cn(
+                  "shrink-0 text-sm transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] icon-[solar--alt-arrow-up-linear]",
+                  tunerOpen && "rotate-180"
+                )}
+              />
+            </button>
+          </div>
+        )}
       </div>
       {menu && (
         <TrackMenu
@@ -506,7 +562,123 @@ export const QueuePanel = () => {
           onAddToQueue={() => addTrackToQueue(menu.track)}
         />
       )}
+      {tunerAnchor && (
+        <TunerMenu
+          open={tunerOpen}
+          trigger={tunerAnchor}
+          chips={queueChips}
+          value={queueTuner}
+          onSelect={selectQueueTuner}
+          onClose={closeTuner}
+        />
+      )}
     </div>
+  );
+};
+
+const TunerMenu = ({
+  open,
+  trigger,
+  chips,
+  value,
+  onSelect,
+  onClose,
+}: {
+  open: boolean;
+  trigger: HTMLButtonElement | null;
+  chips: WatchTunerChip[];
+  value: string;
+  onSelect: (chip: WatchTunerChip) => void;
+  onClose: () => void;
+}) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const anchor = trigger?.getBoundingClientRect();
+    if (!menu || !anchor) return;
+    // Match the trigger exactly so the menu reads as an extension of it.
+    menu.style.width = `${anchor.width}px`;
+    const rect = menu.getBoundingClientRect();
+    let left = anchor.left;
+    if (left + rect.width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - rect.width);
+    // The trigger sits at the bottom of the queue, so the menu opens upward
+    // unless the space below is the better fit.
+    const spaceBelow = window.innerHeight - anchor.bottom;
+    const spaceAbove = anchor.top;
+    const top =
+      spaceBelow >= rect.height + 8 || spaceBelow >= spaceAbove
+        ? anchor.bottom + 4
+        : Math.max(8, anchor.top - rect.height - 4);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    // Grow out of the corner nearest the trigger.
+    menu.style.transformOrigin = `${left < anchor.left ? "right" : "left"} ${top < anchor.top ? "bottom" : "top"}`;
+  }, [trigger]);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || trigger?.contains(target)) return;
+      onClose();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    // Scrolling the menu itself must not dismiss it; scrolling the queue behind
+    // it should.
+    const onScroll = (event: Event) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      onClose();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [onClose, trigger]);
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      className={cn(
+        "fixed z-50 max-h-80 overflow-y-auto overscroll-contain rounded-xl bg-black p-1 shadow-[0_10px_28px_rgb(0_0_0/0.65)] scrollbar-thin",
+        "transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] starting:scale-95 starting:opacity-0",
+        open ? "scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0"
+      )}
+    >
+      {chips.map((chip, index) => {
+        const active = chip.id === value;
+        return (
+          <button
+            key={chip.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={active}
+            style={{ animationDelay: open ? `${Math.min(index, 8) * 18}ms` : undefined }}
+            onClick={() => {
+              onSelect(chip);
+              onClose();
+            }}
+            className={cn(
+              "group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors duration-150 hover:bg-white/10",
+              open && "animate-tuner-swap",
+              active ? "text-primary" : "text-primary-dark hover:text-primary"
+            )}
+          >
+            <span className="flex-1 min-w-0 truncate">{chip.text}</span>
+            {active && <span className="shrink-0 text-base text-accent icon-[solar--check-circle-bold]" />}
+          </button>
+        );
+      })}
+    </div>,
+    document.body
   );
 };
 

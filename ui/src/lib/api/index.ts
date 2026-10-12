@@ -9,6 +9,7 @@ export type {
   HomeFeed,
   Track,
   WatchTrack,
+  WatchTunerChip,
   AlbumVersion,
   AlbumDetails,
   ArtistRelease,
