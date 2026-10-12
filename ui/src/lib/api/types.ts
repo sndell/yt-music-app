@@ -250,6 +250,15 @@ export interface WatchPlaylist {
   related?: string | null;
 }
 
+export interface AudioStream {
+  url: string;
+  mimeType: string;
+  bitrate: number;
+  itag: number;
+  audioQuality: string;
+  expiresInSeconds: number;
+}
+
 /** API method signatures */
 export interface ApiMethods {
   get_cover_color: { params: [imageUrl: string]; response: string | null };
@@ -292,6 +301,7 @@ export interface ApiMethods {
     params: [videoId: string, playlistId: string, radio?: boolean, shuffle?: boolean];
     response: WatchPlaylist;
   };
+  get_audio_stream: { params: [videoId: string, refresh?: boolean]; response: AudioStream };
   get_song_rating: { params: [videoId: string]; response: { likeStatus: LikeStatus } };
   rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };
   add_song_to_history: { params: [videoId: string]; response: { added: boolean } };

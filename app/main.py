@@ -97,7 +97,6 @@ def _disable_browser_context_menu(window: webview.Window) -> None:
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
-    # A file URL has no origin, and YouTube then blocks most embeds.
     # Slot 0 stays on port 5173. A worktree's slot moves the Vite URL with it.
     if ENV == "dev":
         from dev.identity import debug_port, ui_origin

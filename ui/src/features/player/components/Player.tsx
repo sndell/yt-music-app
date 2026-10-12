@@ -1,8 +1,6 @@
-import { useState, useRef, useCallback, useEffect, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type SyntheticEvent } from "react";
-import { createPortal } from "react-dom";
+import { useState, useRef, useCallback, useEffect, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { usePlayer } from "../context/PlayerContext";
-import ReactPlayer from "react-player";
 import { IconButton } from "@/components/ui/IconButton";
 import { PyBridge } from "@/lib/api";
 import { cn } from "@/util/cn";
@@ -12,18 +10,6 @@ const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate
   event.preventDefault();
   event.stopPropagation();
   navigate(href);
-};
-
-const EMBED_BLOCKED_CODES = new Set([101, 150]);
-
-// YouTube requires this when the iframe API is enabled. file:// reports "null".
-const embedOrigin =
-  window.location.protocol === "http:" || window.location.protocol === "https:"
-    ? window.location.origin
-    : undefined;
-
-type YoutubePlayerElement = HTMLElement & {
-  error?: { code?: number } | null;
 };
 
 const RESTART_THRESHOLD_SECONDS = 3;
@@ -44,8 +30,6 @@ const largestThumbnail = (thumbnails: Thumbnail[] | undefined) => {
 };
 
 // Square curve so the middle of the slider is quieter than a linear 50%.
-// Rounded to a percent so YouTube's integer getVolume() matches what we set.
-// Exact 0 is muted instead: the iframe API loops on setVolume(0).
 const sliderToGain = (slider: number) => {
   const t = Math.min(100, Math.max(0, slider)) / 100;
   if (t === 0) return 0;
@@ -57,48 +41,75 @@ export const Player = () => {
     currentSong,
     queueOpen,
     toggleQueue,
-    showBlockedEmbed,
     playNext,
     playPrevious,
     hasNext,
     hasPrevious,
+    queue,
+    currentQueueIndex,
     shuffle,
     toggleShuffle,
     rateSong,
     ratingPending,
   } = usePlayer();
-  const [embedHost, setEmbedHost] = useState<HTMLElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const playerRef = useRef<HTMLVideoElement | null>(null);
+  const playerRef = useRef<HTMLAudioElement | null>(null);
   const elapsedRef = useRef(0);
   const historyVideoIdRef = useRef<string | null>(null);
   const [volume, setVolume] = useState(50);
-  const lastGainRef = useRef(sliderToGain(50));
+  const volumeRef = useRef(volume);
+  const playingRef = useRef(false);
+  const ignorePauseRef = useRef(false);
+  const requestRef = useRef(0);
+  const failedRef = useRef<string | null>(null);
   const lastSeekTime = useRef(0);
   const gain = sliderToGain(volume);
-
-  useEffect(() => {
-    if (gain > 0) lastGainRef.current = gain;
-  }, [gain]);
-
+  volumeRef.current = volume;
+  playingRef.current = isPlaying;
   elapsedRef.current = elapsedTime;
 
-  const handleError = useCallback(
-    (event: SyntheticEvent<YoutubePlayerElement>) => {
-      const code = event.currentTarget.error?.code;
-      if (code != null && EMBED_BLOCKED_CODES.has(code) && currentSong?.videoId) {
-        showBlockedEmbed(currentSong.videoId);
+  const playAudio = useCallback((audio: HTMLAudioElement) => {
+    void audio.play().then(() => {
+      if (!playingRef.current) audio.pause();
+    }).catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (!playingRef.current) return;
+      setIsPlaying(false);
+    });
+  }, []);
+
+  const loadStream = useCallback((videoId: string, refresh = false) => {
+    const request = ++requestRef.current;
+    const audio = playerRef.current;
+    if (!audio) return;
+    ignorePauseRef.current = true;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    void PyBridge.getAudioStream(videoId, refresh).then((result) => {
+      if (request !== requestRef.current) return;
+      const node = playerRef.current;
+      if (!node) return;
+      if (!result.success || !result.data.url) {
+        ignorePauseRef.current = false;
+        setIsPlaying(false);
+        return;
       }
-    },
-    [currentSong?.videoId, showBlockedEmbed]
-  );
+      const level = sliderToGain(volumeRef.current);
+      node.volume = level;
+      node.muted = level === 0;
+      node.src = result.data.url;
+      ignorePauseRef.current = false;
+      if (playingRef.current) playAudio(node);
+    });
+  }, [playAudio]);
 
   const handleSeek = useCallback((time: number) => {
     const now = Date.now();
-    if (now - lastSeekTime.current < 100) return; // throttle to 100ms
+    if (now - lastSeekTime.current < 100) return;
     lastSeekTime.current = now;
 
     if (playerRef.current) {
@@ -141,22 +152,52 @@ export const Player = () => {
   const handleEnded = useCallback(() => {
     if (loop) {
       restart();
+      playingRef.current = true;
       setIsPlaying(true);
-      void playerRef.current?.play();
+      const audio = playerRef.current;
+      if (audio) playAudio(audio);
       return;
     }
     void playNext().then((advanced) => {
-      if (!advanced) setIsPlaying(false);
+      if (!advanced) {
+        playingRef.current = false;
+        setIsPlaying(false);
+      }
     });
-  }, [loop, playNext, restart]);
+  }, [loop, playAudio, playNext, restart]);
 
   useEffect(() => {
-    if (!currentSong) return;
-    setDuration(Number(currentSong.durationSeconds));
+    const song = currentSong;
+    if (!song || !song.videoId) return;
+    const videoId = song.videoId;
+    setDuration(Number(song.durationSeconds));
     setElapsedTime(0);
+    failedRef.current = null;
+    playingRef.current = true;
     setIsPlaying(true);
-    setEmbedHost(document.getElementById("queue-embed"));
-  }, [currentSong?.videoId]);
+    loadStream(videoId);
+  }, [currentSong?.videoId, loadStream]);
+
+  useEffect(() => {
+    const audio = playerRef.current;
+    if (!audio) return;
+    const level = gain;
+    audio.volume = level;
+    audio.muted = level === 0;
+  }, [gain]);
+
+  useEffect(() => {
+    const audio = playerRef.current;
+    if (!audio?.getAttribute("src")) return;
+    if (isPlaying) playAudio(audio);
+    else audio.pause();
+  }, [isPlaying, playAudio]);
+
+  useEffect(() => {
+    const nextId = hasNext ? queue[currentQueueIndex + 1]?.videoId : null;
+    if (!nextId || nextId === currentSong?.videoId) return;
+    void PyBridge.getAudioStream(nextId);
+  }, [currentQueueIndex, currentSong?.videoId, hasNext, queue]);
 
   useEffect(() => {
     const artist = currentSong?.artists.map((item) => item.name).join(", ") ?? "";
@@ -211,9 +252,13 @@ export const Player = () => {
 
   useEffect(() => {
     window.pythonEvent = (action: string) => {
-      if (action === "play") setIsPlaying(true);
-      else if (action === "pause") setIsPlaying(false);
-      else if (action === "next") handleNext();
+      if (action === "play") {
+        playingRef.current = true;
+        setIsPlaying(true);
+      } else if (action === "pause") {
+        playingRef.current = false;
+        setIsPlaying(false);
+      } else if (action === "next") handleNext();
       else if (action === "previous") handlePrevious();
     };
     return () => {
@@ -231,8 +276,16 @@ export const Player = () => {
           currentSong={currentSong}
           volume={volume}
           setVolume={setVolume}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
+          onPlay={() => {
+            playingRef.current = true;
+            setIsPlaying(true);
+            const audio = playerRef.current;
+            if (audio && !audio.getAttribute("src") && currentSong.videoId) loadStream(currentSong.videoId, true);
+          }}
+          onPause={() => {
+            playingRef.current = false;
+            setIsPlaying(false);
+          }}
           onNext={handleNext}
           onPrevious={handlePrevious}
           isPlaying={isPlaying}
@@ -248,35 +301,37 @@ export const Player = () => {
           onRate={rateSong}
         />
       </div>
-      {embedHost &&
-        createPortal(
-          <ReactPlayer
-            key={currentSong.videoId}
-            volume={gain === 0 ? lastGainRef.current : gain}
-            muted={gain === 0}
-            onPlay={() => {
-              setIsPlaying(true);
-              if (currentSong) recordHistory(currentSong);
-            }}
-            onPause={() => {
-              const player = playerRef.current;
-              const duration = player?.duration ?? 0;
-              const time = player?.currentTime ?? 0;
-              if (loop && duration > 0 && time >= duration - 0.25) return;
-              setIsPlaying(false);
-            }}
-            ref={playerRef}
-            style={{ height: "100%", width: "100%" }}
-            src={`https://www.youtube.com/watch?v=${currentSong.videoId}`}
-            config={embedOrigin ? { youtube: { origin: embedOrigin } } : undefined}
-            playing={isPlaying}
-            onTimeUpdate={(e) => setElapsedTime(e.currentTarget.currentTime)}
-            onDurationChange={(e) => setDuration(e.currentTarget.duration)}
-            onEnded={handleEnded}
-            onError={handleError}
-          />,
-          embedHost
-        )}
+      <audio
+        ref={playerRef}
+        preload="auto"
+        onPlay={() => {
+          playingRef.current = true;
+          if (currentSong) recordHistory(currentSong);
+        }}
+        onPause={() => {
+          if (ignorePauseRef.current) return;
+          const audio = playerRef.current;
+          const length = audio?.duration ?? 0;
+          const time = audio?.currentTime ?? 0;
+          if (loop && length > 0 && time >= length - 0.25) return;
+          playingRef.current = false;
+          setIsPlaying(false);
+        }}
+        onTimeUpdate={(event) => setElapsedTime(event.currentTarget.currentTime)}
+        onDurationChange={(event) => setDuration(event.currentTarget.duration)}
+        onEnded={handleEnded}
+        onError={() => {
+          const audio = playerRef.current;
+          const videoId = currentSong.videoId;
+          if (!audio?.getAttribute("src") || !videoId) return;
+          if (failedRef.current === videoId) {
+            setIsPlaying(false);
+            return;
+          }
+          failedRef.current = videoId;
+          loadStream(videoId, true);
+        }}
+      />
     </>
   );
 };

@@ -106,6 +106,7 @@ export const PyBridge = {
     artwork: string,
     videoId: string
   ) => callPython("update_discord_presence", title, artist, album, playing, elapsed, duration, artwork, videoId),
+  getAudioStream: (videoId: string, refresh = false) => callPython("get_audio_stream", videoId, refresh),
   getSongRating: (videoId: string) => callPython("get_song_rating", videoId),
   rateSong: (videoId: string, rating: "LIKE" | "DISLIKE" | "INDIFFERENT") =>
     callPython("rate_song", videoId, rating),
