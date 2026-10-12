@@ -1,13 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { PyBridge } from "@/lib/api/bridge";
-import type { PlaylistSummary, PlaylistDetails } from "@/lib/api/types";
+import type { PlaylistSummary } from "@/lib/api/types";
 
 type PlaylistContextValue = {
   playlists: PlaylistSummary[];
   isLoading: boolean;
   error: string | null;
   fetchPlaylists: () => Promise<void>;
-  fetchPlaylistItems: (playlistId: string) => Promise<PlaylistDetails | null>;
 };
 
 const PlaylistContext = createContext<PlaylistContextValue | null>(null);
@@ -36,14 +35,9 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(false);
   }, []);
 
-  const fetchPlaylistItems = useCallback(async (playlistId: string): Promise<PlaylistDetails | null> => {
-    const result = await PyBridge.getPlaylistItems(playlistId);
-    return result.success ? result.data : null;
-  }, []);
-
   const value = useMemo(
-    () => ({ playlists, isLoading, error, fetchPlaylists, fetchPlaylistItems }),
-    [playlists, isLoading, error, fetchPlaylists, fetchPlaylistItems],
+    () => ({ playlists, isLoading, error, fetchPlaylists }),
+    [playlists, isLoading, error, fetchPlaylists],
   );
 
   return <PlaylistContext.Provider value={value}>{children}</PlaylistContext.Provider>;

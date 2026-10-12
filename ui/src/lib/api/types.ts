@@ -76,6 +76,7 @@ export interface HomeShelf {
 
 export interface HomeFeed {
   shelves: HomeShelf[];
+  fromCache?: boolean;
 }
 
 export interface Track {
@@ -111,6 +112,7 @@ export interface PlaylistDetails {
   tracks: Track[];
   durationSeconds: number;
   dominantColor: string | null;
+  fromCache?: boolean;
 }
 
 export interface AlbumVersion {
@@ -136,6 +138,7 @@ export interface AlbumDetails {
   dominantColor: string | null;
   tracks: Track[];
   otherVersions: AlbumVersion[];
+  fromCache?: boolean;
 }
 
 export interface ArtistRelease {
@@ -185,6 +188,7 @@ export interface ArtistDetails {
   shows: ArtistShelf<ArtistRelease> | null;
   videos: ArtistShelf<ArtistVideo> | null;
   related: RelatedArtist[];
+  fromCache?: boolean;
 }
 
 export interface FeedbackTokens {
@@ -251,14 +255,14 @@ export interface ApiMethods {
   get_cover_color: { params: [imageUrl: string]; response: string | null };
   get_playlists: { params: []; response: PlaylistSummary[] };
   get_quick_picks: { params: []; response: QuickPicks };
-  get_home: { params: []; response: HomeFeed };
+  get_home: { params: [forceRefresh?: boolean]; response: HomeFeed };
   get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
   move_playlist_item: {
     params: [playlistId: string, setVideoId: string, beforeSetVideoId: string];
     response: { status: string };
   };
-  get_album: { params: [browseId: string]; response: AlbumDetails };
-  get_artist: { params: [channelId: string]; response: ArtistDetails };
+  get_album: { params: [browseId: string, forceRefresh?: boolean]; response: AlbumDetails };
+  get_artist: { params: [channelId: string, forceRefresh?: boolean]; response: ArtistDetails };
   get_artist_albums: { params: [channelId: string, params: string]; response: ArtistRelease[] };
   sign_in: { params: []; response: void };
   is_signed_in: { params: []; response: { signedIn: boolean } };

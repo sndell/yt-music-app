@@ -9,7 +9,7 @@ import type {
   RelatedArtist,
   Track,
 } from "@/lib/api";
-import { PyBridge } from "@/lib/api";
+import { PyBridge, showCachedThenRefresh } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { PlaylistDescription } from "@/features/playlist/components/PlaylistDescription";
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
@@ -32,6 +32,17 @@ const RELEASES = [
 ] as const;
 
 type ReleaseKey = (typeof RELEASES)[number][0];
+
+const mergeArtist = (current: ArtistDetails | null, incoming: ArtistDetails): ArtistDetails => {
+  if (!current || current.channelId !== incoming.channelId) return incoming;
+  const next = { ...incoming };
+  for (const [key] of RELEASES) {
+    const existing = current[key];
+    const updated = incoming[key];
+    if (existing && updated && existing.items.length > updated.items.length) next[key] = existing;
+  }
+  return next;
+};
 
 const labeled = (value: string | null, word: string, suffix: string) => {
   const text = value?.trim();
@@ -216,13 +227,16 @@ export const Artist = () => {
   useEffect(() => {
     if (!id) return;
     let active = true;
-    PyBridge.getArtist(id).then((result) => {
-      if (!active) return;
-      if (result.success) {
-        setArtist(result.data);
+    void showCachedThenRefresh(
+      (forceRefresh) => PyBridge.getArtist(id, forceRefresh),
+      (data) => {
+        if (!data.name) return;
+        setArtist((current) => mergeArtist(current, data));
         setError(null);
-        return;
-      }
+      },
+      () => active,
+    ).then((result) => {
+      if (!active || !result || result.success) return;
       setArtist(null);
       setError(result.error.message);
     });

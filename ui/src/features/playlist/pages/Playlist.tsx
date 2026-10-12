@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "wouter";
-import { PyBridge, type LikeStatus, type PlaylistDetails, type PlaylistSummary } from "@/lib/api";
+import { PyBridge, showCachedThenRefresh, type LikeStatus, type PlaylistDetails, type PlaylistSummary } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
@@ -132,7 +132,7 @@ const PlaylistTracksLoading = ({ summary }: { summary: PlaylistSummary }) => {
 
 export const Playlist = () => {
   const { id } = useParams();
-  const { playlists, fetchPlaylistItems } = usePlaylist();
+  const { playlists } = usePlaylist();
   const { playPlaylist, trackRatings } = usePlayer();
   const ratingsRef = useRef(trackRatings);
   ratingsRef.current = trackRatings;
@@ -152,13 +152,18 @@ export const Playlist = () => {
   useEffect(() => {
     if (!id) return;
     let active = true;
-    fetchPlaylistItems(id).then((data) => {
-      if (active && data) setPlaylist(withRatings(data, ratingsRef.current));
-    });
+    void showCachedThenRefresh(
+      (forceRefresh) => PyBridge.getPlaylistItems(id, forceRefresh),
+      (data) => {
+        if (!data.title || !Array.isArray(data.tracks)) return;
+        setPlaylist(withRatings(data, ratingsRef.current));
+      },
+      () => active,
+    );
     return () => {
       active = false;
     };
-  }, [id, fetchPlaylistItems]);
+  }, [id]);
 
   useEffect(() => {
     setPlaylist((current) => (current ? withRatings(current, trackRatings) : current));

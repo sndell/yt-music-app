@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { Link, useParams } from "wouter";
 import type { AlbumDetails, LikeStatus } from "@/lib/api";
 import type { Artist } from "@/lib/api/types";
-import { PyBridge } from "@/lib/api";
+import { PyBridge, showCachedThenRefresh } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { PlaylistDescription } from "@/features/playlist/components/PlaylistDescription";
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
@@ -139,13 +139,16 @@ export const Album = () => {
   useEffect(() => {
     if (!id) return;
     let active = true;
-    PyBridge.getAlbum(id).then((result) => {
-      if (!active) return;
-      if (result.success) {
-        setAlbum(result.data);
+    void showCachedThenRefresh(
+      (forceRefresh) => PyBridge.getAlbum(id, forceRefresh),
+      (data) => {
+        if (!data.title) return;
+        setAlbum(data);
         setError(null);
-        return;
-      }
+      },
+      () => active,
+    ).then((result) => {
+      if (!active || !result || result.success) return;
       setAlbum(null);
       setError(result.error.message);
     });
