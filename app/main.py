@@ -28,6 +28,7 @@ else:
 import webview
 
 from features.music_api import MusicApi
+from util.discord_presence import discord_presence
 from util.media_controls import media_controls, prepare_webview
 from util.ui_server import serve_ui
 from util.webview_controller import WebViewController
@@ -41,6 +42,28 @@ class Api(MusicApi):
     ) -> None:
         """Publish the current song, including its cover, to Windows media keys."""
         media_controls.update(title or "", artist or "", bool(playing), bool(has_next), artwork or "")
+
+    def get_discord_presence(self) -> dict:
+        """Whether Discord rich presence is on, and if the desktop app is connected."""
+        return discord_presence.status()
+
+    def set_discord_presence(self, enabled: bool, client_id: str) -> dict:
+        """Store the Discord application ID and connect or disconnect."""
+        return discord_presence.configure(enabled, client_id or "")
+
+    def update_discord_presence(
+        self,
+        title: str,
+        artist: str,
+        album: str,
+        playing: bool,
+        elapsed: float,
+        duration: float,
+        artwork: str,
+        video_id: str,
+    ) -> None:
+        """Show the current song on Discord, or clear it when nothing is playing."""
+        discord_presence.update(title, artist, album, playing, elapsed, duration, artwork, video_id)
 
 
 def resource_path(*relative_parts: str) -> Path:
@@ -110,5 +133,8 @@ if __name__ == "__main__":
         start_dev_probe(api, window)
     storage_path = data_dir() / "webview-data"
     storage_path.mkdir(parents=True, exist_ok=True)
-    webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
+    try:
+        webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
+    finally:
+        discord_presence.shutdown()
 

@@ -15,6 +15,9 @@ import { PlaylistDescription } from "@/features/playlist/components/PlaylistDesc
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { BrowseCard, BrowseRow } from "@/components/ui/BrowseCard";
 import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
+import { StickyCollectionBar } from "@/components/ui/StickyCollectionBar";
+import { useEdgeFade } from "@/components/ui/useEdgeFade";
+import { collectionTitleClass } from "@/components/ui/collectionChrome";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
@@ -68,6 +71,15 @@ const videoToTrack = (video: ArtistVideo, artist: ArtistDetails): Track => ({
 
 const filled = <T,>(shelf: ArtistShelf<T> | null): shelf is ArtistShelf<T> =>
   Boolean(shelf && shelf.items.length > 0);
+
+/** Pull the artist color toward black so the wash meets the cover fade. */
+const shadeTowardBlack = (hex: string, amount: number) => {
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!match) return hex;
+  const keep = 1 - amount;
+  const channel = (value: string) => Math.round(parseInt(value, 16) * keep).toString(16).padStart(2, "0");
+  return `#${channel(match[1])}${channel(match[2])}${channel(match[3])}`;
+};
 
 const MetaLine = ({ parts, className }: { parts: (ReactNode | string | null | undefined | false)[]; className?: string }) => {
   const visible = parts.filter((part) => part != null && part !== false && part !== "");
@@ -161,10 +173,10 @@ const ReleaseShelfView = ({
     error={error}
     action={shelf.browseId && shelf.params && !expanded ? <SeeAllButton loading={loading} onClick={onShowAll} /> : null}
   >
-    {shelf.items.map((release, index) =>
+    {shelf.items.map((release) =>
       release.browseId ? (
         <BrowseCard
-          key={`${release.browseId}-${index}`}
+          key={release.browseId}
           href={`/album/${release.browseId}`}
           title={release.title}
           subtitle={[release.type, release.year].filter(Boolean).join(" • ")}
@@ -232,6 +244,8 @@ export const Artist = () => {
     setIsScrolled(false);
   }, [artistReadyId]);
 
+  useEdgeFade(scrollContainerRef, { top: false }, artist?.songs?.items.length);
+
   const handleScroll = () => {
     const container = scrollContainerRef.current;
     const header = headerRef.current;
@@ -285,9 +299,9 @@ export const Artist = () => {
     playTracks(videos.items.slice(index).map((video) => videoToTrack(video, rated)));
   };
 
-  const tracksGradient = dominantColor
-    ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 0.1)}, #0000)`
-    : "transparent";
+  const lowerWash = dominantColor
+    ? `linear-gradient(to bottom, ${hexToRgba(shadeTowardBlack(dominantColor, 0.45), 0.18)}, transparent)`
+    : null;
 
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
@@ -316,56 +330,68 @@ export const Artist = () => {
 
   return (
     <div className="@container relative flex flex-1 flex-col overflow-hidden">
-      <div
-        className="absolute top-0 right-0 left-0 z-10 transition-transform duration-300"
-        style={{
-          transform: isScrolled ? "translateY(0)" : "translateY(-100%)",
-          opacity: isScrolled ? 1 : 0,
-        }}
-      >
-        <div className="flex gap-3 items-center p-3 w-full backdrop-blur-2xl" style={{ background: stickyBg }}>
-          <Cover key={thumbnailUrl ?? "empty"} url={thumbnailUrl} alt="" className="size-12 rounded shadow-md" iconClass="text-lg" />
-          <div className="min-w-0 flex-1">
-            <h2 title={name} className="truncate text-xl font-bold">
-              {name}
-            </h2>
-            {meta("text-sm leading-5")}
-          </div>
-          <PlaybackButtons variant="icon" onPlay={onPlay} onShuffle={onShuffle} extra={radio} />
-        </div>
-      </div>
+      <StickyCollectionBar
+        visible={isScrolled}
+        background={stickyBg}
+        thumbnailUrl={thumbnailUrl}
+        thumbnailAlt=""
+        title={name}
+        coverFallback
+        meta={meta("text-sm leading-5")}
+        onPlay={onPlay}
+        onShuffle={onShuffle}
+        extra={radio}
+      />
 
-      <div key={id} ref={scrollContainerRef} onScroll={handleScroll} className="overflow-y-auto flex-1 scrollbar [overflow-anchor:none]">
-        <div ref={headerRef} className="relative min-h-80 overflow-hidden @2xl:min-h-[28rem]">
+      <div key={id} ref={scrollContainerRef} onScroll={handleScroll} className="overflow-x-hidden overflow-y-auto flex-1 scrollbar [overflow-anchor:none]">
+        <div ref={headerRef} className="relative min-h-80 overflow-hidden @2xl:min-h-96">
           <Cover key={thumbnailUrl ?? "cover"} url={thumbnailUrl} alt="" className="absolute inset-0 size-full" />
           <div aria-hidden className="pointer-events-none absolute inset-0 bg-linear-to-b from-transparent from-30% via-black/55 via-70% to-black" />
-          <div className="relative flex min-h-80 flex-col justify-end px-6 pt-24 pb-8 text-shadow-[0_2px_16px_rgba(0,0,0,0.55)] @2xl:min-h-[28rem]">
-            <h1 title={name} className="line-clamp-2 text-3xl font-bold wrap-break-word @2xl:text-5xl">
+          <div className="relative flex min-h-80 w-full min-w-0 flex-col justify-end px-6 pt-24 pb-8 text-shadow-[0_2px_16px_rgba(0,0,0,0.55)] @2xl:min-h-96">
+            <h1 title={name} className={collectionTitleClass}>
               {name}
             </h1>
-            {meta("pt-2 text-sm")}
+            {meta("pt-2 text-sm text-primary")}
             <PlaybackButtons className="pt-4" onPlay={onPlay} onShuffle={onShuffle} extra={radio} />
           </div>
         </div>
+
+        {lowerWash && (
+          <div className="pointer-events-none relative z-0 h-0" aria-hidden>
+            <div className="absolute inset-x-0 top-0 h-[22rem]" style={{ background: lowerWash }} />
+          </div>
+        )}
+
+        {songs && (
+          <section className="relative pb-6">
+            <PlaylistTrackList
+              tracks={songs.items}
+              gradient="transparent"
+              playlistId={songs.browseId ?? undefined}
+              title="Popular"
+              variant="popular"
+              footer={
+                songs.browseId ? (
+                  <Link
+                    href={`/playlist/${songs.browseId}`}
+                    className="group/see-all flex h-12 items-center gap-3 px-6 text-sm font-medium text-primary-dark transition-colors hover:bg-primary-light hover:text-primary"
+                  >
+                    <span className="w-5 shrink-0" aria-hidden="true" />
+                    <span className="grid size-10 shrink-0 place-items-center" aria-hidden="true">
+                      <span className="icon-[solar--alt-arrow-right-linear] text-lg transition-transform duration-200 group-hover/see-all:translate-x-0.5" />
+                    </span>
+                    See more
+                  </Link>
+                ) : null
+              }
+            />
+          </section>
+        )}
 
         {bio && (
           <div className="px-6 pb-8">
             <PlaylistDescription description={bio} />
           </div>
-        )}
-
-        {songs && (
-          <section className="pb-8">
-            <div className="flex items-center justify-between gap-3 px-6">
-              <h2 className="text-xl font-bold">Songs</h2>
-              {songs.browseId && (
-                <Link href={`/playlist/${songs.browseId}`} className={seeAllClass}>
-                  See all
-                </Link>
-              )}
-            </div>
-            <PlaylistTrackList tracks={songs.items} gradient={tracksGradient} playlistId={songs.browseId ?? undefined} />
-          </section>
         )}
 
         {RELEASES.map(([key, title]) => {
@@ -465,7 +491,7 @@ const VideoCard = ({
             grow
             interactive
             onClick={video.videoId ? onPlay : undefined}
-            iconClassName="icon-[solar--play-bold] text-3xl"
+            iconClassName="icon-[solar--play-bold] text-2xl"
           />
         </span>
       </div>

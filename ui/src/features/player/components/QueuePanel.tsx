@@ -2,8 +2,338 @@ import type { WatchTrack } from "@/lib/api";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { cn } from "@/util/cn";
-import { useEffect, useRef, useState } from "react";
+import { applyEdgeMask } from "@/components/ui/useEdgeFade";
+import { hexToRgba } from "@/util/hex_to_rgba";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ReorderItem, ReorderList, consumeDragClick, stableDragId } from "@/components/ui/reorder";
 import { usePlayer } from "../context/PlayerContext";
+
+const colorCache = new Map<string, string | null>();
+
+const saturationValue = (r: number, g: number, b: number) => {
+  const max = Math.max(r, g, b) / 255;
+  const min = Math.min(r, g, b) / 255;
+  const saturation = max === 0 ? 0 : (max - min) / max;
+  return [saturation * 100, max * 100] as const;
+};
+
+const toHex = (r: number, g: number, b: number) =>
+  `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+
+const parseHex = (hex: string) => {
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!match) return null;
+  return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)] as const;
+};
+
+/**
+ * Near-black covers disappear into the queue. Keep a real hue and raise it
+ * enough to read. A few levels of channel noise on black is not a hue —
+ * scaling it paints the row a color the cover does not have.
+ */
+const readableAccent = (hex: string) => {
+  const channels = parseHex(hex);
+  if (!channels) return hex;
+  const max = Math.max(...channels);
+  const min = Math.min(...channels);
+  if (max >= 96) return hex;
+  if (max === 0 || max - min < 24) return "#9a9a9a";
+  const scale = 176 / max;
+  return toHex(
+    Math.min(255, Math.round(channels[0] * scale)),
+    Math.min(255, Math.round(channels[1] * scale)),
+    Math.min(255, Math.round(channels[2] * scale)),
+  );
+};
+
+const averageLuminance = (data: Uint8ClampedArray) => {
+  let sum = 0;
+  let count = 0;
+  for (let index = 0; index < data.length; index += 16) {
+    const red = data[index] / 255;
+    const green = data[index + 1] / 255;
+    const blue = data[index + 2] / 255;
+    sum += 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    count += 1;
+  }
+  return count === 0 ? 1 : sum / count;
+};
+
+/** Same saturation + value pick as playlist pages, weighted toward saturated swatches. */
+const vibrantFromPixels = (data: Uint8ClampedArray) => {
+  const buckets = new Map<number, { r: number; g: number; b: number; n: number }>();
+  for (let index = 0; index < data.length; index += 4 * 6) {
+    const r = data[index];
+    const g = data[index + 1];
+    const b = data[index + 2];
+    const a = data[index + 3];
+    if (a < 200) continue;
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    const bucket = buckets.get(key) ?? { r: 0, g: 0, b: 0, n: 0 };
+    bucket.r += r;
+    bucket.g += g;
+    bucket.b += b;
+    bucket.n += 1;
+    buckets.set(key, bucket);
+  }
+
+  let best: [number, number, number] | null = null;
+  let bestScore = -1;
+  let vibrant: [number, number, number] | null = null;
+  let vibrantScore = -1;
+
+  for (const bucket of [...buckets.values()].sort((a, b) => b.n - a.n).slice(0, 20)) {
+    const rgb: [number, number, number] = [
+      Math.round(bucket.r / bucket.n),
+      Math.round(bucket.g / bucket.n),
+      Math.round(bucket.b / bucket.n),
+    ];
+    const [saturation, value] = saturationValue(...rgb);
+    const score = saturation + value;
+    if (score > bestScore) {
+      bestScore = score;
+      best = rgb;
+    }
+    const chroma = Math.max(...rgb) - Math.min(...rgb);
+    if (saturation >= 18 && chroma >= 24 && Math.max(...rgb) >= 40) {
+      const weighted = saturation * 1.8 + value * 0.55;
+      if (weighted > vibrantScore) {
+        vibrantScore = weighted;
+        vibrant = rgb;
+      }
+    }
+  }
+
+  const picked = vibrant ?? best;
+  return picked ? toHex(...picked) : null;
+};
+
+const sampleCover = (url: string) =>
+  new Promise<string | null>((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      const size = 48;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        resolve(null);
+        return;
+      }
+      context.drawImage(image, 0, 0, size, size);
+      try {
+        resolve(vibrantFromPixels(context.getImageData(0, 0, size, size).data));
+      } catch {
+        resolve(null);
+      }
+    };
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
+
+const largestCover = (track: WatchTrack | null) => {
+  const thumbs = track?.thumbnail ?? [];
+  if (thumbs.length === 0) return undefined;
+  return thumbs.reduce((best, thumb) => ((thumb.width ?? 0) > (best.width ?? 0) ? thumb : best)).url;
+};
+
+/** Near-black channel noise is not a usable accent. A real dark hue still is. */
+const usableAccent = (hex: string | null | undefined) => {
+  const channels = hex ? parseHex(hex) : null;
+  if (!channels) return false;
+  const max = Math.max(...channels);
+  const min = Math.min(...channels);
+  return max >= 40 || max - min >= 24;
+};
+
+const useVibrantCover = (url: string | undefined, videoId: string | undefined, fallbackUrl?: string) => {
+  const cacheKey = url ? `${url}|${videoId ?? ""}` : "";
+  const cachedAtStart = cacheKey ? colorCache.get(cacheKey) : undefined;
+  const [color, setColor] = useState<string | null>(usableAccent(cachedAtStart) ? (cachedAtStart ?? null) : null);
+
+  useEffect(() => {
+    if (!url) {
+      setColor(null);
+      return;
+    }
+    const cached = colorCache.get(cacheKey);
+    if (usableAccent(cached)) {
+      setColor(cached ?? null);
+      return;
+    }
+
+    let cancelled = false;
+    const finish = (value: string | null) => {
+      colorCache.set(cacheKey, value);
+      if (!cancelled) setColor(value);
+    };
+
+    void (async () => {
+      const readCover = window.pywebview?.api?.get_cover_color;
+      if (typeof readCover === "function") {
+        try {
+          const value = await readCover(url);
+          if (usableAccent(value)) {
+            finish(value);
+            return;
+          }
+        } catch {
+          // The palette call can miss; the in-page sample still has the cover.
+        }
+      }
+      const fromCover = await sampleCover(url);
+      if (usableAccent(fromCover)) {
+        finish(fromCover);
+        return;
+      }
+      // The largest thumb is often a host that blocks pixel reads. A data-URL
+      // thumb of the same art can still be sampled.
+      if (fallbackUrl && fallbackUrl !== url) {
+        const fromFallback = await sampleCover(fallbackUrl);
+        if (usableAccent(fromFallback)) {
+          finish(fromFallback);
+          return;
+        }
+      }
+      // Some cover hosts block pixel reads. The video poster is the same art and can be sampled.
+      if (videoId) {
+        const fromPoster = await sampleCover(`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`);
+        if (usableAccent(fromPoster)) {
+          finish(fromPoster);
+          return;
+        }
+      }
+      finish(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [url, videoId, fallbackUrl, cacheKey]);
+
+  return color;
+};
+
+const waveMask =
+  "radial-gradient(130% 80% at 42% -6%, #000 0%, rgba(0,0,0,0.88) 26%, rgba(0,0,0,0.42) 60%, transparent 92%), radial-gradient(72% 46% at 64% 58%, rgba(0,0,0,0.72) 0%, transparent 76%)";
+
+const CoverWash = ({ url, sampleUrl, color }: { url?: string; sampleUrl?: string; color: string | null }) => {
+  const [shownUrl, setShownUrl] = useState(url);
+  const [visible, setVisible] = useState(Boolean(url));
+  const [coverIsDark, setCoverIsDark] = useState(false);
+
+  useEffect(() => {
+    if (!url) {
+      setVisible(false);
+      return;
+    }
+    if (url === shownUrl) {
+      setVisible(true);
+      return;
+    }
+    setVisible(false);
+    const timeout = window.setTimeout(() => {
+      setShownUrl(url);
+      setVisible(true);
+    }, 320);
+    return () => window.clearTimeout(timeout);
+  }, [url, shownUrl]);
+
+  useEffect(() => {
+    const source = sampleUrl || shownUrl;
+    if (!source) {
+      setCoverIsDark(false);
+      return;
+    }
+    let cancelled = false;
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      const size = 24;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(image, 0, 0, size, size);
+      try {
+        const luminance = averageLuminance(context.getImageData(0, 0, size, size).data);
+        if (!cancelled) setCoverIsDark(luminance < 0.22);
+      } catch {
+        if (!cancelled) setCoverIsDark(false);
+      }
+    };
+    image.onerror = () => {
+      if (!cancelled) setCoverIsDark(false);
+    };
+    image.src = source;
+    return () => {
+      cancelled = true;
+    };
+  }, [sampleUrl, shownUrl]);
+
+  const tone = color ? readableAccent(color) : null;
+  const soften = coverIsDark || Boolean(color && tone && tone.toLowerCase() !== color.toLowerCase());
+
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div
+        className="absolute inset-0"
+        style={{ maskImage: waveMask, WebkitMaskImage: waveMask }}
+      >
+        {tone && !soften && (
+          <>
+            <div
+              className="absolute -top-16 left-1/2 h-72 w-[150%] -translate-x-1/2 rounded-full blur-3xl"
+              style={{ background: hexToRgba(tone, 0.34) }}
+            />
+            <div
+              className="absolute top-[30%] left-[18%] h-60 w-60 rounded-full blur-3xl"
+              style={{ background: hexToRgba(tone, 0.26) }}
+            />
+          </>
+        )}
+        {shownUrl && (
+          <>
+            <img
+              src={shownUrl}
+              alt=""
+              className={cn(
+                "absolute top-[-18%] left-1/2 h-80 w-[180%] max-w-none object-cover blur-3xl saturate-150 animate-queue-wash",
+                "transition-opacity duration-500",
+                visible ? (soften ? "opacity-35" : "opacity-80") : "opacity-0"
+              )}
+            />
+            <img
+              src={shownUrl}
+              alt=""
+              className={cn(
+                "absolute top-[22%] left-1/2 h-[28rem] w-[210%] max-w-none object-cover blur-3xl saturate-150 animate-queue-wash-low",
+                "transition-opacity duration-500",
+                visible ? (soften ? "opacity-22" : "opacity-55") : "opacity-0"
+              )}
+            />
+          </>
+        )}
+        {tone && soften && (
+          <>
+            <div
+              className="absolute -top-16 left-1/2 h-72 w-[150%] -translate-x-1/2 rounded-full blur-3xl"
+              style={{ background: hexToRgba(tone, 0.5) }}
+            />
+            <div
+              className="absolute top-[30%] left-[18%] h-60 w-60 rounded-full blur-3xl"
+              style={{ background: hexToRgba(tone, 0.34) }}
+            />
+          </>
+        )}
+      </div>
+      <div className="absolute inset-0 bg-linear-to-b from-transparent from-30% via-primary/45 via-78% to-primary" />
+    </div>
+  );
+};
 
 const EMBED_EASE = "ease-[cubic-bezier(0.22,1,0.36,1)]";
 
@@ -15,7 +345,10 @@ export const QueuePanel = () => {
     videoVisible,
     currentSong,
     currentQueueIndex,
+    queueRevision,
+    queueFill,
     playFromQueue,
+    reorderQueue,
     playTrackNext,
     addTrackToQueue,
     startMix,
@@ -23,13 +356,17 @@ export const QueuePanel = () => {
   const [menu, setMenu] = useState<{ track: WatchTrack; x: number; y: number } | null>(null);
   const embedOpen = videoVisible && Boolean(currentSong);
   const currentTrack = currentQueueIndex >= 0 ? queue[currentQueueIndex] : null;
-  const played = currentTrack ? queue.slice(0, currentQueueIndex) : [];
   const upcoming = currentTrack ? queue.slice(currentQueueIndex + 1) : queue;
+  const dragIds = queue.map((track) => stableDragId(track));
   const listRef = useRef<HTMLDivElement>(null);
   const nowPlayingRef = useRef<HTMLParagraphElement>(null);
+  const coverUrl = largestCover(currentTrack);
+  const sampleUrl = currentTrack?.thumbnail?.find((thumb) => thumb.url?.startsWith("data:"))?.url;
+  const coverColor = useVibrantCover(coverUrl, currentTrack?.videoId, sampleUrl);
 
-  // Only follow the current track. Growing the queue (add, play next, radio fill)
-  // must not pull Now playing back to the top while the list is scrolled.
+  // Pin Now playing on a song change (including the queue that loads for it)
+  // and when the end of the queue appends more tracks. Reorder, play next,
+  // and add-to-queue move the index without either of those.
   useEffect(() => {
     const list = listRef.current;
     const heading = nowPlayingRef.current;
@@ -63,7 +400,29 @@ export const QueuePanel = () => {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [currentSong?.videoId, currentQueueIndex]);
+  }, [currentSong?.videoId, queueRevision, queueFill]);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const update = () => {
+      const max = Math.max(0, list.scrollHeight - list.clientHeight);
+      const heading = nowPlayingRef.current;
+      const pinned =
+        heading != null && Math.abs(heading.getBoundingClientRect().top - list.getBoundingClientRect().top) <= 2;
+      applyEdgeMask(list, list.scrollTop > 1 && !pinned, max - list.scrollTop > 1);
+    };
+
+    update();
+    const resize = new ResizeObserver(update);
+    resize.observe(list);
+    list.addEventListener("scroll", update, { passive: true });
+    return () => {
+      resize.disconnect();
+      list.removeEventListener("scroll", update);
+    };
+  }, [queue.length, queueLoading, currentQueueIndex]);
 
   return (
     <div
@@ -85,8 +444,9 @@ export const QueuePanel = () => {
           </div>
         </div>
       </div>
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-xl bg-primary">
-        <div className="flex gap-1 items-center px-2 py-2">
+      <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden rounded-xl bg-primary">
+        <CoverWash url={coverUrl} sampleUrl={sampleUrl} color={coverColor} />
+        <div className="relative z-10 flex gap-1 items-center px-2 py-2">
           
           {/* <span className="size-10 shrink-0" /> */}
           <div className="flex flex-1 gap-2 justify-center items-center min-w-0">
@@ -101,71 +461,69 @@ export const QueuePanel = () => {
             className={cn(
               "grid size-10 cursor-pointer place-items-center rounded-full transition-colors duration-200",
               embedOpen
-                ? "bg-[oklch(0.24_0_0)] text-white hover:bg-[oklch(0.27_0_0)]"
+                ? "bg-control-active text-primary hover:bg-control-active-hover"
                 : "text-primary-dark hover:bg-primary-light hover:text-primary"
             )}
           >
             <span className="text-lg icon-[solar--video-frame-play-horizontal-linear]" />
           </button> */}
         </div>
-        <div ref={listRef} className="overflow-y-auto flex-1 px-1.5 pb-2 min-h-0 scrollbar-thin [overflow-anchor:none]">
-          {queueLoading && queue.length === 0 && (
-            <div className="grid place-items-center py-8">
-              <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
-            </div>
-          )}
-          {!queueLoading && queue.length === 0 && (
-            <p className="px-2 py-8 text-sm text-center text-primary-dark">Play a song to fill the queue.</p>
-          )}
-          {played.length > 0 && (
-            <p className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark">Previous</p>
-          )}
-          {played.map((track, index) => (
-            <QueueItem
-              key={`${track.videoId}-${index}`}
-              track={track}
-              isCurrent={false}
-              onPlay={() => playFromQueue(track, index)}
-              onOpenMenu={(x, y) => setMenu({ track, x, y })}
-            />
-          ))}
-          {currentTrack && (
-            <>
-              <p
-                ref={nowPlayingRef}
-                className={cn("px-1.5 pb-1 text-xs font-semibold text-primary-dark", played.length > 0 ? "pt-3" : "pt-0.5")}
-              >
-                Now playing
-              </p>
-              <QueueItem
-                track={currentTrack}
-                isCurrent
-                onPlay={() => playFromQueue(currentTrack, currentQueueIndex)}
-                onOpenMenu={(x, y) => setMenu({ track: currentTrack, x, y })}
-              />
-            </>
-          )}
-          {currentTrack && queueLoading && upcoming.length === 0 && (
-            <div className="grid place-items-center py-6" role="status" aria-label="Loading next tracks">
-              <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
-            </div>
-          )}
-          {currentTrack && upcoming.length > 0 && (
-            <p className="px-1.5 pt-3 pb-1 text-xs font-semibold text-primary-dark">Next</p>
-          )}
-          {upcoming.map((track, index) => {
-            const queueIndex = currentTrack ? currentQueueIndex + 1 + index : index;
-            return (
-              <QueueItem
-                key={`${track.videoId}-${queueIndex}`}
-                track={track}
-                isCurrent={false}
-                onPlay={() => playFromQueue(track, queueIndex)}
-                onOpenMenu={(x, y) => setMenu({ track, x, y })}
-              />
-            );
-          })}
-        </div>
+        <ReorderList
+          ids={dragIds}
+          axis="y"
+          onMove={reorderQueue}
+          overlay={(id) => {
+            const track = queue.find((item) => stableDragId(item) === id);
+            return track ? <QueueGhost track={track} /> : null;
+          }}
+        >
+          <div ref={listRef} className="relative z-10 overflow-y-auto flex-1 px-1.5 pb-2 min-h-0 scrollbar-thin [overflow-anchor:none]">
+            {queueLoading && queue.length === 0 && (
+              <div className="grid place-items-center py-8">
+                <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
+              </div>
+            )}
+            {!queueLoading && queue.length === 0 && (
+              <p className="px-2 py-8 text-sm text-center text-primary-dark">Play a song to fill the queue.</p>
+            )}
+            {queue.map((track, index) => {
+              const isCurrent = currentTrack != null && index === currentQueueIndex;
+              return (
+                <ReorderItem key={dragIds[index]} id={dragIds[index]}>
+                  {currentTrack && index === 0 && currentQueueIndex > 0 && (
+                    <p className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark">Previous</p>
+                  )}
+                  {isCurrent && (
+                    <p
+                      ref={nowPlayingRef}
+                      className={cn(
+                        "px-1.5 pb-1 text-xs font-semibold text-primary-dark",
+                        currentQueueIndex > 0 ? "pt-3" : "pt-0.5",
+                      )}
+                    >
+                      Now playing
+                    </p>
+                  )}
+                  {currentTrack && index === currentQueueIndex + 1 && (
+                    <p className="px-1.5 pt-3 pb-1 text-xs font-semibold text-primary-dark">Next</p>
+                  )}
+                  <QueueItem
+                    track={track}
+                    isCurrent={isCurrent}
+                    accent={isCurrent ? coverColor : undefined}
+                    onPlay={() => playFromQueue(track, index)}
+                    onOpenMenu={(x, y) => setMenu({ track, x, y })}
+                  />
+                  {isCurrent && queueLoading && upcoming.length === 0 && (
+                    <div className="grid place-items-center py-6" role="status" aria-label="Loading next tracks">
+                      <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
+                    </div>
+                  )}
+                </ReorderItem>
+              );
+            })}
+          </div>
+        </ReorderList>
       </div>
       {menu && (
         <TrackMenu
@@ -181,38 +539,80 @@ export const QueuePanel = () => {
   );
 };
 
+const QueueGhost = ({ track }: { track: WatchTrack }) => {
+  const thumbnailUrl = track.thumbnail?.[0]?.url;
+  const artists = (track.artists ?? []).map((artist) => artist.name).join(", ");
+  return (
+    <div className="flex w-full items-center gap-2.5 rounded-lg bg-primary p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.45)] ring-1 ring-white/20">
+      <span className="relative size-10 shrink-0 overflow-hidden rounded-md">
+        {thumbnailUrl ? (
+          <img src={thumbnailUrl} alt="" draggable={false} className="h-full w-full object-cover" />
+        ) : (
+          <span className="grid h-full w-full place-items-center bg-primary-light">
+            <span className="icon-[solar--music-note-linear] text-primary-dark" />
+          </span>
+        )}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-sm">{track.title}</span>
+        <span className="truncate text-xs text-primary-dark">{artists}</span>
+      </span>
+      <span className="shrink-0 text-xs text-primary-dark">{track.length}</span>
+    </div>
+  );
+};
+
 const QueueItem = ({
   track,
   isCurrent,
+  accent,
   onPlay,
   onOpenMenu,
 }: {
   track: WatchTrack;
   isCurrent: boolean;
+  accent?: string | null;
   onPlay: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) => {
   const thumbnailUrl = track.thumbnail?.[0]?.url;
   const artists = (track.artists ?? []).map((artist) => artist.name).join(", ");
+  const tone = accent ? readableAccent(accent) : null;
+  const toneChannels = tone ? parseHex(tone) : null;
+  // A silver or white accent at the usual 20% disappears into a light wash.
+  const pale = Boolean(
+    toneChannels && Math.max(...toneChannels) >= 140 && Math.max(...toneChannels) - Math.min(...toneChannels) < 24
+  );
 
   return (
     <button
       type="button"
-      onClick={onPlay}
+      onClick={() => {
+        if (consumeDragClick()) return;
+        onPlay();
+      }}
       onContextMenu={(event) => {
         event.preventDefault();
         if (!track.videoId) return;
         onOpenMenu(event.clientX, event.clientY);
       }}
       className={cn(
-        "group flex gap-2 items-center p-1.5 w-full text-left rounded-lg transition-colors cursor-pointer",
-        isCurrent ? "bg-primary-light text-primary" : "text-primary-dark hover:text-primary hover:bg-primary-light"
+        "group flex w-full cursor-grab items-center gap-2.5 rounded-lg p-1.5 text-left transition-[background-color,box-shadow,color] duration-700",
+        isCurrent ? "text-primary" : "text-primary-dark hover:bg-primary-light hover:text-primary",
+        isCurrent && !tone && "bg-primary-light"
       )}
+      style={
+        isCurrent && tone
+          ? {
+              backgroundColor: hexToRgba(tone, pale ? 0.4 : 0.2),
+              boxShadow: `inset 0 0 0 1px ${hexToRgba(tone, pale ? 0.58 : 0.34)}`,
+            }
+          : undefined
+      }
     >
-      <span className={cn("w-0.5 h-8 rounded-full shrink-0", isCurrent ? "bg-accent" : "bg-transparent")} />
-      <span className="relative size-10 shrink-0 overflow-hidden rounded-sm">
+      <span className="relative size-10 shrink-0 overflow-hidden rounded-md">
         {thumbnailUrl ? (
-          <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" />
+          <img src={thumbnailUrl} alt="" draggable={false} className="h-full w-full object-cover" />
         ) : (
           <span className="grid h-full w-full place-items-center bg-primary-light">
             <span className="icon-[solar--music-note-linear] text-primary-dark" />

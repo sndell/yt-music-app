@@ -230,6 +230,15 @@ export interface WatchTrack {
   counterpart?: WatchCounterpart;
 }
 
+export interface DiscordPresenceStatus {
+  enabled: boolean;
+  clientId: string;
+  connected: boolean;
+  state: "off" | "connecting" | "connected" | "waiting" | "invalid" | "error";
+  message: string;
+  accepted: boolean;
+}
+
 export interface WatchPlaylist {
   tracks: WatchTrack[];
   playlistId: string | null;
@@ -239,10 +248,15 @@ export interface WatchPlaylist {
 
 /** API method signatures */
 export interface ApiMethods {
+  get_cover_color: { params: [imageUrl: string]; response: string | null };
   get_playlists: { params: []; response: PlaylistSummary[] };
   get_quick_picks: { params: []; response: QuickPicks };
   get_home: { params: []; response: HomeFeed };
   get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
+  move_playlist_item: {
+    params: [playlistId: string, setVideoId: string, beforeSetVideoId: string];
+    response: { status: string };
+  };
   get_album: { params: [browseId: string]; response: AlbumDetails };
   get_artist: { params: [channelId: string]; response: ArtistDetails };
   get_artist_albums: { params: [channelId: string, params: string]; response: ArtistRelease[] };
@@ -253,6 +267,21 @@ export interface ApiMethods {
   clear_all_cache: { params: []; response: { cleared: number } };
   update_media_controls: {
     params: [title: string, artist: string, playing: boolean, hasNext: boolean, artwork: string];
+    response: void;
+  };
+  get_discord_presence: { params: []; response: DiscordPresenceStatus };
+  set_discord_presence: { params: [enabled: boolean, clientId: string]; response: DiscordPresenceStatus };
+  update_discord_presence: {
+    params: [
+      title: string,
+      artist: string,
+      album: string,
+      playing: boolean,
+      elapsed: number,
+      duration: number,
+      artwork: string,
+      videoId: string,
+    ];
     response: void;
   };
     get_watch_playlist: {

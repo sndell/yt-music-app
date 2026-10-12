@@ -8,12 +8,11 @@ import { PlaylistDescription } from "@/features/playlist/components/PlaylistDesc
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { BrowseCard, BrowseRow } from "@/components/ui/BrowseCard";
 import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
+import { StickyCollectionBar } from "@/components/ui/StickyCollectionBar";
+import { useEdgeFade } from "@/components/ui/useEdgeFade";
+import { collectionCoverClass, collectionHeaderClass, collectionTitleClass, collectionWash } from "@/components/ui/collectionChrome";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
-
-const titleClass = "line-clamp-2 pt-1.5 text-3xl font-bold wrap-break-word @2xl:text-5xl";
-const headerLayoutClass = "flex flex-col gap-4 p-6 @lg:flex-row @lg:items-start @lg:gap-6";
-const coverSizeClass = "size-40 shrink-0 @2xl:size-48";
 
 const withRatings = (album: AlbumDetails, ratings: Record<string, LikeStatus>): AlbumDetails => {
   let changed = false;
@@ -164,6 +163,8 @@ export const Album = () => {
     setIsScrolled(false);
   }, [albumReadyId]);
 
+  useEdgeFade(scrollContainerRef, { top: false }, album?.tracks.length);
+
   const handleScroll = () => {
     const container = scrollContainerRef.current;
     const header = headerRef.current;
@@ -194,13 +195,7 @@ export const Album = () => {
     void playPlaylist(audioPlaylistId, mode);
   };
 
-  const detailsGradient = dominantColor
-    ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 1)}, ${hexToRgba(dominantColor, 0.2)})`
-    : "transparent";
-
-  const tracksGradient = dominantColor
-    ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 0.1)}, #0000)`
-    : "transparent";
+  const wash = collectionWash(dominantColor);
 
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
@@ -217,61 +212,51 @@ export const Album = () => {
   );
 
   const playback = audioPlaylistId ? (
-    <PlaybackButtons className="pt-4" onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
+    <PlaybackButtons onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
   ) : null;
 
   return (
     <div className="@container relative flex flex-1 flex-col overflow-hidden">
-      <div
-        className="absolute top-0 right-0 left-0 z-10 transition-transform duration-300"
-        style={{
-          transform: isScrolled ? "translateY(0)" : "translateY(-100%)",
-          opacity: isScrolled ? 1 : 0,
-        }}
-      >
-        <div className="flex gap-3 items-center p-3 w-full backdrop-blur-2xl" style={{ background: stickyBg }}>
-          <Cover key={thumbnailUrl ?? "empty"} url={thumbnailUrl} alt={title} className="size-12 rounded shadow-md" iconClass="text-lg" />
-          <div className="min-w-0 flex-1">
-            <h2 title={title} className="truncate text-xl font-bold">
-              {title}
-            </h2>
-            {meta("text-sm leading-5")}
-          </div>
-          {audioPlaylistId && (
-            <PlaybackButtons variant="icon" onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
-          )}
-        </div>
-        <div className="grid grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr] border-y border-primary bg-secondary/60 backdrop-blur-2xl py-1.5 px-6">
-          <div>Track</div>
-          <div className="max-md:hidden">Album</div>
-          <div className="justify-self-end">Duration</div>
-        </div>
-      </div>
+      <StickyCollectionBar
+        visible={isScrolled}
+        background={stickyBg}
+        thumbnailUrl={thumbnailUrl}
+        title={title}
+        coverFallback
+        meta={meta("text-sm leading-5")}
+        onPlay={audioPlaylistId ? () => play("play") : undefined}
+        onShuffle={audioPlaylistId ? () => play("shuffle") : undefined}
+        columnHeaders
+      />
 
       <div
         key={id}
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="overflow-y-auto flex-1 scrollbar [overflow-anchor:none]"
+        className="overflow-x-hidden overflow-y-auto flex-1 scrollbar [overflow-anchor:none]"
       >
-        <div ref={headerRef} className={headerLayoutClass} style={{ background: detailsGradient }}>
+        <div ref={headerRef} className={collectionHeaderClass} style={{ background: wash.header }}>
           <Cover
             key={thumbnailUrl ?? "cover"}
             url={thumbnailUrl}
             alt={title}
-            className={cn(coverSizeClass, "rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
+            className={cn(collectionCoverClass, "rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
           />
           <div className="min-w-0 flex-1 text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)] @lg:self-end">
-            <h1 title={title} className={titleClass}>
+            <h1 title={title} className={collectionTitleClass}>
               {title}
             </h1>
             <PlaylistDescription description={description} />
             {meta("pt-3")}
-            {playback}
           </div>
         </div>
 
-        <PlaylistTrackList tracks={rated.tracks} gradient={tracksGradient} playlistId={audioPlaylistId ?? undefined} />
+        <PlaylistTrackList
+          tracks={rated.tracks}
+          gradient={wash.tracks}
+          playlistId={audioPlaylistId ?? undefined}
+          actions={playback}
+        />
 
         {versions.length > 0 && (
           <BrowseRow title="Other versions">

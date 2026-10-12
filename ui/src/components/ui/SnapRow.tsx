@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { IconButton } from "@/components/ui/IconButton";
 
 const DRAG_THRESHOLD_PX = 6;
 const SNAP_EPSILON_PX = 1;
@@ -47,7 +48,7 @@ const syncPad = (scroller: HTMLElement, pad: HTMLElement, items: HTMLElement[]) 
 };
 
 const chevronClass =
-  "absolute top-1/2 grid size-8 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-primary bg-primary opacity-0 transition duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] pointer-events-none group-hover/snap:pointer-events-auto group-hover/snap:opacity-100 hover:bg-primary-light focus-visible:pointer-events-auto focus-visible:opacity-100";
+  "pointer-events-none opacity-0 transition duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/snap:pointer-events-auto group-hover/snap:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100";
 
 const FADE = "5rem";
 
@@ -64,8 +65,8 @@ const edgeMask = (previous: boolean, next: boolean) => {
 export const SnapRow = ({ children }: { children: ReactNode }) => {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const padRef = useRef<HTMLDivElement>(null);
-  const leftRef = useRef<HTMLButtonElement>(null);
-  const rightRef = useRef<HTMLButtonElement>(null);
+  const leftRef = useRef<HTMLSpanElement>(null);
+  const rightRef = useRef<HTMLSpanElement>(null);
   const pendingLeftRef = useRef<number | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const settleCleanupRef = useRef<(() => void) | null>(null);
@@ -219,6 +220,7 @@ export const SnapRow = ({ children }: { children: ReactNode }) => {
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest("[data-drag-item]")) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     dragCleanupRef.current?.();
@@ -325,12 +327,26 @@ export const SnapRow = ({ children }: { children: ReactNode }) => {
           className="pointer-events-none shrink-0"
         />
       </div>
-      <button type="button" ref={leftRef} aria-label="Previous" onClick={() => scrollByItem(-1)} className={`${chevronClass} left-0`}>
-        <span className="icon-[solar--alt-arrow-left-linear] text-lg" />
-      </button>
-      <button type="button" ref={rightRef} aria-label="Next" onClick={() => scrollByItem(1)} className={`${chevronClass} right-0`}>
-        <span className="icon-[solar--alt-arrow-right-linear] text-lg" />
-      </button>
+      <span ref={leftRef} className="pointer-events-none absolute top-1/2 left-0 -translate-y-1/2 group-hover/snap:pointer-events-auto focus-within:pointer-events-auto">
+        <IconButton
+          iconClass="icon-[solar--alt-arrow-left-linear]"
+          label="Previous"
+          size="sm"
+          tone="outline"
+          onClick={() => scrollByItem(-1)}
+          className={chevronClass}
+        />
+      </span>
+      <span ref={rightRef} className="pointer-events-none absolute top-1/2 right-0 -translate-y-1/2 group-hover/snap:pointer-events-auto focus-within:pointer-events-auto">
+        <IconButton
+          iconClass="icon-[solar--alt-arrow-right-linear]"
+          label="Next"
+          size="sm"
+          tone="outline"
+          onClick={() => scrollByItem(1)}
+          className={chevronClass}
+        />
+      </span>
     </div>
   );
 };

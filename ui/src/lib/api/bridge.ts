@@ -56,11 +56,14 @@ async function callPython<M extends ApiMethodName>(
 
 /** Type-safe access to all Python API methods */
 export const PyBridge = {
+  getCoverColor: (imageUrl: string) => callPython("get_cover_color", imageUrl),
   getPlaylists: () => callPython("get_playlists"),
   getQuickPicks: () => callPython("get_quick_picks"),
   getHome: () => callPython("get_home"),
   getPlaylistItems: (playlistId: string, forceRefresh = false) =>
     callPython("get_playlist_items", playlistId, forceRefresh),
+  movePlaylistItem: (playlistId: string, setVideoId: string, beforeSetVideoId = "") =>
+    callPython("move_playlist_item", playlistId, setVideoId, beforeSetVideoId),
   getAlbum: (browseId: string) => callPython("get_album", browseId),
   getArtist: (channelId: string) => callPython("get_artist", channelId),
   getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),
@@ -73,6 +76,18 @@ export const PyBridge = {
   clearAllCache: () => callPython("clear_all_cache"),
   updateMediaControls: (title: string, artist: string, playing: boolean, hasNext: boolean, artwork: string) =>
     callPython("update_media_controls", title, artist, playing, hasNext, artwork),
+  getDiscordPresence: () => callPython("get_discord_presence"),
+  setDiscordPresence: (enabled: boolean, clientId: string) => callPython("set_discord_presence", enabled, clientId),
+  updateDiscordPresence: (
+    title: string,
+    artist: string,
+    album: string,
+    playing: boolean,
+    elapsed: number,
+    duration: number,
+    artwork: string,
+    videoId: string
+  ) => callPython("update_discord_presence", title, artist, album, playing, elapsed, duration, artwork, videoId),
   getSongRating: (videoId: string) => callPython("get_song_rating", videoId),
   rateSong: (videoId: string, rating: "LIKE" | "DISLIKE" | "INDIFFERENT") =>
     callPython("rate_song", videoId, rating),

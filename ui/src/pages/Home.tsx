@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { PyBridge, type HomeItem, type HomeShelf, type Track } from "@/lib/api";
 import { usePlayer } from "@/features/player";
+import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
+import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { SnapRow } from "@/components/ui/SnapRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
@@ -133,7 +135,7 @@ export const Home = () => {
         )}
 
         {hasContent && (
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-6">
             {shelves.map((shelf) =>
               shelf.layout === "row" ? (
                 <HomeRow
@@ -281,7 +283,7 @@ const HomeCard = ({
           className="absolute inset-0 cursor-pointer disabled:cursor-default"
         >
           {thumbnailUrl && !failed ? (
-            <img src={thumbnailUrl} alt="" onError={() => setFailed(true)} className="h-full w-full object-cover" />
+            <img src={thumbnailUrl} alt="" draggable={false} onError={() => setFailed(true)} className="h-full w-full object-cover" />
           ) : (
             <span className="grid h-full w-full place-items-center">
               <span className="icon-[solar--music-note-linear] text-2xl text-primary-dark" />
@@ -294,18 +296,22 @@ const HomeCard = ({
             className="pointer-events-none absolute inset-0 cursor-pointer opacity-0 transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
           >
             {isPlaylist && (
-              <button
-                type="button"
-                aria-label={`More options for ${item.title}`}
+              <span
                 onClick={(event) => {
                   event.stopPropagation();
                   const rect = event.currentTarget.getBoundingClientRect();
                   onOpenMenu(rect.left, rect.bottom);
                 }}
-                className="pointer-events-none absolute top-1 right-1 grid size-8 cursor-pointer place-items-center text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.8)] group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+                className="pointer-events-none absolute top-1 right-1 group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
               >
-                <span className="icon-[solar--menu-dots-bold] text-xl" />
-              </button>
+                <IconButton
+                  iconClass="icon-[solar--menu-dots-bold]"
+                  label={`More options for ${item.title}`}
+                  size="sm"
+                  tone="ghost"
+                  className="pointer-events-none text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.8)] group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+                />
+              </span>
             )}
             <button
               type="button"
@@ -317,7 +323,7 @@ const HomeCard = ({
               }}
               className="group/play pointer-events-none absolute right-1.5 bottom-1.5 grid size-10 cursor-pointer place-items-center text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.8)] group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
             >
-              <RevealIcon grow iconClassName="icon-[solar--play-bold] text-3xl" />
+              <RevealIcon grow iconClassName="icon-[solar--play-bold] text-2xl" />
             </button>
           </span>
         ) : (
@@ -327,7 +333,7 @@ const HomeCard = ({
               interactive={item.kind === "song"}
               onClick={item.kind === "song" && canOpen ? onOpen : undefined}
               iconClassName={
-                item.kind === "song" ? "icon-[solar--play-bold] text-3xl" : "icon-[solar--library-linear] text-3xl"
+                item.kind === "song" ? "icon-[solar--play-bold] text-2xl" : "icon-[solar--library-linear] text-2xl"
               }
             />
           </span>
@@ -342,11 +348,7 @@ const HomeCard = ({
         <span className="block truncate text-sm font-medium">{item.title}</span>
         {item.subtitle && (
           <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-primary-dark">
-            {item.explicit && (
-              <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] border border-current text-[9px] leading-none">
-                E
-              </span>
-            )}
+            {item.explicit && <ExplicitBadge />}
             <span className="truncate">{item.subtitle}</span>
           </span>
         )}
@@ -462,24 +464,22 @@ const QuickPicks = ({
             >
               Play all
             </button>
-            <button
-              type="button"
-              aria-label="Previous page"
+            <IconButton
+              iconClass="icon-[solar--alt-arrow-left-linear]"
+              label="Previous page"
+              size="sm"
+              tone="outline"
               disabled={currentPage === 0}
               onClick={() => go(-1)}
-              className="grid size-8 cursor-pointer place-items-center rounded-full border border-primary transition-colors hover:bg-primary-light disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <span className="icon-[solar--alt-arrow-left-linear] text-lg" />
-            </button>
-            <button
-              type="button"
-              aria-label="Next page"
+            />
+            <IconButton
+              iconClass="icon-[solar--alt-arrow-right-linear]"
+              label="Next page"
+              size="sm"
+              tone="outline"
               disabled={currentPage >= pageCount - 1}
               onClick={() => go(1)}
-              className="grid size-8 cursor-pointer place-items-center rounded-full border border-primary transition-colors hover:bg-primary-light disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <span className="icon-[solar--alt-arrow-right-linear] text-lg" />
-            </button>
+            />
           </div>
         )}
       </div>
@@ -578,7 +578,7 @@ const QuickPickRow = ({
       >
         <div className="relative size-11 shrink-0 overflow-hidden rounded-md bg-secondary">
           {thumbnailUrl && !failed ? (
-            <img src={thumbnailUrl} alt="" onError={() => setFailed(true)} className="h-full w-full object-cover" />
+            <img src={thumbnailUrl} alt="" draggable={false} onError={() => setFailed(true)} className="h-full w-full object-cover" />
           ) : (
             <div className="grid h-full w-full place-items-center">
               <span className="icon-[solar--music-note-linear] text-primary-dark" />
@@ -592,11 +592,7 @@ const QuickPickRow = ({
           <span className="block truncate text-sm font-medium">{item.title}</span>
           {item.subtitle && (
             <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-primary-dark">
-              {item.explicit && (
-                <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] border border-current text-[9px] leading-none">
-                  E
-                </span>
-              )}
+              {item.explicit && <ExplicitBadge />}
               <span className="truncate">{item.subtitle}</span>
             </span>
           )}

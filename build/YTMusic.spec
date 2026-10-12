@@ -14,7 +14,7 @@ datas = [(str(ui_dist), "ui")]
 binaries = []
 hiddenimports = []
 
-for package in ("webview", "pythonnet", "clr_loader", "ytmusicapi"):
+for package in ("webview", "pythonnet", "clr_loader", "ytmusicapi", "pypresence"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries

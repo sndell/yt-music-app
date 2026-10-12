@@ -1,11 +1,14 @@
-import { useRef, useState, type MouseEvent } from "react";
+import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Link, useLocation } from "wouter";
 import type { LikeStatus, Track } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
+import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
+import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { TrackMenu } from "@/components/ui/TrackMenu";
+import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 
 const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate: (to: string) => void) => {
   event.preventDefault();
@@ -13,59 +16,114 @@ const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate
   navigate(href);
 };
 
-const TRACK_HEIGHT = 56; // Height of each track item in pixels
+const TRACK_HEIGHT = 48; // Height of each track item in pixels
 
 export const PlaylistTrackList = ({
   tracks,
   gradient,
   playlistId,
+  title,
+  footer,
+  actions,
+  variant = "collection",
+  onReorder,
 }: {
   tracks: Track[];
   gradient: string;
   playlistId: string | undefined;
+  /** Section name above a popular list. Collection lists keep the Track / Album / Duration row. */
+  title?: string;
+  /** Rendered as the last row, under the tracks. */
+  footer?: ReactNode;
+  /** Play controls, rendered at the top of the list section. */
+  actions?: ReactNode;
+  /** Popular lists drop the album column and the column labels. */
+  variant?: "collection" | "popular";
+  /** Owned playlists. Moves the row through YouTube Music. */
+  onReorder?: (from: number, to: number) => void;
 }) => {
-  const parentRef = useRef<HTMLDivElement>(null);
+  const rowsRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
   const { playTrackNext, addTrackToQueue, startMix } = usePlayer();
+  const dragIds = tracks.map((track, index) => track.setVideoId || `row-${track.videoId}-${index}`);
+
+  useLayoutEffect(() => {
+    const rows = rowsRef.current;
+    const scroller = rows?.closest(".scrollbar");
+    if (!rows || !(scroller instanceof HTMLElement)) return;
+    const measure = () => {
+      const next = rows.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      setScrollMargin((current) => (Math.abs(current - next) < 0.5 ? current : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    if (rows.parentElement) observer.observe(rows.parentElement);
+    return () => observer.disconnect();
+  }, []);
 
   const virtualizer = useVirtualizer({
     count: tracks.length,
-    getScrollElement: () => parentRef.current?.closest(".scrollbar") as HTMLElement | null,
+    getScrollElement: () => rowsRef.current?.closest(".scrollbar") as HTMLElement | null,
     estimateSize: () => TRACK_HEIGHT,
     overscan: 16,
+    scrollMargin,
   });
 
+  const popular = variant === "popular";
+  const pad = popular ? "px-6" : "px-3 sm:px-4";
+
   return (
-    <div ref={parentRef} className="relative flex flex-col gap-3 py-4 sm:py-6">
+    <div className={cn("relative flex flex-col", popular ? "gap-2 pt-1 pb-2" : "gap-3 pt-3 pb-4 sm:pb-6")}>
       <div className="pointer-events-none absolute top-0 right-0 left-0 h-64" style={{ background: gradient }} />
-      <div className="px-4 sm:px-6">
-        <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
-          <div>Track</div>
-          <div className="max-md:hidden">Album</div>
-          <div className="justify-self-end">Duration</div>
+      {actions && <div className={cn("relative", pad)}>{actions}</div>}
+      {popular ? (
+        title && <h2 className={cn("relative text-xl font-bold", pad)}>{title}</h2>
+      ) : (
+        <div className={cn("relative", pad)}>
+          <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
+            <div>Track</div>
+            <div className="max-md:hidden">Album</div>
+            <div className="justify-self-end">Duration</div>
+          </div>
         </div>
-      </div>
-      <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((virtualItem) => {
-          const track = tracks[virtualItem.index];
-          return (
-            <div
-              key={track.videoId}
-              className="absolute left-0 w-full"
-              style={{
-                height: TRACK_HEIGHT,
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
-            >
-              <PlaylistTrackItem
-                track={track}
-                playlistId={playlistId}
-                onOpenMenu={(x, y) => setMenu({ track, x, y })}
-              />
-            </div>
-          );
-        })}
-      </div>
+      )}
+      <ReorderList
+        ids={dragIds}
+        axis="y"
+        onMove={(from, to) => onReorder?.(from, to)}
+        overlay={(id) => {
+          const track = tracks.find((_, index) => dragIds[index] === id);
+          return track ? <TrackGhost track={track} /> : null;
+        }}
+      >
+        <div ref={rowsRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((virtualItem) => {
+            const track = tracks[virtualItem.index];
+            const reorderable = Boolean(onReorder && track.setVideoId);
+            return (
+              <ReorderItem
+                key={dragIds[virtualItem.index]}
+                id={dragIds[virtualItem.index]}
+                offsetY={virtualItem.start - scrollMargin}
+                height={TRACK_HEIGHT}
+                disabled={reorderable ? false : { draggable: true }}
+              >
+                <PlaylistTrackItem
+                  track={track}
+                  playlistId={playlistId}
+                  index={popular ? virtualItem.index + 1 : undefined}
+                  showAlbum={!popular}
+                  grabbable={reorderable}
+                  onOpenMenu={(x, y) => setMenu({ track, x, y })}
+                />
+              </ReorderItem>
+            );
+          })}
+        </div>
+      </ReorderList>
+      {footer}
       {menu && (
         <TrackMenu
           x={menu.x}
@@ -80,26 +138,37 @@ export const PlaylistTrackList = ({
   );
 };
 
-const ratingButtonClass = (active: boolean) =>
-  cn(
-    "grid size-8 cursor-pointer place-items-center rounded-full text-lg transition-colors",
-    active ? "text-primary" : "text-primary-dark hover:bg-secondary hover:text-primary"
-  );
+const TrackGhost = ({ track }: { track: Track }) => (
+  <div className="flex h-12 items-center gap-3 rounded-lg bg-primary px-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] ring-1 ring-white/20">
+    <span className="size-10 shrink-0 overflow-hidden rounded-md bg-primary-light">
+      {track.thumbnails[0]?.url && <img src={track.thumbnails[0].url} alt="" className="h-full w-full object-cover" />}
+    </span>
+    <span className="min-w-0 truncate font-medium">{track.title}</span>
+  </div>
+);
 
 const PlaylistTrackItem = ({
   track,
   playlistId,
   onOpenMenu,
+  index,
+  showAlbum,
+  grabbable = false,
 }: {
   track: Track;
   playlistId?: string;
   onOpenMenu: (x: number, y: number) => void;
+  index?: number;
+  showAlbum: boolean;
+  grabbable?: boolean;
 }) => {
   const { playFromPlaylist, rateTrack } = usePlayer();
   const [, navigate] = useLocation();
   const likeStatus = track.likeStatus ?? "INDIFFERENT";
   const albumName = track.album?.name || "Unknown Album";
   const albumId = track.album?.id;
+  const views = track.views != null && track.views > 0 ? track.views.toLocaleString() : null;
+  const pad = showAlbum ? "px-3 sm:px-4" : "px-6";
 
   const handleClick = () => {
     playFromPlaylist(track, playlistId);
@@ -117,21 +186,37 @@ const PlaylistTrackItem = ({
         onOpenMenu(event.clientX, event.clientY);
       }}
       className={cn(
-        "group relative h-full w-full transition-colors hover:bg-primary-light",
+        "group relative h-full w-full overflow-hidden transition-colors hover:bg-primary-light",
         track.isAvailable ? "opacity-100" : "opacity-25"
       )}
     >
       <button
         type="button"
-        onClick={handleClick}
+        onClick={() => {
+          if (consumeDragClick()) return;
+          handleClick();
+        }}
         aria-label={`Play ${track.title}`}
-        className="absolute inset-0 z-0 cursor-pointer"
+        className={cn("absolute inset-0 z-0", grabbable ? "cursor-grab" : "cursor-pointer")}
       />
-      <div className="pointer-events-none relative z-0 grid h-full grid-cols-[5fr_1fr] items-center gap-4 px-5 py-1.5 md:grid-cols-[7fr_5fr_1fr] sm:px-7">
+      <div
+        className={cn(
+          "pointer-events-none relative z-0 grid h-full min-h-0 grid-rows-1 content-center items-center gap-4",
+          pad,
+          showAlbum
+            ? "grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr]"
+            : views
+              ? "grid-cols-[1fr_auto] md:grid-cols-[1fr_auto_auto]"
+              : "grid-cols-[1fr_auto]"
+        )}
+      >
         <div className="flex min-w-0 items-center gap-3">
-          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light sm:h-12 sm:w-12">
+          {index != null && (
+            <span className="w-5 shrink-0 text-right text-sm text-primary-dark tabular-nums">{index}</span>
+          )}
+          <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light">
             {track.thumbnails[0]?.url ? (
-              <img src={track.thumbnails[0].url} alt="" className="h-full w-full object-cover" />
+              <img src={track.thumbnails[0].url} alt="" draggable={false} className="h-full w-full object-cover" />
             ) : (
               <div className="grid h-full w-full place-items-center bg-primary-light">
                 <span className="icon-[solar--music-note-linear] text-primary-dark" />
@@ -142,76 +227,83 @@ const PlaylistTrackItem = ({
             </span>
           </div>
           <div className="flex min-w-0 flex-col items-start overflow-hidden text-start">
-            <span className="w-full truncate font-medium">{track.title}</span>
-            <span className="flex w-full min-w-0 items-center gap-1 text-sm text-primary-dark">
-              {track.isExplicit && (
-                <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] border border-current text-[9px] leading-none">
-                  E
-                </span>
-              )}
-              <span className="truncate">
-                {track.artists.map((artist, index) => (
-                  <span key={`${artist.id}-${artist.name}-${index}`}>
-                    {index > 0 && ", "}
-                    {artist.id ? (
-                      <Link
-                        href={`/artist/${artist.id}`}
-                        onClick={(event) => followLink(event, `/artist/${artist.id}`, navigate)}
-                        className="pointer-events-auto relative z-10 hover:underline"
-                      >
-                        {artist.name}
-                      </Link>
-                    ) : (
-                      artist.name
-                    )}
-                  </span>
-                ))}
-              </span>
+            <span className="flex w-full min-w-0 items-center gap-1">
+              <span className="min-w-0 truncate font-medium">{track.title}</span>
+              {!showAlbum && track.isExplicit && <ExplicitBadge />}
             </span>
+            {showAlbum && (
+              <span className="flex w-full min-w-0 items-center gap-1 text-sm text-primary-dark">
+                {track.isExplicit && <ExplicitBadge />}
+                <span className="truncate">
+                  {track.artists.map((artist, artistIndex) => (
+                    <span key={`${artist.id}-${artist.name}-${artistIndex}`}>
+                      {artistIndex > 0 && ", "}
+                      {artist.id ? (
+                        <Link
+                          href={`/artist/${artist.id}`}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => followLink(event, `/artist/${artist.id}`, navigate)}
+                          className="pointer-events-auto relative z-10 hover:underline"
+                        >
+                          {artist.name}
+                        </Link>
+                      ) : (
+                        artist.name
+                      )}
+                    </span>
+                  ))}
+                </span>
+              </span>
+            )}
           </div>
         </div>
-        <div className="flex min-w-0 text-start text-primary-dark max-md:hidden">
-          {albumId ? (
-            <Link
-              href={`/album/${albumId}`}
-              onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
-              className="pointer-events-auto relative z-10 w-full truncate hover:underline"
-            >
-              {albumName}
-            </Link>
-          ) : (
-            <span className="w-full truncate">{albumName}</span>
-          )}
-        </div>
+        {showAlbum ? (
+          <div className="flex min-w-0 text-start text-primary-dark max-md:hidden">
+            {albumId ? (
+              <Link
+                href={`/album/${albumId}`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
+                className="pointer-events-auto relative z-10 w-full truncate hover:underline"
+              >
+                {albumName}
+              </Link>
+            ) : (
+              <span className="w-full truncate">{albumName}</span>
+            )}
+          </div>
+        ) : (
+          views && <div className="hidden truncate text-sm text-primary-dark md:block">{views}</div>
+        )}
         <div className="shrink-0 justify-self-end text-sm text-primary-dark transition-opacity duration-200 group-hover:opacity-0">
           {track.duration}
         </div>
       </div>
       <div
+        onPointerDown={(event) => event.stopPropagation()}
         className={cn(
-          "pointer-events-none absolute inset-y-0 right-4 z-10 flex translate-x-4 items-center gap-0.5 bg-linear-to-l from-primary-light from-60% to-transparent pr-1 pl-10 opacity-0 transition-[opacity,translate] duration-200 ease-out sm:right-6",
+          "pointer-events-none absolute inset-y-0 z-10 flex translate-x-4 items-center gap-0.5 bg-linear-to-l from-primary-light from-60% to-transparent pr-1 pl-10 opacity-0 transition-[opacity,translate] duration-200 ease-out",
+          showAlbum ? "right-2 sm:right-3" : "right-6",
           "group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100",
           "focus-within:pointer-events-auto focus-within:translate-x-0 focus-within:opacity-100"
         )}
       >
-        <button
-          type="button"
-          aria-label="Like"
-          aria-pressed={likeStatus === "LIKE"}
+        <IconButton
+          iconClass={likeStatus === "LIKE" ? "icon-[solar--like-bold]" : "icon-[solar--like-linear]"}
+          label="Like"
+          size="sm"
+          tone={likeStatus === "LIKE" ? "active" : "ghost"}
+          iconScale="dense"
           onClick={() => handleRate("LIKE")}
-          className={ratingButtonClass(likeStatus === "LIKE")}
-        >
-          <span className={likeStatus === "LIKE" ? "icon-[solar--like-bold]" : "icon-[solar--like-linear]"} />
-        </button>
-        <button
-          type="button"
-          aria-label="Dislike"
-          aria-pressed={likeStatus === "DISLIKE"}
+        />
+        <IconButton
+          iconClass={likeStatus === "DISLIKE" ? "icon-[solar--dislike-bold]" : "icon-[solar--dislike-linear]"}
+          label="Dislike"
+          size="sm"
+          tone={likeStatus === "DISLIKE" ? "active" : "ghost"}
+          iconScale="dense"
           onClick={() => handleRate("DISLIKE")}
-          className={ratingButtonClass(likeStatus === "DISLIKE")}
-        >
-          <span className={likeStatus === "DISLIKE" ? "icon-[solar--dislike-bold]" : "icon-[solar--dislike-linear]"} />
-        </button>
+        />
       </div>
     </div>
   );

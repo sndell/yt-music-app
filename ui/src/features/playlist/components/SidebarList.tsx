@@ -2,10 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type Poi
 import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import type { PlaylistSummary } from "@/lib/api";
+import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 import { TrackMenu } from "@/components/ui/TrackMenu";
+import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { usePlayer } from "@/features/player";
+import { moveItem, useOrderMap } from "@/lib/orderMap";
 import { cn } from "@/util/cn";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
+
+const SIDEBAR_SCOPE = "sidebar:playlists";
 
 const COLLAPSED_QUERY = "(max-width: 1023px)";
 
@@ -20,18 +25,21 @@ type PreviewState = {
 
 export const SidebarList = () => {
   const { playlists, isLoading, error, fetchPlaylists } = usePlaylist();
+  const orderMap = useOrderMap();
+  const ordered = orderMap.apply(playlists, (playlist) => playlist.playlistId, SIDEBAR_SCOPE);
   const { playPlaylist, queuePlaylist } = usePlayer();
   const [, navigate] = useLocation();
   const listRef = useRef<HTMLDivElement>(null);
   const pointer = useRef({ x: 0, y: 0 });
   const activeIdRef = useRef<string | null>(null);
   const closeTimer = useRef<number | null>(null);
-  const playlistsRef = useRef(playlists);
+  const playlistsRef = useRef(ordered);
   const menuOpenRef = useRef(false);
+  const draggingRef = useRef(false);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
   const [menu, setMenu] = useState<{ playlistId: string; x: number; y: number } | null>(null);
-  playlistsRef.current = playlists;
+  playlistsRef.current = ordered;
   menuOpenRef.current = menu != null;
 
   const cancelClose = () => {
@@ -46,7 +54,7 @@ export const SidebarList = () => {
   };
 
   const showAt = (playlist: PlaylistSummary, rect: DOMRect) => {
-    if (!collapsedSidebar() || menuOpenRef.current) return;
+    if (!collapsedSidebar() || menuOpenRef.current || draggingRef.current) return;
     cancelClose();
     activeIdRef.current = playlist.playlistId;
     setPreview({
@@ -93,6 +101,8 @@ export const SidebarList = () => {
 
   const syncRef = useRef(syncToPointer);
   syncRef.current = syncToPointer;
+
+  useEdgeFade(listRef, {}, ordered.length);
 
   useEffect(() => {
     fetchPlaylists();
@@ -229,19 +239,39 @@ export const SidebarList = () => {
           </div>
         )}
 
-        {playlists.map((playlist) => (
-          <PlaylistSidebarItem
-            key={playlist.playlistId}
-            playlist={playlist}
-            active={phase === "open" && preview?.playlistId === playlist.playlistId}
-            onOpen={() => navigate(`/playlist/${playlist.playlistId}`)}
-            onOpenMenu={(x, y) => {
-              menuOpenRef.current = true;
-              hideNow();
-              setMenu({ playlistId: playlist.playlistId, x, y });
-            }}
-          />
-        ))}
+        <ReorderList
+          ids={ordered.map((playlist) => playlist.playlistId)}
+          axis="y"
+          onMove={(from, to) => {
+            orderMap.commit(
+              SIDEBAR_SCOPE,
+              moveItem(ordered, from, to).map((playlist) => playlist.playlistId),
+            );
+          }}
+          onActiveChange={(id) => {
+            draggingRef.current = id != null;
+            if (id) hideNow();
+          }}
+          overlay={(id) => {
+            const playlist = ordered.find((item) => item.playlistId === id);
+            return playlist ? <PlaylistGhost playlist={playlist} /> : null;
+          }}
+        >
+          {ordered.map((playlist) => (
+            <ReorderItem key={playlist.playlistId} id={playlist.playlistId}>
+              <PlaylistSidebarItem
+                playlist={playlist}
+                active={phase === "open" && preview?.playlistId === playlist.playlistId}
+                onOpen={() => navigate(`/playlist/${playlist.playlistId}`)}
+                onOpenMenu={(x, y) => {
+                  menuOpenRef.current = true;
+                  hideNow();
+                  setMenu({ playlistId: playlist.playlistId, x, y });
+                }}
+              />
+            </ReorderItem>
+          ))}
+        </ReorderList>
       </div>
     </div>
       {menu && (
@@ -316,14 +346,17 @@ const PlaylistSidebarItem = ({
     <button
       type="button"
       data-playlist-id={playlist.playlistId}
-      onClick={onOpen}
+      onClick={() => {
+        if (consumeDragClick()) return;
+        onOpen();
+      }}
       onContextMenu={(event) => {
         event.preventDefault();
         onOpenMenu(event.clientX, event.clientY);
       }}
       aria-label={playlist.title}
       className={cn(
-        "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg p-1.5 text-left text-sm text-primary-dark lg:transition-colors hover:bg-primary-light hover:text-primary max-lg:justify-center max-lg:hover:bg-transparent",
+        "flex w-full min-w-0 cursor-grab items-center gap-2 rounded-lg p-1.5 text-left text-sm text-primary-dark lg:transition-colors hover:bg-primary-light hover:text-primary max-lg:justify-center max-lg:hover:bg-transparent",
         active && "max-lg:bg-primary-light max-lg:text-primary",
       )}
     >
@@ -331,11 +364,12 @@ const PlaylistSidebarItem = ({
         <img
           src={thumbnailUrl}
           alt=""
+          draggable={false}
           onError={() => setFailed(true)}
-          className="size-10 shrink-0 rounded-sm object-cover"
+          className="size-10 shrink-0 rounded-md object-cover"
         />
       ) : (
-        <div className="grid size-10 shrink-0 place-items-center rounded-sm bg-primary-light">
+        <div className="grid size-10 shrink-0 place-items-center rounded-md bg-primary-light">
           <span className="icon-[solar--music-note-linear] text-primary-dark" />
         </div>
       )}
@@ -344,6 +378,26 @@ const PlaylistSidebarItem = ({
         {songsLabel && <span className="truncate text-xs text-primary-dark">{songsLabel}</span>}
       </span>
     </button>
+  );
+};
+
+const PlaylistGhost = ({ playlist }: { playlist: PlaylistSummary }) => {
+  const thumbnailUrl = playlist.thumbnails?.[0]?.url;
+  const songsLabel = countLabel(playlist.count, "song");
+  return (
+    <div className="flex w-full min-w-0 items-center gap-2 rounded-lg bg-primary-light p-1.5 text-left text-sm text-primary shadow-[0_16px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/15 max-lg:justify-center">
+      {thumbnailUrl ? (
+        <img src={thumbnailUrl} alt="" draggable={false} className="size-10 shrink-0 rounded-md object-cover" />
+      ) : (
+        <div className="grid size-10 shrink-0 place-items-center rounded-md bg-primary">
+          <span className="icon-[solar--music-note-linear] text-primary-dark" />
+        </div>
+      )}
+      <span className="hidden min-w-0 flex-1 flex-col lg:flex">
+        <span className="truncate">{playlist.title}</span>
+        {songsLabel && <span className="truncate text-xs text-primary-dark">{songsLabel}</span>}
+      </span>
+    </div>
   );
 };
 

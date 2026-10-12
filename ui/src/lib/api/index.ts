@@ -15,4 +15,5 @@ export type {
   ArtistVideo,
   RelatedArtist,
   ArtistDetails,
+  DiscordPresenceStatus,
 } from "./types";

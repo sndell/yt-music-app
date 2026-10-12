@@ -3,9 +3,10 @@ import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
 import { usePlayer } from "../context/PlayerContext";
 import ReactPlayer from "react-player";
+import { IconButton } from "@/components/ui/IconButton";
 import { PyBridge } from "@/lib/api";
 import { cn } from "@/util/cn";
-import type { LikeStatus, Track } from "@/lib/api/types";
+import type { LikeStatus, Thumbnail, Track } from "@/lib/api/types";
 
 const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate: (to: string) => void) => {
   event.preventDefault();
@@ -26,6 +27,21 @@ type YoutubePlayerElement = HTMLElement & {
 };
 
 const RESTART_THRESHOLD_SECONDS = 3;
+const PRESENCE_SEEK_SECONDS = 3;
+
+const largestThumbnail = (thumbnails: Thumbnail[] | undefined) => {
+  let best = "";
+  let width = -1;
+  for (const thumb of thumbnails ?? []) {
+    if (!thumb.url) continue;
+    const size = thumb.width || 0;
+    if (size >= width) {
+      width = size;
+      best = thumb.url;
+    }
+  }
+  return best;
+};
 
 // Square curve so the middle of the slider is quieter than a linear 50%.
 // Rounded to a percent so YouTube's integer getVolume() matches what we set.
@@ -154,6 +170,45 @@ export const Player = () => {
     );
   }, [currentSong, isPlaying, hasNext]);
 
+  const presenceRef = useRef({
+    songId: "",
+    title: "",
+    artist: "",
+    album: "",
+    artwork: "",
+    playing: false,
+    elapsed: 0,
+    duration: 0,
+    sentAt: 0,
+  });
+
+  // Discord draws its own progress bar from the timestamp. Resend when the song,
+  // play state, or position jumps. Ordinary playback ticks stay on this page.
+  useEffect(() => {
+    const songId = currentSong?.videoId ?? "";
+    const title = currentSong?.title ?? "";
+    const artist = currentSong?.artists.map((item) => item.name).filter(Boolean).join(", ") ?? "";
+    const album = currentSong?.album?.name ?? "";
+    const artwork = largestThumbnail(currentSong?.thumbnails);
+    const listed = Number(currentSong?.durationSeconds) || 0;
+    const prev = presenceRef.current;
+    const songChanged = prev.songId !== songId;
+    const playing = songId ? (songChanged ? true : isPlaying) : false;
+    const elapsed = songChanged ? 0 : elapsedTime;
+    const length = songChanged || duration <= 0 ? listed : duration;
+    const now = Date.now();
+    const expected = prev.elapsed + (prev.playing ? (now - prev.sentAt) / 1000 : 0);
+    const detailsChanged =
+      prev.title !== title || prev.artist !== artist || prev.album !== album || prev.artwork !== artwork;
+    const playChanged = prev.playing !== playing;
+    const seeked = !songChanged && songId !== "" && Math.abs(elapsed - expected) > PRESENCE_SEEK_SECONDS;
+    const durationChanged = !songChanged && songId !== "" && Math.abs(length - prev.duration) > 1;
+    if (!songChanged && !detailsChanged && !playChanged && !seeked && !durationChanged) return;
+
+    presenceRef.current = { songId, title, artist, album, artwork, playing, elapsed, duration: length, sentAt: now };
+    void PyBridge.updateDiscordPresence(title, artist, album, playing, elapsed, length, artwork, songId);
+  }, [currentSong, isPlaying, elapsedTime, duration]);
+
   useEffect(() => {
     window.pythonEvent = (action: string) => {
       if (action === "play") setIsPlaying(true);
@@ -226,14 +281,6 @@ export const Player = () => {
   );
 };
 
-const iconButtonClass = (active = false) =>
-  cn(
-    "grid size-10 cursor-pointer place-items-center rounded-full transition-colors duration-200 disabled:pointer-events-none disabled:opacity-40",
-    active
-      ? "bg-[oklch(0.24_0_0)] text-primary hover:bg-[oklch(0.27_0_0)]"
-      : "text-primary-dark hover:bg-primary-light hover:text-primary"
-  );
-
 const RatingButtons = ({
   likeStatus,
   pending,
@@ -244,26 +291,24 @@ const RatingButtons = ({
   onRate: (rating: LikeStatus) => void;
 }) => (
   <>
-    <button
-      type="button"
-      aria-label="Like"
-      aria-pressed={likeStatus === "LIKE"}
+    <IconButton
+      iconClass={likeStatus === "LIKE" ? "icon-[solar--like-bold]" : "icon-[solar--like-linear]"}
+      label="Like"
+      size="md"
+      tone="ghost"
+      iconScale="secondary"
       disabled={pending}
       onClick={() => onRate("LIKE")}
-      className={cn(iconButtonClass(false), "text-xl")}
-    >
-      <span className={likeStatus === "LIKE" ? "icon-[solar--like-bold]" : "icon-[solar--like-linear]"} />
-    </button>
-    <button
-      type="button"
-      aria-label="Dislike"
-      aria-pressed={likeStatus === "DISLIKE"}
+    />
+    <IconButton
+      iconClass={likeStatus === "DISLIKE" ? "icon-[solar--dislike-bold]" : "icon-[solar--dislike-linear]"}
+      label="Dislike"
+      size="md"
+      tone={likeStatus === "DISLIKE" ? "active" : "ghost"}
+      iconScale="secondary"
       disabled={pending}
       onClick={() => onRate("DISLIKE")}
-      className={cn(iconButtonClass(likeStatus === "DISLIKE"), "text-xl")}
-    >
-      <span className={likeStatus === "DISLIKE" ? "icon-[solar--dislike-bold]" : "icon-[solar--dislike-linear]"} />
-    </button>
+    />
   </>
 );
 
@@ -354,7 +399,7 @@ const PlayerControls = ({
     <div className="grid grid-cols-[1fr_auto_1fr] col-span-2 items-center">
       <div className="flex min-w-0 items-center">
         <div className="group/track relative flex w-fit max-w-full items-center gap-1.5">
-          <img src={currentSong.thumbnails[0].url} alt="" className="h-12 w-12 shrink-0 rounded-lg" />
+          <img src={currentSong.thumbnails[0].url} alt="" className="h-12 w-12 shrink-0 rounded-md" />
           <div className="relative min-w-0 max-md:min-w-24">
             <div className="min-w-0 max-md:hidden">{trackTitle()}</div>
             <div
@@ -380,81 +425,73 @@ const PlayerControls = ({
           </div>
         </div>
       </div>
-      <div className="flex gap-1 items-center text-xl ">
-        <button
-          type="button"
-          aria-label="Previous"
+      <div className="flex gap-1 items-center">
+        <IconButton
+          iconClass="icon-[solar--skip-previous-bold]"
+          label="Previous"
+          size="md"
+          tone="ghost"
+          iconScale="transport"
           onClick={onPrevious}
           disabled={!canPrevious}
-          className={iconButtonClass()}
-        >
-          <span className="icon-[solar--skip-previous-bold]" />
-        </button>
-        <button
-          type="button"
-          aria-label={isPlaying ? "Pause" : "Play"}
+        />
+        <IconButton
+          iconClass={isPlaying ? "icon-[solar--pause-bold]" : "icon-[solar--play-bold]"}
+          label={isPlaying ? "Pause" : "Play"}
+          size="md"
+          tone="ghost"
+          iconScale="transport"
           onClick={isPlaying ? onPause : onPlay}
-          className={cn(iconButtonClass(), "text-2xl")}
-        >
-          <span className={isPlaying ? "icon-[solar--pause-bold]" : "icon-[solar--play-bold]"} />
-        </button>
-        <button
-          type="button"
-          aria-label="Next"
+        />
+        <IconButton
+          iconClass="icon-[solar--skip-next-bold]"
+          label="Next"
+          size="md"
+          tone="ghost"
+          iconScale="transport"
           onClick={onNext}
           disabled={!canNext}
-          className={iconButtonClass()}
-        >
-          <span className="icon-[solar--skip-next-bold]" />
-        </button>
+        />
       </div>
       <div className="flex gap-1 items-center justify-self-end pr-3">
-        <button
-          type="button"
-          aria-label="Shuffle"
-          aria-pressed={shuffle}
+        <IconButton
+          iconClass="icon-[solar--shuffle-linear]"
+          label="Shuffle"
+          size="md"
+          tone={shuffle ? "active" : "ghost"}
+          iconScale="transport"
           onClick={onToggleShuffle}
-          className={cn(iconButtonClass(shuffle), "text-2xl")}
-        >
-          <span className="icon-[solar--shuffle-linear]" />
-        </button>
-        <button
-          type="button"
-          aria-label="Loop"
-          aria-pressed={loop}
+        />
+        <IconButton
+          iconClass={loop ? "icon-[solar--repeat-one-minimalistic-linear]" : "icon-[solar--repeat-linear]"}
+          label="Loop"
+          size="md"
+          tone={loop ? "active" : "ghost"}
+          iconScale="transport"
           onClick={onToggleLoop}
-          className={cn(iconButtonClass(loop), "text-2xl")}
-        >
-          <span
-            className={
-              loop ? "icon-[solar--repeat-one-minimalistic-linear]" : "icon-[solar--repeat-linear]"
-            }
-          />
-        </button>
+        />
         <VolumeControl volume={volume} setVolume={setVolume} />
-        <button
-          type="button"
+        <IconButton
+          iconClass={cn(
+            "icon-[solar--alt-arrow-up-bold] transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+            queueOpen && "rotate-180 translate-y-[1.5px]"
+          )}
+          label={queueOpen ? "Close queue" : "Show queue"}
+          size="md"
+          tone="ghost"
+          iconScale="transport"
           onClick={onToggleQueue}
-          aria-pressed={queueOpen}
-          aria-label={queueOpen ? "Close queue" : "Show queue"}
-          className={cn(iconButtonClass(), "text-2xl", queueOpen && "text-primary")}
-        >
-          <span
-            className={cn(
-              "icon-[solar--alt-arrow-up-bold] transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-              queueOpen && "rotate-180 translate-y-[1.5px]"
-            )}
-          />
-        </button>
+          className={queueOpen ? "text-primary" : undefined}
+        />
       </div>
     </div>
   );
 };
 
-const VolumeIcon = ({ volume }: { volume: number }) => {
-  if (volume === 0) return <span className="icon-[solar--volume-cross-linear]" />;
-  if (volume <= 50) return <span className="icon-[solar--volume-small-linear]" />;
-  return <span className="icon-[solar--volume-loud-linear]" />;
+const volumeIconClass = (volume: number) => {
+  if (volume === 0) return "icon-[solar--volume-cross-linear]";
+  if (volume <= 50) return "icon-[solar--volume-small-linear]";
+  return "icon-[solar--volume-loud-linear]";
 };
 
 const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volume: number) => void }) => {
@@ -589,14 +626,14 @@ const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume: (volu
       }}
       onBlur={onBlur}
     >
-      <button
-        type="button"
-        aria-label={volume === 0 ? "Unmute" : "Mute"}
+      <IconButton
+        iconClass={volumeIconClass(volume)}
+        label={volume === 0 ? "Unmute" : "Mute"}
+        size="md"
+        tone={volume === 0 ? "active" : "ghost"}
+        iconScale="secondary"
         onClick={toggleMute}
-        className={cn(iconButtonClass(volume === 0), "text-xl")}
-      >
-        <VolumeIcon volume={volume} />
-      </button>
+      />
       <div
         className={cn(
           "absolute bottom-full left-1/2 z-30 -translate-x-1/2",

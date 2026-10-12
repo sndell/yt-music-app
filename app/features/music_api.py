@@ -226,6 +226,10 @@ def _thumbnails(value: Any) -> list[Any]:
     return [dict(thumb) if isinstance(thumb, dict) else thumb for thumb in value]
 
 
+_cover_color_cache: dict[str, str | None] = {}
+_cover_color_lock = threading.Lock()
+
+
 def _dominant_color(thumbnails: Any) -> str | None:
     if not isinstance(thumbnails, list) or not thumbnails:
         return None
@@ -385,6 +389,58 @@ def _release_shelf(shelf: Any, default_type: str) -> dict[str, Any] | None:
         "params": _optional_str(shelf.get("params")),
         "items": items,
     }
+
+
+def _fill_missing_song_durations(ytmusic: Any, songs: Any) -> bool:
+    """Copy durations onto an artist song shelf from its Top songs playlist.
+
+    The artist browse shelf lists title and album only. Duration is on the
+    playlist that shelf links to, and the shelf items are that playlist's
+    first tracks.
+    """
+    if not isinstance(songs, dict):
+        return False
+    items = songs.get("items")
+    browse_id = songs.get("browseId")
+    if not isinstance(items, list) or not items or not isinstance(browse_id, str) or not browse_id:
+        return False
+    missing = [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("videoId") and not item.get("duration")
+    ]
+    if not missing:
+        return False
+    try:
+        playlist = ytmusic.get_playlist(browse_id, limit=len(items))
+    except Exception:
+        logger.exception("Failed to fetch top song durations for %s", browse_id)
+        return False
+    tracks = playlist.get("tracks") if isinstance(playlist, dict) else None
+    if not isinstance(tracks, list):
+        return False
+    by_id: dict[str, tuple[str, int]] = {}
+    for track in tracks:
+        if not isinstance(track, dict):
+            continue
+        video_id = track.get("videoId")
+        duration = track.get("duration")
+        if not isinstance(video_id, str) or not video_id:
+            continue
+        if not isinstance(duration, str) or not duration.strip():
+            continue
+        by_id[video_id] = (duration, _as_int(track.get("duration_seconds")))
+    filled = 0
+    for item in missing:
+        found = by_id.get(item["videoId"])
+        if not found:
+            continue
+        item["duration"] = found[0]
+        item["durationSeconds"] = found[1]
+        filled += 1
+    if filled:
+        logger.info("Filled durations for %d top songs from %s", filled, browse_id)
+    return filled > 0
 
 
 def _songs_shelf(shelf: Any, channel_id: str) -> dict[str, Any] | None:
@@ -1034,6 +1090,23 @@ class MusicApi:
             logger.warning("Authentication check failed: %s", e)
             return False
 
+    def get_cover_color(self, image_url: str) -> str | None:
+        """Vibrant cover color for the queue wash.
+
+        Uses the playlist palette pick, weighted toward saturation.
+        """
+        if not isinstance(image_url, str) or not image_url.startswith(("http://", "https://")):
+            return None
+        with _cover_color_lock:
+            if image_url in _cover_color_cache:
+                return _cover_color_cache[image_url]
+        color = get_dominant_color_hex(image_url, prefer_vibrancy=True)
+        with _cover_color_lock:
+            if len(_cover_color_cache) > 64:
+                _cover_color_cache.pop(next(iter(_cover_color_cache)))
+            _cover_color_cache[image_url] = color
+        return color
+
     def get_playlists(self) -> list[dict[str, Any]]:
         """Fetch all playlists from the user's YouTube Music library.
         
@@ -1255,17 +1328,21 @@ class MusicApi:
                 return {}
 
             cache_key = f"{CACHE_KEY_ARTIST_PREFIX}{channel_id}"
+            ytmusic = self._get_ytmusic()
             cached = cache.get(cache_key)
             if isinstance(cached, dict):
                 logger.info("Returning cached artist '%s'", cached.get("name", "Unknown"))
+                if _fill_missing_song_durations(ytmusic, cached.get("songs")):
+                    cache.set(cache_key, cached, expire=CACHE_DURATION_PLAYLIST_ITEMS)
                 return cached
 
             logger.info("Fetching artist from API for ID: %s", channel_id)
-            artist = self._get_ytmusic().get_artist(channel_id)
+            artist = ytmusic.get_artist(channel_id)
             if not isinstance(artist, dict):
                 return {}
 
             payload = _normalize_artist(artist, channel_id)
+            _fill_missing_song_durations(ytmusic, payload.get("songs"))
             cache.set(cache_key, payload, expire=CACHE_DURATION_PLAYLIST_ITEMS)
             logger.info("Artist '%s' fetched successfully", payload.get("name", "Unknown"))
             logger.info("Artist cached: %s", channel_id)
@@ -1775,6 +1852,52 @@ class MusicApi:
             raise exc
         finally:
             _auth_lock.release()
+
+    def move_playlist_item(self, playlist_id: str, set_video_id: str, before_set_video_id: str = "") -> dict[str, str]:
+        """Move one playlist row with YouTube Music's edit_playlist action.
+
+        ``before_set_video_id`` is the row that should end up after the moved
+        one. An empty string moves the row to the end.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if not isinstance(set_video_id, str) or not set_video_id:
+            raise ValueError("setVideoId is required")
+        before = before_set_video_id if isinstance(before_set_video_id, str) and before_set_video_id else None
+        ytmusic = self._get_ytmusic()
+        move_item: str | tuple[str, str] = (set_video_id, before) if before else set_video_id
+        status = ytmusic.edit_playlist(playlist_id, moveItem=move_item)
+        text = status if isinstance(status, str) else str(status.get("status", "")) if isinstance(status, dict) else str(status)
+        if "SUCCEEDED" not in text:
+            raise RuntimeError(text or "Could not reorder the playlist")
+        self._reorder_cached_playlist(playlist_id, set_video_id, before)
+        return {"status": text}
+
+    def _reorder_cached_playlist(self, playlist_id: str, set_video_id: str, before: str | None) -> None:
+        cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
+        cached = cache.get(cache_key)
+        if not isinstance(cached, dict):
+            return
+        tracks = cached.get("tracks")
+        if not isinstance(tracks, list):
+            return
+        from_index = next(
+            (index for index, track in enumerate(tracks) if isinstance(track, dict) and track.get("setVideoId") == set_video_id),
+            -1,
+        )
+        if from_index < 0:
+            return
+        item = tracks.pop(from_index)
+        if before:
+            to_index = next(
+                (index for index, track in enumerate(tracks) if isinstance(track, dict) and track.get("setVideoId") == before),
+                len(tracks),
+            )
+        else:
+            to_index = len(tracks)
+        tracks.insert(to_index, item)
+        cached["tracks"] = tracks
+        cache.set(cache_key, cached, expire=CACHE_DURATION_PLAYLIST_ITEMS)
 
     def invalidate_playlist_cache(self, playlist_ids: list[str]) -> dict[str, Any]:
         """Invalidate cache for specific playlist IDs.

@@ -1,4 +1,5 @@
 import { PyBridge, type LikeStatus, type Track, type WatchTrack } from "@/lib/api";
+import { moveItem } from "@/lib/orderMap";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 type PlayerContextType = {
@@ -19,6 +20,7 @@ type PlayerContextType = {
   rateTrack: (videoId: string, displayed: LikeStatus, rating: LikeStatus) => Promise<void>;
   getWatchPlaylist: (videoId: string, playlistId?: string, radio?: boolean, shuffle?: boolean) => Promise<void>;
   playFromQueue: (track: WatchTrack, index?: number) => void;
+  reorderQueue: (from: number, to: number) => void;
   playFromPlaylist: (track: Track, playlistId?: string) => void;
   playTrackNext: (track: Track | WatchTrack) => void;
   addTrackToQueue: (track: Track | WatchTrack) => void;
@@ -31,6 +33,10 @@ type PlayerContextType = {
   hasNext: boolean;
   hasPrevious: boolean;
   currentQueueIndex: number;
+  /** Bumps when a fresh queue replaces the list, not when it is reordered or extended. */
+  queueRevision: number;
+  /** Bumps only when reaching the end appends more tracks. */
+  queueFill: number;
 };
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -127,6 +133,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const playingVideoId = currentSong?.videoId ?? null;
   const [queueIndex, setQueueIndex] = useState(-1);
   const [queueRevision, setQueueRevision] = useState(0);
+  const [queueFill, setQueueFill] = useState(0);
   const [shuffleOn, setShuffleOn] = useState(false);
   const [ratingPending, setRatingPending] = useState(false);
   const [trackRatings, setTrackRatings] = useState<Record<string, LikeStatus>>({});
@@ -223,6 +230,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             const next = [...current, ...extra];
             queueRef.current = next;
             setQueue(next);
+            setQueueFill((fill) => fill + 1);
             added = true;
           }
         } else {
@@ -635,6 +643,20 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     setQueueRevision((revision) => revision + 1);
   }, []);
 
+  const reorderQueue = useCallback((from: number, to: number) => {
+    const current = queueRef.current;
+    const pinned = currentQueueIndexRef.current;
+    if (from === to || from < 0 || to < 0 || from >= current.length || to >= current.length) return;
+    const playing = pinned >= 0 ? current[pinned] : null;
+    const next = moveItem(current, from, to);
+    const nextIndex = playing ? next.indexOf(playing) : -1;
+    queueRef.current = next;
+    currentQueueIndexRef.current = nextIndex;
+    if (normalUpcomingRef.current && nextIndex >= 0) normalUpcomingRef.current = next.slice(nextIndex + 1);
+    setQueue(next);
+    setQueueIndex(nextIndex);
+  }, []);
+
   const playFromQueue = useCallback(
     (track: WatchTrack, index?: number) => {
       if (!track.videoId) return;
@@ -736,6 +758,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         rateTrack,
         getWatchPlaylist,
         playFromQueue,
+        reorderQueue,
         playFromPlaylist,
         playTrackNext,
         addTrackToQueue,
@@ -748,6 +771,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         hasNext,
         hasPrevious,
         currentQueueIndex,
+        queueRevision,
+        queueFill,
       }}
     >
       {children}
