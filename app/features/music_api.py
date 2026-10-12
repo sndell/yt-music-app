@@ -41,7 +41,7 @@ CACHE_DURATION_PLAYLIST_ITEMS = 60 * 30  # 30 minutes
 CACHE_DURATION_HOME = 60 * 15  # 15 minutes
 
 # Cache key prefixes
-CACHE_KEY_PLAYLIST_PREFIX = "playlist:"
+CACHE_KEY_PLAYLIST_PREFIX = "playlist:v2:"
 CACHE_KEY_ALBUM_PREFIX = "album:"
 CACHE_KEY_ARTIST_PREFIX = "artist:"
 CACHE_KEY_HOME = "home:shelves:v3"
@@ -133,17 +133,45 @@ def _inline_thumbnail(url: str) -> str:
 
 
 def _inline_thumbnail_field(items: list[dict[str, Any]], key: str) -> None:
+    """Replace the first thumbnail with a re-encoded cover the webview can decode.
+
+    The largest file is tried first. If it is too big or cannot be re-encoded,
+    the next smaller one is used. A failed attempt does not overwrite a URL.
+    """
+
     def apply(item: dict[str, Any]) -> None:
-        thumbnails = item.get(key) or []
-        if not thumbnails:
+        if not isinstance(item, dict):
             return
-        source = max(thumbnails, key=lambda thumb: thumb.get("width") or 0)
-        url = source.get("url") or thumbnails[0].get("url")
-        if isinstance(url, str) and url:
-            thumbnails[0]["url"] = _inline_thumbnail(url)
+        thumbnails = item.get(key)
+        if not isinstance(thumbnails, list) or not thumbnails:
+            return
+        ordered = sorted(
+            (thumb for thumb in thumbnails if isinstance(thumb, dict)),
+            key=lambda thumb: thumb.get("width") or 0,
+            reverse=True,
+        )
+        target = thumbnails[0] if isinstance(thumbnails[0], dict) else None
+        if target is None:
+            return
+        for thumb in ordered:
+            url = thumb.get("url")
+            if not isinstance(url, str) or not url:
+                continue
+            inlined = _inline_thumbnail(url)
+            if inlined.startswith("data:"):
+                target["url"] = inlined
+                return
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(apply, items))
+
+
+def _radio_playlist_id(playlist_id: str) -> str:
+    """Playlist radio id. A plain library id plays the playlist back in order."""
+    bare = playlist_id[2:] if playlist_id.startswith("VL") else playlist_id
+    if bare.startswith("RDAMPL"):
+        return bare
+    return "RDAMPL" + bare
 
 
 def _inline_playlist_thumbnails(playlists: list[dict[str, Any]]) -> None:
@@ -1241,6 +1269,9 @@ class MusicApi:
             playlist["dominantColor"] = _dominant_color(playlist.get("thumbnails", []))
 
             _inline_playlist_thumbnails([playlist])
+            tracks = playlist.get("tracks")
+            if isinstance(tracks, list):
+                _inline_thumbnail_field(tracks, "thumbnails")
 
             # Store in cache
             cache.set(cache_key, playlist, expire=CACHE_DURATION_PLAYLIST_ITEMS)
@@ -1405,7 +1436,11 @@ class MusicApi:
             # Convert empty strings to None (bridge sends "" for undefined values)
             video_id = video_id or None
             playlist_id = playlist_id or None
-            
+            # radio=True alone still returns the library playlist in order.
+            # RDAMPL is the playlist mix.
+            if radio and playlist_id and not video_id:
+                playlist_id = _radio_playlist_id(playlist_id)
+
             data = self._get_ytmusic().get_watch_playlist(
                 videoId=video_id,
                 playlistId=playlist_id,

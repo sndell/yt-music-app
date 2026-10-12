@@ -164,6 +164,8 @@ const PlaylistTrackItem = ({
 }) => {
   const { playFromPlaylist, rateTrack } = usePlayer();
   const [, navigate] = useLocation();
+  const thumbnailUrl = track.thumbnails[0]?.url;
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const likeStatus = track.likeStatus ?? "INDIFFERENT";
   const albumName = track.album?.name || "Unknown Album";
   const albumId = track.album?.id;
@@ -215,8 +217,14 @@ const PlaylistTrackItem = ({
             <span className="w-5 shrink-0 text-right text-sm text-primary-dark tabular-nums">{index}</span>
           )}
           <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light">
-            {track.thumbnails[0]?.url ? (
-              <img src={track.thumbnails[0].url} alt="" draggable={false} className="h-full w-full object-cover" />
+            {thumbnailUrl && failedUrl !== thumbnailUrl ? (
+              <img
+                src={thumbnailUrl}
+                alt=""
+                draggable={false}
+                onError={() => setFailedUrl(thumbnailUrl)}
+                className="h-full w-full object-cover"
+              />
             ) : (
               <div className="grid h-full w-full place-items-center bg-primary-light">
                 <span className="icon-[solar--music-note-linear] text-primary-dark" />

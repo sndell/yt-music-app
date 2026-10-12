@@ -5,9 +5,9 @@ import tailwindcss from '@tailwindcss/vite'
 import fs from 'fs'
 import path from 'path'
 
-// Slot 0 is the main checkout (port 5173). A worktree writes dev/.dev-slot.
+// Slot 0 is the main checkout (port 5173). A worktree writes app/dev/.dev-slot.
 function readDevSlotFile(): string {
-  for (const relative of ['../dev/.dev-slot', '../app/.dev-slot']) {
+  for (const relative of ['../app/dev/.dev-slot', '../dev/.dev-slot', '../app/.dev-slot']) {
     try {
       return fs.readFileSync(path.resolve(import.meta.dirname, relative), 'utf8')
     } catch {

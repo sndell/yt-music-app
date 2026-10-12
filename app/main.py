@@ -99,10 +99,6 @@ if __name__ == "__main__":
     api = Api()
     # A file URL has no origin, and YouTube then blocks most embeds.
     # Slot 0 stays on port 5173. A worktree's slot moves the Vite URL with it.
-    if _DEBUG:
-        repo_root = str(Path(__file__).resolve().parent.parent)
-        if repo_root not in sys.path:
-            sys.path.insert(0, repo_root)
     if ENV == "dev":
         from dev.identity import debug_port, ui_origin
 

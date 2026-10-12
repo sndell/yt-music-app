@@ -32,17 +32,16 @@ pnpm install
 pnpm dev
 ```
 
-In a second terminal, create the Python environment in `app` and start the watcher from the repo root. It loads the Vite server at `http://localhost:5173`.
+In a second terminal, create the Python environment in `app` and start the watcher from there. It loads the Vite server at `http://localhost:5173`.
 
 ```powershell
 cd app
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-cd ..
-.\app\.venv\Scripts\python.exe dev\watch.py
+.\.venv\Scripts\python.exe dev\watch.py
 ```
 
-`dev\watch.py` restarts the window when a Python file under `app` or `dev` is saved. Vite refreshes the page in place. Keep a single Python window per checkout. A second feature should be a Cursor worktree: in the Agents Window set Default Environment to New Worktree, or start an editor chat with `/worktree`. That checkout gets its own window and ports.
+`app\dev\watch.py` restarts the window when a Python file under `app` is saved. Vite refreshes the page in place. Keep a single Python window per checkout. A second feature should be a Cursor worktree: in the Agents Window set Default Environment to New Worktree, or start an editor chat with `/worktree`. That checkout gets its own window and ports.
 
 Sign in from **Settings**. The app opens YouTube Music, waits until you are logged in, and stores the request it needs. Auth, the WebView2 profile, and the cache stay in the `app` folder while you are developing.
 
@@ -54,7 +53,7 @@ From the repo root:
 .\build\build.ps1
 ```
 
-That typechecks the UI, builds it with the base path the packaged page needs, and runs PyInstaller. The result is `dist\YTMusic.exe`.
+That typechecks the UI, builds it with the base path the packaged page needs, and runs PyInstaller. The result is `build\dist\<yyyy-MM-dd_HHmm>\YTMusic.exe`. Each build keeps its own folder.
 
 The exe has no console. Logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The WebView2 profile, auth file, and cache live in that same folder.
 
@@ -62,10 +61,11 @@ The exe has no console. Logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The Web
 
 | Path | What it is |
 | --- | --- |
-| `app/` | The desktop window, YouTube Music API, and Windows media keys |
-| `dev/` | Restart watcher, probe, and port identity |
+| `app/` | The desktop window, YouTube Music API, Windows media keys, and the dev watcher |
+| `docs/screenshot.png` | README image |
 | `ui/` | The React interface (Vite, TypeScript, Tailwind) |
 | `build/build.ps1` | UI build plus the onefile exe |
 | `build/YTMusic.spec` | PyInstaller spec used by the build script |
+| `build/dist/` | Dated onefile builds. Older folders are left in place |
 
 YTMusic is an independent client. It is not affiliated with YouTube or Google.

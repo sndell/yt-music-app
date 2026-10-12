@@ -1,4 +1,5 @@
-# Build a windowed onefile exe at dist\YTMusic.exe.
+# Build a windowed onefile exe under build\dist\<date>_<time>\.
+# Each run gets its own folder, so older builds stay where they are.
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
@@ -25,8 +26,21 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+$DistRoot = Join-Path $Root "build\dist"
+$stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
+$Dist = Join-Path $DistRoot $stamp
+if (Test-Path -LiteralPath $Dist) {
+    $stamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+    $Dist = Join-Path $DistRoot $stamp
+    $n = 2
+    while (Test-Path -LiteralPath $Dist) {
+        $Dist = Join-Path $DistRoot ($stamp + "_" + $n)
+        $n++
+    }
+}
+
 Set-Location $Root
-& $Python -m PyInstaller --noconfirm --distpath (Join-Path $Root "dist") --workpath (Join-Path $Root "build\work") (Join-Path $Root "build\YTMusic.spec")
+& $Python -m PyInstaller --noconfirm --distpath $Dist --workpath (Join-Path $Root "build\work") (Join-Path $Root "build\YTMusic.spec")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Built $(Join-Path $Root 'dist\YTMusic.exe')"
+Write-Host "Built $(Join-Path $Dist 'YTMusic.exe')"

@@ -22,7 +22,7 @@ for package in ("webview", "pythonnet", "clr_loader", "ytmusicapi", "pypresence"
 
 a = Analysis(
     [str(root / "app" / "main.py")],
-    pathex=[str(root / "app"), str(root)],
+    pathex=[str(root / "app")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

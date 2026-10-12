@@ -1,4 +1,4 @@
-"""Restart the pywebview app when Python files under app/ or dev/ change."""
+"""Restart the pywebview app when Python files under app/ change."""
 
 from __future__ import annotations
 
@@ -11,14 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DEV_DIR = Path(__file__).resolve().parent
-REPO_DIR = DEV_DIR.parent
-APP_DIR = REPO_DIR / "app"
+APP_DIR = DEV_DIR.parent
+REPO_DIR = APP_DIR.parent
 
-# This file lives in dev/, so the repo root has to be on the path before
-# importing the package. identity still imports util from app/.
-for _entry in (str(APP_DIR), str(REPO_DIR)):
-    if _entry not in sys.path:
-        sys.path.insert(0, _entry)
+# identity imports util from app/.
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
 
 from dev.identity import dev_slot, probe_port
 
@@ -30,17 +28,16 @@ DEBOUNCE_SECONDS = 0.4
 
 def snapshot() -> dict[Path, int]:
     found: dict[Path, int] = {}
-    for root in (APP_DIR, DEV_DIR):
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
-            for name in filenames:
-                if not name.endswith(".py"):
-                    continue
-                path = Path(dirpath) / name
-                try:
-                    found[path] = path.stat().st_mtime_ns
-                except OSError:
-                    continue
+    for dirpath, dirnames, filenames in os.walk(APP_DIR):
+        dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = Path(dirpath) / name
+            try:
+                found[path] = path.stat().st_mtime_ns
+            except OSError:
+                continue
     return found
 
 

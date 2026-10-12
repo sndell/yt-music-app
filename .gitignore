@@ -1,8 +1,15 @@
 dist/
 build/work/
+app/dev/.dev-slot
+app/dev/.dev-python
+app/dev/.dev-restarts.jsonl
 dev/.dev-slot
 dev/.dev-python
 dev/.dev-restarts.jsonl
 
 __pycache__/
 *.py[cod]
+
+
+.cursor/
+.vscode/
