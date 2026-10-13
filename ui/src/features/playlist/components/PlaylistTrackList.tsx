@@ -27,6 +27,7 @@ export const PlaylistTrackList = ({
   actions,
   variant = "collection",
   onReorder,
+  tunable,
 }: {
   tracks: Track[];
   gradient: string;
@@ -41,6 +42,8 @@ export const PlaylistTrackList = ({
   variant?: "collection" | "popular";
   /** Owned playlists. Moves the row through YouTube Music. */
   onReorder?: (from: number, to: number) => void;
+  /** Genre tuner for this list's rows. Defaults to off for collections. The artist song list turns it on. */
+  tunable?: boolean;
 }) => {
   const rowsRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
@@ -89,15 +92,7 @@ export const PlaylistTrackList = ({
           </div>
         </div>
       )}
-      <ReorderList
-        ids={dragIds}
-        axis="y"
-        onMove={(from, to) => onReorder?.(from, to)}
-        overlay={(id) => {
-          const track = tracks.find((_, index) => dragIds[index] === id);
-          return track ? <TrackGhost track={track} /> : null;
-        }}
-      >
+      <ReorderList ids={dragIds} axis="y" onMove={(from, to) => onReorder?.(from, to)}>
         <div ref={rowsRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((virtualItem) => {
             const track = tracks[virtualItem.index];
@@ -113,9 +108,11 @@ export const PlaylistTrackList = ({
                 <PlaylistTrackItem
                   track={track}
                   playlistId={playlistId}
+                  tunable={tunable}
                   index={popular ? virtualItem.index + 1 : undefined}
                   showAlbum={!popular}
                   grabbable={reorderable}
+                  menuOpen={menu?.track === track}
                   onOpenMenu={(x, y) => setMenu({ track, x, y })}
                 />
               </ReorderItem>
@@ -138,29 +135,26 @@ export const PlaylistTrackList = ({
   );
 };
 
-const TrackGhost = ({ track }: { track: Track }) => (
-  <div className="flex h-12 items-center gap-3 rounded-lg bg-primary px-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] ring-1 ring-white/20">
-    <span className="size-10 shrink-0 overflow-hidden rounded-md bg-primary-light">
-      {track.thumbnails[0]?.url && <img src={track.thumbnails[0].url} alt="" className="h-full w-full object-cover" />}
-    </span>
-    <span className="min-w-0 truncate font-medium">{track.title}</span>
-  </div>
-);
-
 const PlaylistTrackItem = ({
   track,
   playlistId,
+  tunable,
   onOpenMenu,
   index,
   showAlbum,
   grabbable = false,
+  menuOpen = false,
 }: {
   track: Track;
   playlistId?: string;
+  /** Genre tuner for clicks on this row. Defaults to off for collections. */
+  tunable?: boolean;
   onOpenMenu: (x: number, y: number) => void;
   index?: number;
   showAlbum: boolean;
   grabbable?: boolean;
+  /** Keeps the row in its hover state while its context menu is open. */
+  menuOpen?: boolean;
 }) => {
   const { playFromPlaylist, rateTrack } = usePlayer();
   const [, navigate] = useLocation();
@@ -173,7 +167,7 @@ const PlaylistTrackItem = ({
   const pad = showAlbum ? "px-3 sm:px-4" : "px-6";
 
   const handleClick = () => {
-    playFromPlaylist(track, playlistId);
+    playFromPlaylist(track, playlistId, tunable);
   };
 
   const handleRate = (rating: LikeStatus) => {
@@ -187,8 +181,10 @@ const PlaylistTrackItem = ({
         if (!track.isAvailable || !track.videoId) return;
         onOpenMenu(event.clientX, event.clientY);
       }}
+      data-menu-open={menuOpen ? "true" : undefined}
       className={cn(
         "group relative h-full w-full overflow-hidden transition-colors hover:bg-primary-light",
+        menuOpen && "bg-primary-light",
         track.isAvailable ? "opacity-100" : "opacity-25"
       )}
     >
@@ -283,7 +279,7 @@ const PlaylistTrackItem = ({
         ) : (
           views && <div className="hidden truncate text-sm text-primary-dark md:block">{views}</div>
         )}
-        <div className="shrink-0 justify-self-end text-sm text-primary-dark transition-opacity duration-200 group-hover:opacity-0">
+        <div className="shrink-0 justify-self-end text-sm text-primary-dark transition-opacity duration-200 group-hover:opacity-0 group-data-[menu-open=true]:opacity-0">
           {track.duration}
         </div>
       </div>
@@ -293,6 +289,7 @@ const PlaylistTrackItem = ({
           "pointer-events-none absolute inset-y-0 z-10 flex translate-x-4 items-center gap-0.5 bg-linear-to-l from-primary-light from-60% to-transparent pr-1 pl-10 opacity-0 transition-[opacity,translate] duration-200 ease-out",
           showAlbum ? "right-2 sm:right-3" : "right-6",
           "group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100",
+          "group-data-[menu-open=true]:pointer-events-auto group-data-[menu-open=true]:translate-x-0 group-data-[menu-open=true]:opacity-100",
           "focus-within:pointer-events-auto focus-within:translate-x-0 focus-within:opacity-100"
         )}
       >

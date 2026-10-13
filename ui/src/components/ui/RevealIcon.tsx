@@ -6,7 +6,7 @@ const ease = "duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]";
 export const mediaScrimClass = cn(
   "pointer-events-none absolute inset-0 grid place-items-center bg-black/50 opacity-0 transition-opacity",
   ease,
-  "group-hover:opacity-100 group-focus-within:opacity-100",
+  "group-hover:opacity-100 group-focus-within:opacity-100 group-data-[menu-open=true]:opacity-100",
 );
 
 export const RevealIcon = ({
@@ -33,7 +33,7 @@ export const RevealIcon = ({
     <span
       onClick={handleClick}
       className={cn(
-        "inline-grid origin-center scale-75 transition-transform group-hover:scale-100 group-focus-within:scale-100",
+        "inline-grid origin-center scale-75 transition-transform group-hover:scale-100 group-focus-within:scale-100 group-data-[menu-open=true]:scale-100",
         ease,
         grow && "group/play",
         interactive && "pointer-events-auto p-2",

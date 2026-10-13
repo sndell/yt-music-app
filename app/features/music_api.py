@@ -48,6 +48,10 @@ CACHE_KEY_ARTIST_PREFIX = "artist:"
 CACHE_KEY_HOME = "home:shelves:v3"
 CACHE_KEY_THUMB_PREFIX = "thumb:v2:"
 THUMB_CACHE_SECONDS = 60 * 60 * 24
+# Genre tuner chips for a song's automix. Stable for hours, so cache the
+# network call; empty results are not cached so a transient miss can retry.
+CACHE_KEY_TUNER_PREFIX = "tuner:v1:"
+TUNER_CACHE_SECONDS = 60 * 60 * 12
 
 
 def _cached_hit(key: str) -> dict[str, Any] | None:
@@ -1547,19 +1551,28 @@ class MusicApi:
 
         Returns an empty list when YouTube Music shows no tuner for this song
         (playlists and albums have none). ``playlistId`` is safe to pass back to
-        :meth:`get_watch_playlist` to load the chosen genre.
+        :meth:`get_watch_playlist` to load the chosen genre. Non-empty results
+        are cached per video id, so a song mix is one request, not one per play.
         """
         if not isinstance(video_id, str) or not video_id.strip():
             return []
+        vid = video_id.strip()
+        cache_key = f"{CACHE_KEY_TUNER_PREFIX}{vid}"
+        cached = cache.get(cache_key)
+        if isinstance(cached, list):
+            return cached
         try:
             ytmusic = self._get_ytmusic()
         except FileNotFoundError:
             return []
         try:
-            return _queue_tuner_chips(ytmusic, video_id.strip())
+            chips = _queue_tuner_chips(ytmusic, vid)
         except Exception as e:
             logger.exception("Failed to fetch queue tuner: %s", e)
             return []
+        if chips:
+            cache.set(cache_key, chips, expire=TUNER_CACHE_SECONDS)
+        return chips
 
     def get_audio_stream(self, video_id: str, refresh: bool = False) -> dict[str, Any]:
         """Direct audio URL for a song on the signed-in account.

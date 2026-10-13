@@ -4,17 +4,15 @@ import {
   MeasuringStrategy,
   PointerSensor,
   closestCenter,
-  defaultDropAnimationSideEffects,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
-  type DropAnimation,
   type Modifier,
 } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/util/cn";
 
 const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
@@ -59,56 +57,38 @@ export const consumeDragClick = () => {
   return true;
 };
 
-const HiddenId = createContext<string | null>(null);
+/**
+ * Dashed frame the dragged row sits in while it is moving. It matches the
+ * row's box exactly and paints above the row, so the outline is never clipped
+ * by the row's own content.
+ */
+const DropPlaceholder = () => (
+  <div
+    aria-hidden
+    className="pointer-events-none absolute inset-0 z-20 rounded-lg border border-dashed border-white/30 bg-white/5"
+  />
+);
 
 const sortableTransition = { duration: DROP_MS, easing: EASE };
-
-// Land on the row's on-screen box. The default animation uses a transform-agnostic
-// rect, which is the slot the row started in, so the card flies back there.
-const dropAnimation: DropAnimation = {
-  duration: DROP_MS,
-  easing: EASE,
-  sideEffects: defaultDropAnimationSideEffects({
-    styles: { active: { opacity: "0" } },
-  }),
-  keyframes({ transform, active, dragOverlay }) {
-    const visual = active.node.getBoundingClientRect();
-    const final = {
-      x: transform.initial.x - (dragOverlay.rect.left - visual.left),
-      y: transform.initial.y - (dragOverlay.rect.top - visual.top),
-      scaleX: transform.initial.scaleX,
-      scaleY: transform.initial.scaleY,
-    };
-    return [
-      { transform: CSS.Transform.toString(transform.initial) ?? "translate3d(0, 0, 0)" },
-      { transform: CSS.Transform.toString(final) ?? "translate3d(0, 0, 0)" },
-    ];
-  },
-};
 
 export const ReorderList = ({
   ids,
   axis,
   onMove,
   onActiveChange,
-  overlay,
   children,
 }: {
   ids: string[];
   axis: "x" | "y";
   onMove: (from: number, to: number) => void;
   onActiveChange?: (id: string | null) => void;
-  overlay: (id: string) => ReactNode;
   children: ReactNode;
 }) => {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [hiddenId, setHiddenId] = useState<string | null>(null);
   const idsRef = useRef(ids);
   const onMoveRef = useRef(onMove);
   const onActiveRef = useRef(onActiveChange);
   const snapRef = useRef<HTMLElement | null>(null);
-  const hideTimer = useRef(0);
   idsRef.current = ids;
   onMoveRef.current = onMove;
   onActiveRef.current = onActiveChange;
@@ -119,20 +99,10 @@ export const ReorderList = ({
     snapRef.current = null;
   };
 
-  useEffect(
-    () => () => {
-      releaseSnap();
-      window.clearTimeout(hideTimer.current);
-    },
-    []
-  );
+  useEffect(() => () => releaseSnap(), []);
 
   const onDragStart = (event: DragStartEvent) => {
-    const id = String(event.active.id);
-    window.clearTimeout(hideTimer.current);
-    setActiveId(id);
-    setHiddenId(id);
-    onActiveRef.current?.(id);
+    onActiveRef.current?.(String(event.active.id));
     armDragClickGuard();
     const target = event.activatorEvent.target;
     if (target instanceof Element) {
@@ -151,12 +121,9 @@ export const ReorderList = ({
       const to = current.indexOf(String(event.over.id));
       if (from >= 0 && to >= 0 && from !== to) onMoveRef.current(from, to);
     }
-    setActiveId(null);
     onActiveRef.current?.(null);
     releaseSnap();
     releaseDragClickGuard();
-    window.clearTimeout(hideTimer.current);
-    hideTimer.current = window.setTimeout(() => setHiddenId(null), DROP_MS);
   };
 
   return (
@@ -170,14 +137,15 @@ export const ReorderList = ({
       onDragEnd={finish}
       onDragCancel={() => finish(null)}
     >
-      <HiddenId.Provider value={hiddenId}>
-        <SortableContext items={ids} strategy={axis === "y" ? verticalListSortingStrategy : horizontalListSortingStrategy}>
-          {children}
-        </SortableContext>
-      </HiddenId.Provider>
-      <DragOverlay dropAnimation={dropAnimation} className="cursor-grabbing">
-        {activeId ? overlay(activeId) : null}
-      </DragOverlay>
+      <SortableContext items={ids} strategy={axis === "y" ? verticalListSortingStrategy : horizontalListSortingStrategy}>
+        {children}
+      </SortableContext>
+      {/*
+        Mounted, but empty. It keeps dnd-kit placing the dragged row with the
+        sort strategy (at the slot it will land in) instead of pinning it to the
+        pointer, while the row itself keeps rendering its real content.
+      */}
+      <DragOverlay dropAnimation={null} className="pointer-events-none" />
     </DndContext>
   );
 };
@@ -191,8 +159,13 @@ export const ReorderItem = ({
   children,
 }: {
   id: string;
-  /** `true` disables the item. `{ draggable: true }` keeps it as a place to drop. */
-  disabled?: boolean | { draggable?: boolean };
+  /**
+   * `true` only stops the item from being dragged (dnd-kit keeps it droppable
+   * for backwards compatibility). Pass `{ draggable: true, droppable: true }`
+   * to pin it: it can neither be dragged nor be a drop target, so no other row
+   * can land on it and take its slot.
+   */
+  disabled?: boolean | { draggable?: boolean; droppable?: boolean };
   /** Virtual-row offset. The sortable delta is added to it. */
   offsetY?: number;
   height?: number;
@@ -205,13 +178,14 @@ export const ReorderItem = ({
     disabled,
     transition: sortableTransition,
   });
-  const hiddenId = useContext(HiddenId);
-  const conceal = isDragging || hiddenId === id;
   // Virtual rows must be placed with `top`. dnd-kit measures droppables with the
   // transform removed, so a translateY would make every row occupy the same box.
+  // While this row is the one being dragged, skip the transition so it tracks the
+  // pointer exactly (otherwise the row and its dashed frame lag behind).
+  const followTransition = isDragging ? undefined : transition;
   const style: CSSProperties =
     offsetY == null
-      ? { transform: CSS.Translate.toString(transform), transition, zIndex: isDragging ? 2 : undefined }
+      ? { transform: CSS.Translate.toString(transform), transition: followTransition, zIndex: isDragging ? 2 : undefined }
       : {
           position: "absolute",
           top: offsetY,
@@ -219,7 +193,7 @@ export const ReorderItem = ({
           width: "100%",
           height,
           transform: CSS.Translate.toString(transform),
-          transition: isDragging ? undefined : transition,
+          transition: followTransition,
           zIndex: isDragging ? 2 : undefined,
         };
 
@@ -228,10 +202,11 @@ export const ReorderItem = ({
       ref={setNodeRef}
       data-drag-item={dragDisabled ? undefined : ""}
       style={style}
-      className={cn(!dragDisabled && "cursor-grab touch-none", conceal && "opacity-0", className)}
+      className={cn("relative", !dragDisabled && "cursor-grab touch-none", className)}
       {...(dragDisabled ? {} : listeners)}
     >
-      {children}
+      {isDragging && <DropPlaceholder />}
+      <div className="relative z-10 h-full">{children}</div>
     </div>
   );
 };

@@ -460,15 +460,7 @@ export const QueuePanel = () => {
             {queue.length > 0 && <span className="text-sm text-primary-dark">{queue.length}</span>}
           </div>
         </div>
-        <ReorderList
-          ids={dragIds}
-          axis="y"
-          onMove={reorderQueue}
-          overlay={(id) => {
-            const track = queue.find((item) => stableDragId(item) === id);
-            return track ? <QueueGhost track={track} /> : null;
-          }}
-        >
+        <ReorderList ids={dragIds} axis="y" onMove={reorderQueue}>
           <div ref={listRef} className="relative z-10 overflow-y-auto flex-1 px-1.5 pb-2 min-h-0 scrollbar-thin [overflow-anchor:none]">
             {queueLoading && queue.length === 0 && (
               <div className="grid place-items-center py-8">
@@ -503,6 +495,7 @@ export const QueuePanel = () => {
                     track={track}
                     isCurrent={isCurrent}
                     accent={isCurrent ? coverColor : undefined}
+                    menuOpen={menu?.track === track}
                     onPlay={() => playFromQueue(track, index)}
                     onOpenMenu={(x, y) => setMenu({ track, x, y })}
                   />
@@ -682,39 +675,19 @@ const TunerMenu = ({
   );
 };
 
-const QueueGhost = ({ track }: { track: WatchTrack }) => {
-  const thumbnailUrl = track.thumbnail?.[0]?.url;
-  const artists = (track.artists ?? []).map((artist) => artist.name).join(", ");
-  return (
-    <div className="flex w-full items-center gap-2.5 rounded-lg bg-primary p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.45)] ring-1 ring-white/20">
-      <span className="relative size-10 shrink-0 overflow-hidden rounded-md">
-        {thumbnailUrl ? (
-          <img src={thumbnailUrl} alt="" draggable={false} className="h-full w-full object-cover" />
-        ) : (
-          <span className="grid h-full w-full place-items-center bg-primary-light">
-            <span className="icon-[solar--music-note-linear] text-primary-dark" />
-          </span>
-        )}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm">{track.title}</span>
-        <span className="truncate text-xs text-primary-dark">{artists}</span>
-      </span>
-      <span className="shrink-0 text-xs text-primary-dark">{track.length}</span>
-    </div>
-  );
-};
-
 const QueueItem = ({
   track,
   isCurrent,
   accent,
+  menuOpen = false,
   onPlay,
   onOpenMenu,
 }: {
   track: WatchTrack;
   isCurrent: boolean;
   accent?: string | null;
+  /** Keeps the row in its hover state while its context menu is open. */
+  menuOpen?: boolean;
   onPlay: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) => {
@@ -742,8 +715,10 @@ const QueueItem = ({
       className={cn(
         "group flex w-full cursor-grab items-center gap-2.5 rounded-lg p-1.5 text-left transition-[background-color,box-shadow,color] duration-700",
         isCurrent ? "text-primary" : "text-primary-dark hover:bg-primary-light hover:text-primary",
+        "data-[menu-open=true]:bg-primary-light data-[menu-open=true]:text-primary",
         isCurrent && !tone && "bg-primary-light"
       )}
+      data-menu-open={menuOpen ? "true" : undefined}
       style={
         isCurrent && tone
           ? {
