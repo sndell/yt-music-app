@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { PyBridge, showCachedThenRefresh, type HomeFeed, type HomeItem, type HomeShelf, type Track } from "@/lib/api";
 import { usePlayer } from "@/features/player";
+import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
@@ -62,6 +63,7 @@ export const Home = () => {
   const requestIdRef = useRef(0);
   const [, navigate] = useLocation();
   const { currentSong, startMix, playTracks, playTrackNext, addTrackToQueue, playPlaylist, queuePlaylist } = usePlayer();
+  const { addToPlaylist, playlists } = usePlaylist();
 
   const load = useCallback((options?: { clear?: boolean; force?: boolean }) => {
     const requestId = ++requestIdRef.current;
@@ -212,6 +214,8 @@ export const Home = () => {
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
+          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, menu.track.videoId)}
+          playlists={playlists}
         />
       )}
       {menu?.kind === "playlist" && (

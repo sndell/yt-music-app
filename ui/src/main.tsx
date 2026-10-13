@@ -11,6 +11,7 @@ import { Playlist, PlaylistProvider } from "./features/playlist";
 import { Album } from "./features/album";
 import { Artist } from "./features/artist";
 import { Player, PlayerProvider, QueuePanel } from "./features/player";
+import { ToastProvider } from "./components/ui/Toast";
 
 const App = () => {
   useEffect(() => {
@@ -23,27 +24,29 @@ const App = () => {
 
   return (
     <Router hook={useHashLocation}>
-      <PlayerProvider>
-        <PlaylistProvider>
-          <div className="flex flex-col h-screen overflow-hidden">
-            <div className="flex flex-1 overflow-hidden">
-              <Sidebar />
-              <div className="flex flex-col flex-1 overflow-hidden rounded-xl bg-primary m-1.5 ml-0">
-                <Switch>
-                  <Route path="/" component={Home} />
-                  <Route path="/library" component={Library} />
-                  <Route path="/settings" component={Settings} />
-                  <Route path="/playlist/:id" component={Playlist} />
-                  <Route path="/album/:id" component={Album} />
-                  <Route path="/artist/:id" component={Artist} />
-                </Switch>
+      <ToastProvider>
+        <PlayerProvider>
+          <PlaylistProvider>
+            <div className="flex flex-col h-screen overflow-hidden">
+              <div className="flex flex-1 overflow-hidden">
+                <Sidebar />
+                <div className="flex flex-col flex-1 overflow-hidden rounded-xl bg-primary m-1.5 ml-0">
+                  <Switch>
+                    <Route path="/" component={Home} />
+                    <Route path="/library" component={Library} />
+                    <Route path="/settings" component={Settings} />
+                    <Route path="/playlist/:id" component={Playlist} />
+                    <Route path="/album/:id" component={Album} />
+                    <Route path="/artist/:id" component={Artist} />
+                  </Switch>
+                </div>
+                <QueuePanel />
               </div>
-              <QueuePanel />
+              <Player />
             </div>
-            <Player />
-          </div>
-        </PlaylistProvider>
-      </PlayerProvider>
+          </PlaylistProvider>
+        </PlayerProvider>
+      </ToastProvider>
     </Router>
   );
 };

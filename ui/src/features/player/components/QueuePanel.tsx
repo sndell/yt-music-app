@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ReorderItem, ReorderList, consumeDragClick, stableDragId } from "@/components/ui/reorder";
 import { usePlayer } from "../context/PlayerContext";
+import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
 
 const colorCache = new Map<string, string | null>();
 
@@ -356,6 +357,7 @@ export const QueuePanel = () => {
     addTrackToQueue,
     startMix,
   } = usePlayer();
+  const { addToPlaylist, playlists } = usePlaylist();
   const [menu, setMenu] = useState<{ track: WatchTrack; x: number; y: number } | null>(null);
   const [tunerAnchor, setTunerAnchor] = useState<HTMLButtonElement | null>(null);
   const [tunerOpen, setTunerOpen] = useState(false);
@@ -553,6 +555,8 @@ export const QueuePanel = () => {
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
+          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, menu.track.videoId)}
+          playlists={playlists}
         />
       )}
       {tunerAnchor && (

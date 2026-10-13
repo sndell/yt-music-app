@@ -2,7 +2,7 @@
  * PyWebView Bridge - Type-safe communication with Python backend
  */
 
-import type { ApiMethodName, ApiParams, ApiResponse, Result } from "./types";
+import type { ApiMethodName, ApiParams, ApiResponse, PlaylistPrivacy, Result } from "./types";
 
 const BRIDGE_TIMEOUT_MS = 30_000;
 const DEBUG = import.meta.env.DEV;
@@ -75,13 +75,22 @@ export async function showCachedThenRefresh<T extends { fromCache?: boolean }>(
 /** Type-safe access to all Python API methods */
 export const PyBridge = {
   getCoverColor: (imageUrl: string) => callPython("get_cover_color", imageUrl),
+  inlineThumbnail: (imageUrl: string) => callPython("inline_thumbnail", imageUrl),
   getPlaylists: () => callPython("get_playlists"),
+  getLibraryAlbums: (limit = 500) => callPython("get_library_albums", limit),
+  getLibrarySongs: (limit = 5000) => callPython("get_library_songs", limit),
+  getLibraryArtists: (limit = 5000) => callPython("get_library_artists", limit),
   getQuickPicks: () => callPython("get_quick_picks"),
   getHome: (forceRefresh = false) => callPython("get_home", forceRefresh),
   getPlaylistItems: (playlistId: string, forceRefresh = false) =>
     callPython("get_playlist_items", playlistId, forceRefresh),
   movePlaylistItem: (playlistId: string, setVideoId: string, beforeSetVideoId = "") =>
     callPython("move_playlist_item", playlistId, setVideoId, beforeSetVideoId),
+  addPlaylistItems: (playlistId: string, videoIds: string[]) =>
+    callPython("add_playlist_items", playlistId, videoIds),
+  renamePlaylist: (playlistId: string, title: string) => callPython("rename_playlist", playlistId, title),
+  setPlaylistPrivacy: (playlistId: string, privacy: PlaylistPrivacy) =>
+    callPython("set_playlist_privacy", playlistId, privacy),
   getAlbum: (browseId: string, forceRefresh = false) => callPython("get_album", browseId, forceRefresh),
   getArtist: (channelId: string, forceRefresh = false) => callPython("get_artist", channelId, forceRefresh),
   getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),
