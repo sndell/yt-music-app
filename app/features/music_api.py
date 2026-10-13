@@ -52,6 +52,9 @@ THUMB_CACHE_SECONDS = 60 * 60 * 24
 # network call; empty results are not cached so a transient miss can retry.
 CACHE_KEY_TUNER_PREFIX = "tuner:v1:"
 TUNER_CACHE_SECONDS = 60 * 60 * 12
+# Covers are inlined inline with a request. Past this many items the request is
+# left with remote URLs and the frontend inlines failures on demand.
+MAX_INLINE_ITEMS = 150
 
 
 def _cached_hit(key: str) -> dict[str, Any] | None:
@@ -65,6 +68,7 @@ def _cached_hit(key: str) -> dict[str, Any] | None:
 
 
 _LIKE_STATUSES = {"LIKE", "DISLIKE", "INDIFFERENT"}
+_PRIVACY_STATUSES = {"PUBLIC", "PRIVATE", "UNLISTED"}
 _SONG_VIDEO_TYPE = "MUSIC_VIDEO_TYPE_ATV"
 MAX_THUMB_BYTES = 250_000
 
@@ -113,6 +117,23 @@ def _update_cached_like_status(video_id: str, rating: str) -> None:
         logger.warning("Could not update cached like status: %s", e)
 
 
+def _edit_status(result: Any, fallback: str) -> str:
+    """Read the ``STATUS_*`` string out of an ``edit_playlist`` style response.
+
+    Raises ``RuntimeError`` with whatever YouTube Music returned when the edit
+    did not succeed.
+    """
+    if isinstance(result, str):
+        text = result
+    elif isinstance(result, dict):
+        text = str(result.get("status", ""))
+    else:
+        text = str(result)
+    if "SUCCEEDED" not in text:
+        raise RuntimeError(text or fallback)
+    return text
+
+
 def _inline_thumbnail(url: str) -> str:
     """Fetch a cover and return a data URL the webview can show without a third-party request.
 
@@ -144,7 +165,9 @@ def _inline_thumbnail(url: str) -> str:
         cache.set(cache_key, data_url, expire=THUMB_CACHE_SECONDS)
         return data_url
     except Exception as exc:
-        logger.warning("Failed to load playlist thumbnail: %s", exc)
+        # A cover that cannot be fetched keeps its remote URL. This is expected
+        # for expired links and on a throttled network, so keep it out of the log.
+        logger.debug("Could not inline cover %s: %s", url, exc)
         return url
 
 
@@ -153,7 +176,14 @@ def _inline_thumbnail_field(items: list[dict[str, Any]], key: str) -> None:
 
     The largest file is tried first. If it is too big or cannot be re-encoded,
     the next smaller one is used. A failed attempt does not overwrite a URL.
+
+    A list longer than ``MAX_INLINE_ITEMS`` is skipped. Fetching and re-encoding
+    hundreds of covers inline stalls the request for minutes on a slow or
+    throttled network. Those covers stay as remote URLs, and the frontend calls
+    ``inline_thumbnail`` for the ones the webview cannot decode.
     """
+    if len(items) > MAX_INLINE_ITEMS:
+        return
 
     def apply(item: dict[str, Any]) -> None:
         if not isinstance(item, dict):
@@ -1206,6 +1236,18 @@ class MusicApi:
             _cover_color_cache[image_url] = color
         return color
 
+    def inline_thumbnail(self, image_url: str) -> str | None:
+        """Return a data URL for a cover the webview cannot decode directly.
+
+        The frontend calls this from an image error handler, so a page can paint
+        its covers immediately and only pay to re-encode the ones that fail.
+        Results are cached, and None means the cover could not be fetched.
+        """
+        if not isinstance(image_url, str) or not image_url.startswith(("http://", "https://")):
+            return None
+        result = _inline_thumbnail(image_url)
+        return result if result.startswith("data:") else None
+
     def get_playlists(self) -> list[dict[str, Any]]:
         """Fetch all playlists from the user's YouTube Music library.
         
@@ -1229,6 +1271,118 @@ class MusicApi:
             return []
         except Exception as e:
             logger.exception("Failed to fetch playlists: %s", e)
+            return []
+
+    def get_library_albums(self, limit: int = 500) -> list[dict[str, Any]]:
+        """Fetch the albums saved to the user's YouTube Music library.
+
+        Args:
+            limit: Maximum number of albums to return.
+
+        Returns:
+            A list of album dictionaries, or an empty list on error.
+        """
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return library albums")
+                return []
+
+            logger.info("Fetching library albums from API...")
+            ytmusic = self._get_ytmusic()
+            albums = ytmusic.get_library_albums(limit=limit)
+            _inline_playlist_thumbnails(albums)
+
+            logger.info("Library albums fetched (count: %d)", len(albums))
+            return albums
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return []
+        except Exception as e:
+            logger.exception("Failed to fetch library albums: %s", e)
+            return []
+
+    def get_library_songs(self, limit: int = 5000) -> list[dict[str, Any]]:
+        """Fetch the songs saved to the user's YouTube Music library.
+
+        Normalized to the shared Track shape. Covers are left as remote URLs so
+        a large library does not inline hundreds of images on every load.
+
+        Args:
+            limit: Maximum number of songs to return.
+
+        Returns:
+            A list of track dictionaries, or an empty list on error.
+        """
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return library songs")
+                return []
+
+            logger.info("Fetching library songs from API...")
+            ytmusic = self._get_ytmusic()
+            raw = ytmusic.get_library_songs(limit=limit)
+
+            songs: list[dict[str, Any]] = []
+            for item in raw if isinstance(raw, list) else []:
+                normalized = _album_track(item, "", "", [])
+                if normalized is not None and normalized["videoId"]:
+                    songs.append(normalized)
+
+            logger.info("Library songs fetched (count: %d)", len(songs))
+            return songs
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return []
+        except Exception as e:
+            logger.exception("Failed to fetch library songs: %s", e)
+            return []
+
+    def get_library_artists(self, limit: int = 5000) -> list[dict[str, Any]]:
+        """Fetch the artists saved to the user's YouTube Music library.
+
+        ytmusicapi returns each artist with an "MPLAUC..." browse id; the
+        channel id the artist page expects is that value without the "MPLA"
+        prefix. Covers are left as remote URLs.
+
+        Args:
+            limit: Maximum number of artists to return.
+
+        Returns:
+            A list of artist dictionaries, or an empty list on error.
+        """
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return library artists")
+                return []
+
+            logger.info("Fetching library artists from API...")
+            ytmusic = self._get_ytmusic()
+            raw = ytmusic.get_library_artists(limit=limit)
+
+            artists: list[dict[str, Any]] = []
+            for item in raw if isinstance(raw, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                browse_id = item.get("browseId")
+                if not isinstance(browse_id, str) or not browse_id:
+                    continue
+                channel_id = browse_id[4:] if browse_id.startswith("MPLAUC") else browse_id
+                artists.append(
+                    {
+                        "browseId": channel_id,
+                        "name": _as_text(item.get("artist")),
+                        "subscribers": _as_text(item.get("subscribers")),
+                        "thumbnails": _thumbnails(item.get("thumbnails")),
+                    }
+                )
+
+            logger.info("Library artists fetched (count: %d)", len(artists))
+            return artists
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return []
+        except Exception as e:
+            logger.exception("Failed to fetch library artists: %s", e)
             return []
 
     def get_home(self, force_refresh: bool = False) -> dict[str, Any]:
@@ -1344,10 +1498,11 @@ class MusicApi:
             
             playlist["dominantColor"] = _dominant_color(playlist.get("thumbnails", []))
 
+            # Only the playlist cover is inlined. Track covers stay as remote
+            # URLs: a large playlist has thousands, and fetching them inline
+            # blocks the request until every one resolves or times out. The
+            # frontend inlines the ones the webview cannot decode on demand.
             _inline_playlist_thumbnails([playlist])
-            tracks = playlist.get("tracks")
-            if isinstance(tracks, list):
-                _inline_thumbnail_field(tracks, "thumbnails")
 
             # Store in cache
             cache.set(cache_key, playlist, expire=CACHE_DURATION)
@@ -1609,7 +1764,10 @@ class MusicApi:
         response = self._get_ytmusic()._send_request("next", body)
         status = _like_status_in_payload(response, video_id)
         if status is None:
-            raise RuntimeError("YouTube Music did not return a like status for this song")
+            # Music videos and other non-song videos do not expose a like status
+            # in the next response. Report indifferent instead of failing.
+            logger.debug("No like status returned for %s", video_id)
+            return {"likeStatus": "INDIFFERENT"}
         return {"likeStatus": status}
 
     def rate_song(self, video_id: str, rating: str) -> dict[str, str]:
@@ -2063,6 +2221,56 @@ class MusicApi:
         tracks.insert(to_index, item)
         cached["tracks"] = tracks
         cache.set(cache_key, cached, expire=CACHE_DURATION)
+
+    def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> dict[str, str]:
+        """Add songs to one of the user's playlists.
+
+        Adding changes the cached track list, so the entry is dropped and the
+        next read fetches the playlist again.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if not isinstance(video_ids, list):
+            raise ValueError("video ids are required")
+        ids = [video_id for video_id in video_ids if isinstance(video_id, str) and video_id]
+        if not ids:
+            raise ValueError("at least one video id is required")
+        ytmusic = self._get_ytmusic()
+        result = ytmusic.add_playlist_items(playlist_id, videoIds=ids)
+        status = _edit_status(result, "Could not add to the playlist")
+        cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        return {"status": status}
+
+    def rename_playlist(self, playlist_id: str, title: str) -> dict[str, str]:
+        """Rename one of the user's playlists."""
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("title is required")
+        return self._edit_playlist(playlist_id, title=title.strip())
+
+    def set_playlist_privacy(self, playlist_id: str, privacy: str) -> dict[str, str]:
+        """Change the visibility of one of the user's playlists."""
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        value = privacy.upper() if isinstance(privacy, str) else ""
+        if value not in _PRIVACY_STATUSES:
+            raise ValueError("privacy must be PUBLIC, PRIVATE or UNLISTED")
+        return self._edit_playlist(playlist_id, privacy=value)
+
+    def _edit_playlist(
+        self,
+        playlist_id: str,
+        *,
+        title: str | None = None,
+        privacy: str | None = None,
+    ) -> dict[str, str]:
+        """Run an ``edit_playlist`` title or privacy action and drop the cache."""
+        ytmusic = self._get_ytmusic()
+        result = ytmusic.edit_playlist(playlist_id, title=title, privacyStatus=privacy)
+        status = _edit_status(result, "Could not update the playlist")
+        cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        return {"status": status}
 
     def invalidate_playlist_cache(self, playlist_ids: list[str]) -> dict[str, Any]:
         """Invalidate cache for specific playlist IDs.

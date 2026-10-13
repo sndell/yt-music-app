@@ -1,6 +1,9 @@
 export { PyBridge, showCachedThenRefresh } from "./bridge";
 export type {
   LikeStatus,
+  PlaylistPrivacy,
+  LibraryAlbum,
+  LibraryArtist,
   PlaylistSummary,
   PlaylistDetails,
   QuickPick,

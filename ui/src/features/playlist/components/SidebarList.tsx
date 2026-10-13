@@ -3,12 +3,13 @@ import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import type { PlaylistSummary } from "@/lib/api";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
-import { TrackMenu } from "@/components/ui/TrackMenu";
+import { PlaylistMenu } from "@/components/ui/PlaylistMenu";
 import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { usePlayer } from "@/features/player";
 import { moveItem, useOrderMap } from "@/lib/orderMap";
 import { cn } from "@/util/cn";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
+import { RenamePlaylistDialog } from "./RenamePlaylistDialog";
 
 const SIDEBAR_SCOPE = "sidebar:playlists";
 
@@ -27,7 +28,7 @@ type PreviewState = {
 };
 
 export const SidebarList = () => {
-  const { playlists, isLoading, error, fetchPlaylists } = usePlaylist();
+  const { playlists, isLoading, error, fetchPlaylists, renamePlaylist, setPlaylistPrivacy } = usePlaylist();
   const orderMap = useOrderMap();
   const ordered = orderMap.apply(playlists, (playlist) => playlist.playlistId, SIDEBAR_SCOPE);
   const { playPlaylist, queuePlaylist } = usePlayer();
@@ -42,6 +43,7 @@ export const SidebarList = () => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
   const [menu, setMenu] = useState<{ playlistId: string; x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState<{ playlistId: string; title: string } | null>(null);
   playlistsRef.current = ordered;
   menuOpenRef.current = menu != null;
 
@@ -189,6 +191,11 @@ export const SidebarList = () => {
     hideFromTarget(event.target, event.relatedTarget);
   };
 
+  const menuPlaylist = menu ? ordered.find((playlist) => playlist.playlistId === menu.playlistId) : undefined;
+  const menuEditable = Boolean(
+    menuPlaylist && menuPlaylist.owned !== false && menuPlaylist.playlistId !== PINNED_PLAYLIST_ID,
+  );
+
   return (
     <>
     <div
@@ -283,7 +290,7 @@ export const SidebarList = () => {
       </div>
     </div>
       {menu && (
-        <TrackMenu
+        <PlaylistMenu
           x={menu.x}
           y={menu.y}
           onClose={() => {
@@ -294,6 +301,16 @@ export const SidebarList = () => {
           onStartMix={() => void playPlaylist(menu.playlistId, "mix")}
           onPlayNext={() => void queuePlaylist(menu.playlistId, "next")}
           onAddToQueue={() => void queuePlaylist(menu.playlistId, "end")}
+          canEdit={menuEditable}
+          onRename={() => setRenaming({ playlistId: menu.playlistId, title: menuPlaylist?.title ?? "" })}
+          onSetPrivacy={(privacy) => void setPlaylistPrivacy(menu.playlistId, privacy)}
+        />
+      )}
+      {renaming && (
+        <RenamePlaylistDialog
+          initialTitle={renaming.title}
+          onCancel={() => setRenaming(null)}
+          onSubmit={(title) => renamePlaylist(renaming.playlistId, title)}
         />
       )}
       {phase !== "closed" && preview && (

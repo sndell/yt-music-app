@@ -4,6 +4,8 @@ export type Result<T> = { success: true; data: T } | { success: false; error: { 
 
 export type LikeStatus = "LIKE" | "DISLIKE" | "INDIFFERENT";
 
+export type PlaylistPrivacy = "UNLISTED" | "PUBLIC" | "PRIVATE";
+
 export interface Thumbnail {
   url: string;
   width: number;
@@ -32,6 +34,25 @@ export interface PlaylistSummary {
   description: string;
   count?: string;
   author?: Author[];
+  /** Present on library playlists. False means the user cannot edit it. */
+  owned?: boolean;
+}
+
+export interface LibraryAlbum {
+  browseId: string;
+  playlistId: string | null;
+  title: string;
+  type: string;
+  thumbnails: Thumbnail[];
+  artists: Artist[];
+  year: string | null;
+}
+
+export interface LibraryArtist {
+  browseId: string;
+  name: string;
+  subscribers: string;
+  thumbnails: Thumbnail[];
 }
 
 export interface QuickPick {
@@ -100,7 +121,7 @@ export interface Track {
 export interface PlaylistDetails {
   owned: boolean;
   id: string;
-  privacy: "UNLISTED" | "PUBLIC" | "PRIVATE";
+  privacy: PlaylistPrivacy;
   description: string | null;
   views: number;
   duration: string;
@@ -266,12 +287,22 @@ export interface AudioStream {
 /** API method signatures */
 export interface ApiMethods {
   get_cover_color: { params: [imageUrl: string]; response: string | null };
+  inline_thumbnail: { params: [imageUrl: string]; response: string | null };
   get_playlists: { params: []; response: PlaylistSummary[] };
+  get_library_albums: { params: [limit?: number]; response: LibraryAlbum[] };
+  get_library_songs: { params: [limit?: number]; response: Track[] };
+  get_library_artists: { params: [limit?: number]; response: LibraryArtist[] };
   get_quick_picks: { params: []; response: QuickPicks };
   get_home: { params: [forceRefresh?: boolean]; response: HomeFeed };
   get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
   move_playlist_item: {
     params: [playlistId: string, setVideoId: string, beforeSetVideoId: string];
+    response: { status: string };
+  };
+  add_playlist_items: { params: [playlistId: string, videoIds: string[]]; response: { status: string } };
+  rename_playlist: { params: [playlistId: string, title: string]; response: { status: string } };
+  set_playlist_privacy: {
+    params: [playlistId: string, privacy: PlaylistPrivacy];
     response: { status: string };
   };
   get_album: { params: [browseId: string, forceRefresh?: boolean]; response: AlbumDetails };

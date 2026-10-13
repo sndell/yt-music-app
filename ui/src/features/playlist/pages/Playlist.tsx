@@ -165,6 +165,26 @@ export const Playlist = () => {
     };
   }, [id]);
 
+  // A rename, visibility change, or added song from the sidebar should refresh
+  // the playlist view when it is showing that playlist.
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    const onChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ playlistId?: string }>).detail;
+      if (!detail?.playlistId || detail.playlistId !== id) return;
+      void PyBridge.getPlaylistItems(id, true).then((result) => {
+        if (!active || !result.success || !result.data.title) return;
+        setPlaylist(withRatings(result.data, ratingsRef.current));
+      });
+    };
+    window.addEventListener("ytmusic-playlist-changed", onChanged);
+    return () => {
+      active = false;
+      window.removeEventListener("ytmusic-playlist-changed", onChanged);
+    };
+  }, [id]);
+
   useEffect(() => {
     setPlaylist((current) => (current ? withRatings(current, trackRatings) : current));
   }, [trackRatings]);
