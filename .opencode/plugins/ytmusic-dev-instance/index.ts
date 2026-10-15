@@ -1,15 +1,17 @@
 import { Plugin } from "@opencode/plugin"
-import { spawn, spawnSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import path from "node:path"
 
 // Registers the git worktree strategy with one addition: after a worktree is
-// created, install its dependencies and start its own app instance. Worktrees
-// are created from the canonical checkout, so this is where the tooling lives.
+// created, install its dependencies and assign its slot, so the agent does not
+// provision anything by hand.
 //
-// It replaces the bundled git strategy, so it must keep working when the app
-// cannot start. Only the git step is fatal; provisioning and starting the app
-// are best effort.
+// It does not start the app. The opencode plugin API cannot create a shell
+// task, and a detached start would also make the agent's own `up --attach`
+// exit with "already running". The agent starts the app in its own background
+// shell instead, where the task stays visible. To start it from here instead,
+// call start() after provision().
 
 const ID = "ytmusic.dev-instance"
 
@@ -55,12 +57,6 @@ function provision(python: string, directory: string): string | undefined {
   return tool
 }
 
-function start(python: string, tool: string, directory: string): void {
-  const child = spawn(python, [tool, "up"], { cwd: directory, detached: true, stdio: "ignore" })
-  child.unref()
-  log(`starting this worktree's app: ${directory}`)
-}
-
 const gitWorktrees = {
   id: ID,
   async create(input: { sourceDirectory: string; directory: string; branch?: string }) {
@@ -71,11 +67,10 @@ const gitWorktrees = {
 
     const python = mainPython(input.sourceDirectory)
     if (!python) {
-      log(`no venv in ${input.sourceDirectory}; worktree created without an app`)
+      log(`no venv in ${input.sourceDirectory}; worktree created without setup`)
       return { directory: input.directory }
     }
-    const tool = provision(python, input.directory)
-    if (tool) start(python, tool, input.directory)
+    provision(python, input.directory)
     return { directory: input.directory }
   },
   async remove(input: { directory: string; force: boolean }) {
