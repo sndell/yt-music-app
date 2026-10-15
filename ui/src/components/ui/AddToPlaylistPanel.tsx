@@ -57,7 +57,7 @@ export const AddToPlaylistPanel = ({
   return (
     <div className={cn("flex flex-col overflow-hidden", className)}>
       {recommendedRows.length > 0 ? (
-        <div className="shrink-0 border-b border-primary/20 px-3 pt-2.5 pb-2">
+        <div className="shrink-0 border-b border-primary/20 px-2.5 pt-2.5 pb-2">
           <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-primary-dark">Recommended</p>
           <div className="scrollbar-thin flex gap-2 overflow-x-auto pb-0.5">
             {recommendedRows.map((playlist) => (
@@ -72,7 +72,7 @@ export const AddToPlaylistPanel = ({
           </div>
         </div>
       ) : recommendedPending ? (
-        <div className="shrink-0 border-b border-primary/20 px-3 py-2.5">
+        <div className="shrink-0 border-b border-primary/20 px-2.5 py-2.5">
           <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-primary-dark">Recommended</p>
           <div className="flex gap-2">
             {Array.from({ length: 4 }, (_, index) => (
@@ -96,7 +96,7 @@ export const AddToPlaylistPanel = ({
         </label>
       </div>
 
-      <div className="scrollbar-thin max-h-72 overflow-y-auto px-1 pb-1">
+      <div className="scrollbar-thin max-h-72 overflow-y-auto px-2.5 pb-1">
         {onNewPlaylist && (
           <button
             type="button"
@@ -112,7 +112,7 @@ export const AddToPlaylistPanel = ({
           </button>
         )}
         {filtered.length === 0 ? (
-          <p className="px-2.5 py-2 text-sm text-primary-dark">{needle ? "No matching playlists" : "No playlists yet"}</p>
+          <p className="px-1.5 py-2 text-sm text-primary-dark">{needle ? "No matching playlists" : "No playlists yet"}</p>
         ) : (
           filtered.map((playlist) => (
             <PlaylistPickRow
@@ -173,7 +173,7 @@ const RecommendedChip = ({
           </span>
         ) : added ? (
           <span className="absolute inset-0 grid place-items-center rounded-md bg-black/60">
-            <span aria-hidden="true" className="text-2xl text-accent">
+            <span aria-hidden="true" className="text-2xl text-success">
               <span className="icon-[solar--check-circle-bold]" />
             </span>
           </span>
@@ -235,7 +235,7 @@ const PlaylistPickRow = ({
           aria-hidden="true"
           className={cn(
             "shrink-0 text-lg transition-opacity duration-150",
-            added ? "text-accent opacity-100" : "text-primary-dark opacity-0 group-hover:opacity-100",
+            added ? "text-success opacity-100" : "text-primary-dark opacity-0 group-hover:opacity-100",
           )}
         >
           <span className={added ? "icon-[solar--check-circle-bold]" : "icon-[solar--add-linear]"} />

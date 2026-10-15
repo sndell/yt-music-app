@@ -68,11 +68,13 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
                   "shrink-0 text-lg",
                   toast.tone === "error"
                     ? "icon-[solar--danger-triangle-linear]"
-                    : "icon-[solar--check-circle-bold] text-accent",
+                    : "icon-[solar--check-circle-bold] text-success",
                 )}
               />
               <span className="min-w-0 truncate">{toast.message}</span>
-              {toast.action ? <ToastActionButton action={toast.action} onDismiss={() => dismiss(toast.id)} /> : null}
+              {toast.action ? (
+                <ToastActionButton action={toast.action} tone={toast.tone} onDismiss={() => dismiss(toast.id)} />
+              ) : null}
             </div>
           ))}
         </div>,
@@ -82,7 +84,15 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
-const ToastActionButton = ({ action, onDismiss }: { action: ToastAction; onDismiss: () => void }) => (
+const ToastActionButton = ({
+  action,
+  tone,
+  onDismiss,
+}: {
+  action: ToastAction;
+  tone: ToastTone;
+  onDismiss: () => void;
+}) => (
   <button
     type="button"
     onClick={(event) => {
@@ -90,7 +100,10 @@ const ToastActionButton = ({ action, onDismiss }: { action: ToastAction; onDismi
       onDismiss();
       action.onClick();
     }}
-    className="shrink-0 cursor-pointer font-semibold text-accent uppercase hover:brightness-110"
+    className={cn(
+      "shrink-0 cursor-pointer font-semibold uppercase hover:brightness-110",
+      tone === "error" ? "text-red-400" : "text-success",
+    )}
   >
     {action.label}
   </button>

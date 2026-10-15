@@ -14,18 +14,21 @@
   --background-color-secondary: oklch(0.28 0 0);
   --background-color-secondary-light: oklch(0.32 0 0);
   --background-color-accent: oklch(0.55 0.21 27.19);
+  --background-color-success: oklch(0.72 0.17 150);
   --background-color-control-active: oklch(0.24 0 0);
   --background-color-control-active-hover: oklch(0.27 0 0);
 
   --text-color-primary: oklch(0.9 0 0);
   --text-color-primary-dark: oklch(0.75 0 0);
   --text-color-accent: oklch(0.55 0.21 27.19);
+  --text-color-success: oklch(0.72 0.17 150);
 
   /*
    * Ring/outline/divide variants read the plain `--color-*` key. Without this,
    * `ring-accent` falls back to currentColor and paints a bright white halo.
    */
   --color-accent: oklch(0.55 0.21 27.19);
+  --color-success: oklch(0.72 0.17 150);
 
   --border-color-primary: oklch(0.3 0 0);
 }
