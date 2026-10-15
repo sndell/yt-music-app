@@ -176,19 +176,16 @@ export const PlaylistMenu = ({
         </button>
 
         {onEdit && (
-          <>
-            <div className="mx-2.5 my-1 border-t border-white/10" />
-            <button
-              type="button"
-              role="menuitem"
-              className={itemClass}
-              onClick={() => choose(onEdit)}
-              onPointerEnter={closeFlyouts}
-            >
-              <span className={`${iconClass} icon-[solar--pen-2-linear]`} />
-              Edit playlist
-            </button>
-          </>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemClass}
+            onClick={() => choose(onEdit)}
+            onPointerEnter={closeFlyouts}
+          >
+            <span className={`${iconClass} icon-[solar--pen-2-linear]`} />
+            Edit playlist
+          </button>
         )}
       </div>
 
