@@ -97,11 +97,24 @@ const PlaylistTracksLoading = ({ summary }: { summary: PlaylistSummary }) => {
             <span className="icon-[solar--loader-linear] animate-spin text-base" />
             Loading tracks
           </p>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-3" aria-hidden="true">
+            <div className="h-3.5 w-28 rounded-full bg-secondary/70" />
+            <div className="h-3.5 w-14 rounded-full bg-secondary/70" />
+            <div className="h-3.5 w-20 rounded-full bg-secondary/70" />
+            <div className="h-3.5 w-12 rounded-full bg-secondary/70" />
+          </div>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col py-4 sm:py-6">
-        <div className="px-3 sm:px-4">
+      <div className="flex min-h-0 flex-1 flex-col pt-3 pb-4 sm:pb-6">
+        <div className="relative flex flex-wrap items-center gap-3 px-3 sm:px-4" aria-hidden="true">
+          <div className="size-10 shrink-0 rounded-full bg-secondary" />
+          <div className="size-8 shrink-0 rounded-full bg-secondary/70" />
+          <div className="size-8 shrink-0 rounded-full bg-secondary/70" />
+          <div className="ms-auto h-8 w-full max-w-xs shrink-0 rounded-full bg-secondary/70 sm:w-64" />
+          <div className="size-8 shrink-0 rounded-full bg-secondary/70" />
+        </div>
+        <div className="relative mt-3 px-3 sm:px-4">
           <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
             <div>Track</div>
             <div className="max-md:hidden">Album</div>
