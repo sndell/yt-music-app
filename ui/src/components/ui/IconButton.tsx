@@ -41,9 +41,9 @@ export const IconButton = ({
   size: IconButtonSize;
   tone: IconButtonTone;
   /**
-   * Transport (`text-2xl`) is for play / skip / shuffle.
-   * Secondary (`text-xl`) is the md default (like / volume).
-   * Dense (`text-lg`) is the sm default.
+   * Transport (`text-2xl`) is the large play button. Secondary (`text-xl`) is
+   * the md default (like / volume). Dense (`text-lg`) is the sm default, used by
+   * the smaller controls beside a collection's play button.
    */
   iconScale?: IconButtonScale;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
