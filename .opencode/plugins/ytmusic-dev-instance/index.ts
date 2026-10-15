@@ -1,19 +1,23 @@
 import { Plugin } from "@opencode/plugin"
 import { spawnSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
 
-// Registers the git worktree strategy with one addition: after a worktree is
-// created, install its dependencies and assign its slot, so the agent does not
-// provision anything by hand.
+// Registers the git worktree strategy with two additions:
 //
-// It does not start the app. The opencode plugin API cannot create a shell
-// task, and a detached start would also make the agent's own `up --attach`
-// exit with "already running". The agent starts the app in its own background
-// shell instead, where the task stays visible. To start it from here instead,
-// call start() after provision().
+//   1. After a worktree is created, install its dependencies and assign its
+//      slot, so the agent does not provision anything by hand.
+//   2. On the first prompt in a session whose directory is a linked worktree,
+//      nudge the session to start that worktree's app as a background shell.
+//
+// The plugin API cannot create a shell task, so the agent runs the command and
+// the task shows in its session. A detached start here would also make the
+// agent's own `up --attach` exit with "already running".
 
 const ID = "ytmusic.dev-instance"
+const NUDGE_MARK = "ytmusic-dev-instance:nudge"
+
+const nudged = new Set<string>()
 
 function log(message: string): void {
   console.error(`[${ID}] ${message}`)
@@ -39,11 +43,11 @@ function run(command: string, args: string[], cwd: string): string {
 
 // Install UI dependencies, assign a slot, and copy app/browser.json. Slow on
 // the first run, so give it room; a failure is logged, not thrown.
-function provision(python: string, directory: string): string | undefined {
+function provision(python: string, directory: string): void {
   const tool = path.join(directory, "tools", "dev.py")
   if (!existsSync(tool)) {
     log(`no tools/dev.py in ${directory}; skipping setup`)
-    return undefined
+    return
   }
   const result = spawnSync(python, [tool, "setup"], {
     cwd: directory,
@@ -54,7 +58,59 @@ function provision(python: string, directory: string): string | undefined {
     const detail = `${result.stderr ?? ""}${result.stdout ?? ""}`.trim()
     log(`setup failed in ${directory}: ${detail || `exit ${result.status}`}`)
   }
-  return tool
+}
+
+function isLinkedWorktree(directory: string): boolean {
+  try {
+    return statSync(path.join(directory, ".git")).isFile()
+  } catch {
+    return false
+  }
+}
+
+// The interpreter tools/dev.py recorded for the worktree, a local venv, or the
+// canonical checkout's venv. An unprovisioned worktree still works, because
+// `up --attach` runs the setup itself.
+function worktreePython(directory: string, canonical: string | undefined): string | undefined {
+  try {
+    const recorded = readFileSync(path.join(directory, "app", "dev", ".dev-python"), "utf8").trim()
+    if (recorded) return recorded
+  } catch {
+    // not provisioned; fall through
+  }
+  return mainPython(directory) ?? (canonical ? mainPython(canonical) : undefined)
+}
+
+function nudgeText(directory: string, python: string): string {
+  const tool = path.join(directory, "tools", "dev.py")
+  return [
+    `${NUDGE_MARK}`,
+    `This worktree's app is not running. Start it as a background shell so the task stays visible, from ${directory}:`,
+    "",
+    `    "${python}" "${tool}" up --attach`,
+    "",
+    `Wait for the "[dev] started slot=..." line, then drive it with tools/dev.py state, logs, and screenshot.`,
+  ].join("\n")
+}
+
+async function nudge(ctx: any, sessionID: string | undefined): Promise<void> {
+  if (!sessionID || nudged.has(sessionID)) return
+  nudged.add(sessionID)
+  try {
+    const session = await ctx.session.get({ sessionID })
+    const directory: string | undefined =
+      session?.location?.directory ?? session?.location?.canonical
+    if (!directory || !isLinkedWorktree(directory)) return
+    const python = worktreePython(directory, ctx?.location?.directory)
+    if (!python) {
+      log(`no interpreter for ${directory}; not nudging`)
+      return
+    }
+    await ctx.session.synthetic({ sessionID, text: nudgeText(directory, python) })
+    log(`nudged ${sessionID} in ${directory}`)
+  } catch (error) {
+    log(`nudge failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 const gitWorktrees = {
@@ -95,13 +151,17 @@ const gitWorktrees = {
 export default Plugin.define({
   id: ID,
   async setup(ctx) {
-    if (!ctx.worktree?.transform) {
-      log("this opencode build has no worktree.transform; plugin inactive")
-      return
+    if (ctx.worktree?.transform) {
+      await ctx.worktree.transform((editor) => {
+        editor.add(gitWorktrees)
+      })
+      log("worktree strategy registered")
     }
-    await ctx.worktree.transform((editor) => {
-      editor.add(gitWorktrees)
-    })
-    log("worktree strategy registered")
+
+    if (ctx.session?.hook) {
+      await ctx.session.hook("prompt", (event: any) => {
+        void nudge(ctx, event?.sessionID)
+      })
+    }
   },
 })
