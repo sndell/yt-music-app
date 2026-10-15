@@ -56,9 +56,8 @@ export const PlaybackButtons = ({
         <IconButton
           iconClass="icon-[solar--shuffle-linear]"
           label={shuffleMenu ? "Shuffle options" : "Shuffle"}
-          size="md"
+          size="sm"
           tone="outline"
-          iconScale="transport"
           onClick={(event) => {
             if (!shuffleMenu) {
               onShuffle?.();
@@ -75,9 +74,8 @@ export const PlaybackButtons = ({
           key={option.label}
           iconClass={option.iconClass}
           label={option.label}
-          size="md"
+          size="sm"
           tone={option.active ? "active" : "outline"}
-          iconScale="transport"
           onClick={option.onClick}
         />
       ))}
