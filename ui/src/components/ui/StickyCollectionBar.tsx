@@ -58,8 +58,14 @@ export const StickyCollectionBar = ({
   /** Track / Album / Duration row. Playlist and Album only. */
   columnHeaders?: boolean;
 }) => (
+  /*
+   * z-30, not z-10: at the bottom of a list the edge-fade mask clears and the
+   * scroll container stops being a stacking context, so a z-10 bar would tie
+   * with the row wrappers (also z-10) and lose to DOM order, letting songs
+   * paint over it.
+   */
   <div
-    className="absolute top-0 right-0 left-0 z-10 bg-primary transition-transform duration-300"
+    className="absolute top-0 right-0 left-0 z-30 bg-primary transition-transform duration-300"
     style={{
       transform: visible ? "translateY(0)" : "translateY(-100%)",
       opacity: visible ? 1 : 0,
