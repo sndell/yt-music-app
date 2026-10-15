@@ -7,8 +7,10 @@ import { usePlayer } from "@/features/player";
 import { PlaylistDescription } from "@/features/playlist/components/PlaylistDescription";
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { BrowseCard, BrowseRow } from "@/components/ui/BrowseCard";
-import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
+import { PlaybackButtons, type PlaybackExtraAction } from "@/components/ui/PlaybackButtons";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StickyCollectionBar } from "@/components/ui/StickyCollectionBar";
+import { useAlbumLibrary } from "../hooks/useAlbumLibrary";
 import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { collectionCoverClass, collectionHeaderClass, collectionTitleClass, collectionWash } from "@/components/ui/collectionChrome";
 import { cn } from "@/util/cn";
@@ -121,11 +123,13 @@ const PageFallback = ({ error, onReload }: { error: string | null; onReload: () 
 export const Album = () => {
   const { id } = useParams();
   const { playPlaylist, trackRatings, trueShuffle } = usePlayer();
+  const { isSaved, rateAlbum } = useAlbumLibrary();
   const [album, setAlbum] = useState<AlbumDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadedId, setLoadedId] = useState(id);
   const [attempt, setAttempt] = useState(0);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
 
@@ -219,8 +223,26 @@ export const Album = () => {
       ? { onShuffle: () => play("shuffle"), onTrueShuffle: () => void trueShuffle(rated.tracks) }
       : undefined;
 
+  const albumRef = { browseId: rated.browseId, audioPlaylistId };
+  const saved = isSaved(albumRef);
+  const extraActions: PlaybackExtraAction[] = [];
+  if (audioPlaylistId) {
+    extraActions.push({
+      label: saved ? "Remove album from your library" : "Save album to your library",
+      iconClass: saved ? "icon-[solar--heart-bold]" : "icon-[solar--heart-linear]",
+      active: saved,
+      onClick: () => {
+        if (saved) {
+          setConfirmingRemove(true);
+          return;
+        }
+        void rateAlbum(albumRef, true);
+      },
+    });
+  }
+
   const playback = audioPlaylistId ? (
-    <PlaybackButtons onPlay={() => play("play")} shuffleMenu={shuffleMenu} />
+    <PlaybackButtons onPlay={() => play("play")} shuffleMenu={shuffleMenu} extra={extraActions} />
   ) : null;
 
   return (
@@ -234,6 +256,7 @@ export const Album = () => {
         meta={meta("text-sm leading-5")}
         onPlay={audioPlaylistId ? () => play("play") : undefined}
         shuffleMenu={shuffleMenu}
+        extra={extraActions}
         columnHeaders
       />
 
@@ -281,6 +304,23 @@ export const Album = () => {
           </BrowseRow>
         )}
       </div>
+
+      {confirmingRemove && (
+        <ConfirmDialog
+          title="Remove album from your library?"
+          message={
+            <p>
+              <span className="font-semibold text-primary">{title}</span> will be removed from your library. You can
+              add it back any time.
+            </p>
+          }
+          confirmLabel="Remove"
+          busyLabel="Removing…"
+          danger
+          onConfirm={() => rateAlbum(albumRef, false)}
+          onCancel={() => setConfirmingRemove(false)}
+        />
+      )}
     </div>
   );
 };
