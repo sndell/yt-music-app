@@ -1,4 +1,5 @@
 import { cn } from "@/util/cn";
+import type { MouseEvent } from "react";
 
 export type IconButtonSize = "sm" | "md";
 export type IconButtonTone = "ghost" | "active" | "solid" | "outline";
@@ -45,7 +46,7 @@ export const IconButton = ({
    * Dense (`text-lg`) is the sm default.
    */
   iconScale?: IconButtonScale;
-  onClick?: () => void;
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
   className?: string;
   type?: "button" | "submit" | "reset";

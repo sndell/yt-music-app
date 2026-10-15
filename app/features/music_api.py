@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import logging
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -55,6 +56,22 @@ TUNER_CACHE_SECONDS = 60 * 60 * 12
 # Covers are inlined inline with a request. Past this many items the request is
 # left with remote URLs and the frontend inlines failures on demand.
 MAX_INLINE_ITEMS = 150
+
+# Search is not cached: results move, and library scope depends on the session.
+_SEARCH_FILTERS = (
+    "songs",
+    "videos",
+    "albums",
+    "artists",
+    "playlists",
+    "community_playlists",
+    "featured_playlists",
+    "profiles",
+    "podcasts",
+    "episodes",
+)
+_SEARCH_SCOPES = ("library", "uploads")
+_MAX_SEARCH_LIMIT = 100
 
 
 def _cached_hit(key: str) -> dict[str, Any] | None:
@@ -132,6 +149,109 @@ def _edit_status(result: Any, fallback: str) -> str:
     if "SUCCEEDED" not in text:
         raise RuntimeError(text or fallback)
     return text
+
+
+def _delete_status(result: Any) -> str:
+    """Decide the outcome of a ``delete_playlist`` call.
+
+    A successful delete answers with the raw command response, which carries no
+    ``status`` field; the library only returns a status *string* when the
+    endpoint reports one. So a dict means success, and only a string without
+    ``SUCCEEDED`` means the playlist is still there.
+    """
+    if isinstance(result, str) and "SUCCEEDED" not in result:
+        raise RuntimeError(result or "Could not delete the playlist")
+    return "SUCCEEDED"
+
+
+# Per-playlist usage events for the "Add to playlist" recommendations row.
+# Recent adds weigh more than plays, and both fade over time, so the top
+# playlists track what the user actually reaches for lately rather than
+# all-time favorites.
+_PLAYLIST_STATS_PATH = data_dir() / "playlist_stats.json"
+_PLAYLIST_STATS_LOCK = threading.Lock()
+_PLAYLIST_STAT_KINDS = ("add", "play")
+_PLAYLIST_STAT_MAX_EVENTS = 40
+_PLAYLIST_STAT_WEIGHTS = {"add": 1.5, "play": 1.0}
+_PLAYLIST_STAT_HALF_LIFE_DAYS = 3.0
+
+
+def _load_playlist_stats() -> dict[str, dict[str, list[float]]]:
+    try:
+        with _PLAYLIST_STATS_PATH.open(encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except FileNotFoundError:
+        return {kind: {} for kind in _PLAYLIST_STAT_KINDS}
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Playlist stats unreadable, starting fresh: %s", e)
+        return {kind: {} for kind in _PLAYLIST_STAT_KINDS}
+    if not isinstance(raw, dict):
+        return {kind: {} for kind in _PLAYLIST_STAT_KINDS}
+    stats: dict[str, dict[str, list[float]]] = {}
+    for kind in _PLAYLIST_STAT_KINDS:
+        entries = raw.get(kind)
+        if not isinstance(entries, dict):
+            entries = {}
+        stats[kind] = {}
+        for playlist_id, events in entries.items():
+            if not isinstance(playlist_id, str) or not isinstance(events, list):
+                continue
+            timestamps = [float(ts) for ts in events if isinstance(ts, (int, float)) and ts > 0]
+            if timestamps:
+                stats[kind][playlist_id] = timestamps
+    return stats
+
+
+def _save_playlist_stats(stats: dict[str, dict[str, list[float]]]) -> None:
+    tmp_path = _PLAYLIST_STATS_PATH.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(stats), encoding="utf-8")
+    tmp_path.replace(_PLAYLIST_STATS_PATH)
+
+
+def _record_playlist_stat(playlist_id: str, kind: str) -> None:
+    """Append one usage event for a playlist. Best effort; never fails the caller."""
+    if not playlist_id or kind not in _PLAYLIST_STAT_KINDS:
+        return
+    try:
+        with _PLAYLIST_STATS_LOCK:
+            stats = _load_playlist_stats()
+            events = stats.setdefault(kind, {}).setdefault(playlist_id, [])
+            events.append(time.time())
+            stats[kind][playlist_id] = events[-_PLAYLIST_STAT_MAX_EVENTS:]
+            if len(stats[kind]) > 500:
+                cutoff = time.time() - 60 * 60 * 24 * 30
+                stats[kind] = {
+                    pid: kept for pid, kept in stats[kind].items() if kept and kept[-1] >= cutoff
+                }
+            _save_playlist_stats(stats)
+    except Exception as e:
+        logger.warning("Could not record playlist stat: %s", e)
+
+
+def _forget_playlist_stat(playlist_id: str) -> None:
+    try:
+        with _PLAYLIST_STATS_LOCK:
+            stats = _load_playlist_stats()
+            changed = False
+            for kind in _PLAYLIST_STAT_KINDS:
+                if playlist_id in stats.get(kind, {}):
+                    stats[kind].pop(playlist_id, None)
+                    changed = True
+            if changed:
+                _save_playlist_stats(stats)
+    except Exception as e:
+        logger.warning("Could not forget playlist stat: %s", e)
+
+
+def _playlist_stat_score(stats: dict[str, dict[str, list[float]]], playlist_id: str) -> float:
+    """Blend recent adds (dominant) and plays with exponential time decay."""
+    now = time.time()
+    decay = 86400.0 * _PLAYLIST_STAT_HALF_LIFE_DAYS
+    score = 0.0
+    for kind, weight in _PLAYLIST_STAT_WEIGHTS.items():
+        for ts in stats.get(kind, {}).get(playlist_id, []):
+            score += weight * 2 ** (-(now - ts) / decay)
+    return score
 
 
 def _inline_thumbnail(url: str) -> str:
@@ -827,6 +947,116 @@ def _home_shelves(home: list[Any]) -> list[dict[str, Any]]:
     return shelves
 
 
+_SEARCH_KINDS = {
+    "song": "song",
+    "video": "video",
+    "album": "album",
+    "artist": "artist",
+    "playlist": "playlist",
+    "profile": "profile",
+    "podcast": "podcast",
+    "episode": "episode",
+}
+
+
+def _search_people(item: dict[str, Any]) -> list[dict[str, str]]:
+    """Search artists, falling back to the single ``artist`` string some filters use."""
+    artists = _people(item.get("artists"))
+    if artists:
+        return artists
+    single = item.get("artist")
+    if isinstance(single, str) and single:
+        return [{"name": single, "id": ""}]
+    return []
+
+
+def _search_playlist_id(browse_id: str | None) -> str | None:
+    """A playlist browse id is ``VL`` prefixed; the app routes on the bare id."""
+    if not isinstance(browse_id, str) or not browse_id:
+        return None
+    return browse_id[2:] if browse_id.startswith("VL") else browse_id
+
+
+def _search_count_label(item_count: Any) -> str:
+    if isinstance(item_count, int):
+        return "1 song" if item_count == 1 else f"{item_count} songs"
+    if isinstance(item_count, str) and item_count.strip():
+        digits = item_count.replace(",", "").strip()
+        if digits.isdigit():
+            return "1 song" if digits == "1" else f"{item_count} songs"
+    return ""
+
+
+def _search_result(item: Any) -> dict[str, Any] | None:
+    """Flatten one ytmusicapi search row into the shared shape the UI renders."""
+    if not isinstance(item, dict):
+        return None
+
+    raw_type = item.get("resultType")
+    kind = _SEARCH_KINDS.get(raw_type if isinstance(raw_type, str) else "", "unknown")
+    browse_id = _optional_str(item.get("browseId"))
+    video_id = _optional_str(item.get("videoId"))
+    if kind == "unknown":
+        if video_id:
+            kind = "song"
+        elif isinstance(browse_id, str) and browse_id.startswith("MPRE"):
+            kind = "album"
+        elif isinstance(browse_id, str) and browse_id.startswith(("UC", "MPLA")):
+            kind = "artist"
+        elif isinstance(browse_id, str) and browse_id.startswith(("VL", "PL", "RD", "VM")):
+            kind = "playlist"
+        else:
+            return None
+
+    title = _optional_str(item.get("title"))
+    if not title and kind == "artist":
+        title = _optional_str(item.get("artist"))
+    if not title:
+        return None
+
+    artists = _search_people(item)
+    album = _named_album(item.get("album"), "")
+    year = _optional_str(item.get("year"))
+    video_type = item.get("videoType")
+    if video_type not in {_SONG_VIDEO_TYPE, "MUSIC_VIDEO_TYPE_OMV"}:
+        video_type = "MUSIC_VIDEO_TYPE_OMV" if kind == "video" else _SONG_VIDEO_TYPE
+
+    if kind in {"song", "video"}:
+        subtitle = _song_subtitle(item) or _joined_names(artists)
+    elif kind == "album":
+        album_type = _optional_str(item.get("type")) or "Album"
+        subtitle = " • ".join(part for part in (album_type, _joined_names(artists), year) if part)
+    elif kind == "artist":
+        subtitle = _optional_str(item.get("subscribers")) or ""
+    elif kind == "playlist":
+        author = item.get("author") if isinstance(item.get("author"), str) else ""
+        subtitle = " • ".join(part for part in (author, _search_count_label(item.get("itemCount"))) if part)
+    else:
+        subtitle = _optional_str(item.get("name")) or ""
+
+    return {
+        "kind": kind,
+        "title": title,
+        "subtitle": subtitle,
+        "artists": artists,
+        "album": album,
+        "thumbnails": _thumbnails(item.get("thumbnails")),
+        "videoId": video_id,
+        "browseId": browse_id,
+        "playlistId": _search_playlist_id(browse_id) if kind == "playlist" else None,
+        "duration": item.get("duration") if isinstance(item.get("duration"), str) else "",
+        "durationSeconds": _as_int(item.get("duration_seconds")),
+        "views": item.get("views") if isinstance(item.get("views"), str) else None,
+        "explicit": bool(item.get("isExplicit")),
+        "inLibrary": bool(item.get("inLibrary")),
+        "year": year,
+        "itemCount": item.get("itemCount") if isinstance(item.get("itemCount"), int) else None,
+        "videoType": video_type,
+        "category": _optional_str(item.get("category")),
+        "resultType": raw_type if isinstance(raw_type, str) else "",
+    }
+
+
 def _header_value(headers: dict[str, Any], name: str) -> str | None:
     for key, value in headers.items():
         if key.lower() == name and isinstance(value, str):
@@ -1459,6 +1689,58 @@ class MusicApi:
             return {"title": shelf.get("title") or "Quick picks", "tracks": tracks}
         return _empty_quick_picks()
 
+    def search(self, query: str, filter: str = "", scope: str = "", limit: int = 30) -> list[dict[str, Any]]:
+        """Search YouTube Music.
+
+        ``filter`` narrows to one result type (``songs``, ``albums``,
+        ``artists``, ...). ``scope`` of ``library`` searches only what the user
+        saved; ``uploads`` searches their uploads. Both default to the mixed
+        public search when empty. Results share the shape the UI renders; covers
+        stay as remote URLs and the UI inlines the ones the webview cannot load.
+        """
+        try:
+            text = query.strip() if isinstance(query, str) else ""
+            if not text:
+                return []
+            if not isinstance(limit, int) or limit <= 0:
+                limit = 30
+            limit = min(limit, _MAX_SEARCH_LIMIT)
+
+            active_filter = filter if isinstance(filter, str) and filter in _SEARCH_FILTERS else None
+            active_scope = scope if isinstance(scope, str) and scope in _SEARCH_SCOPES else None
+            # ytmusicapi rejects these pairings; drop the filter rather than fail.
+            if active_scope == "uploads" and active_filter:
+                active_filter = None
+            if active_scope == "library" and active_filter in {"community_playlists", "featured_playlists"}:
+                active_filter = None
+
+            logger.info("Search '%s' (filter=%s, scope=%s, limit=%d)", text, active_filter, active_scope, limit)
+            raw = self._get_ytmusic().search(text, filter=active_filter, scope=active_scope, limit=limit)
+            if not isinstance(raw, list):
+                return []
+
+            results = [result for result in (_search_result(item) for item in raw) if result is not None]
+            logger.info("Search '%s' returned %d results", text, len(results))
+            return results
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return []
+        except Exception as e:
+            logger.exception("Search failed: %s", e)
+            return []
+
+    def shuffle_tracks(self, video_ids: list[str]) -> list[str]:
+        """Return the given track ids in a true-random order.
+
+        ``random.SystemRandom`` draws from the OS CSPRNG, and its ``shuffle``
+        is an unbiased Fisher-Yates permutation. That is the point: the order
+        is not derived from a predictable, time-seeded Mersenne Twister, so
+        every ordering of the list is equally likely.
+        """
+        ids = [video_id for video_id in video_ids if isinstance(video_id, str) and video_id]
+        random.SystemRandom().shuffle(ids)
+        return ids
+
     def get_playlist_items(self, playlist_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch all items from a specific playlist.
         
@@ -1683,6 +1965,10 @@ class MusicApi:
             # RDAMPL is the playlist mix.
             if radio and playlist_id and not video_id:
                 playlist_id = _radio_playlist_id(playlist_id)
+            # Playing a library playlist (not one of YouTube's mixes) scores it
+            # for the add-to-playlist recommendations.
+            if playlist_id and not playlist_id.startswith(("RD", "LM")):
+                _record_playlist_stat(playlist_id, "play")
 
             data = self._get_ytmusic().get_watch_playlist(
                 videoId=video_id,
@@ -2222,11 +2508,14 @@ class MusicApi:
         cached["tracks"] = tracks
         cache.set(cache_key, cached, expire=CACHE_DURATION)
 
-    def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> dict[str, str]:
+    def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> dict[str, Any]:
         """Add songs to one of the user's playlists.
 
         Adding changes the cached track list, so the entry is dropped and the
         next read fetches the playlist again.
+
+        Returns the ``setVideoId`` YouTube Music assigned to each added video,
+        so "Undo" on a later removal can move the row back to its position.
         """
         if not isinstance(playlist_id, str) or not playlist_id:
             raise ValueError("playlist id is required")
@@ -2238,6 +2527,43 @@ class MusicApi:
         ytmusic = self._get_ytmusic()
         result = ytmusic.add_playlist_items(playlist_id, videoIds=ids)
         status = _edit_status(result, "Could not add to the playlist")
+        cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        _record_playlist_stat(playlist_id, "add")
+        results: dict[str, str] = {}
+        if isinstance(result, dict):
+            for entry in result.get("playlistEditResults") or []:
+                if not isinstance(entry, dict):
+                    continue
+                video_id = entry.get("videoId")
+                set_video_id = entry.get("setVideoId")
+                if isinstance(video_id, str) and isinstance(set_video_id, str):
+                    results[video_id] = set_video_id
+        return {"status": status, "setVideoIds": results}
+
+    def remove_playlist_items(self, playlist_id: str, items: list[dict[str, str]]) -> dict[str, str]:
+        """Remove rows from one of the user's playlists.
+
+        Args:
+            playlist_id: The playlist to edit.
+            items: Rows to remove, each with ``videoId`` and ``setVideoId``
+                (both come from get_playlist_items on owned playlists).
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if not isinstance(items, list):
+            raise ValueError("playlist items are required")
+        rows = [
+            {"videoId": item["videoId"], "setVideoId": item["setVideoId"]}
+            for item in items
+            if isinstance(item, dict)
+            and isinstance(item.get("videoId"), str)
+            and isinstance(item.get("setVideoId"), str)
+        ]
+        if not rows:
+            raise ValueError("each item needs videoId and setVideoId")
+        ytmusic = self._get_ytmusic()
+        result = ytmusic.remove_playlist_items(playlist_id, rows)
+        status = _edit_status(result, "Could not remove from the playlist")
         cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
         return {"status": status}
 
@@ -2258,19 +2584,150 @@ class MusicApi:
             raise ValueError("privacy must be PUBLIC, PRIVATE or UNLISTED")
         return self._edit_playlist(playlist_id, privacy=value)
 
+    def edit_playlist(self, playlist_id: str, patch: dict[str, Any] | None = None) -> dict[str, str]:
+        """Apply any mix of title, description and privacy changes at once.
+
+        The frontend sends one ``patch`` object with the fields to change;
+        pywebview passes arguments positionally, so separate ``title`` /
+        ``description`` / ``privacy`` parameters would be fed the whole dict
+        (and store its repr as the playlist name).
+
+        Fields left out of the patch are untouched.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if patch is None:
+            patch = {}
+        if not isinstance(patch, dict):
+            raise ValueError("patch must be an object with title, description or privacy")
+        title = patch.get("title")
+        description = patch.get("description")
+        privacy = patch.get("privacy")
+        if title is not None:
+            if not isinstance(title, str) or not title.strip():
+                raise ValueError("title cannot be empty")
+            title = title.strip()
+        if description is not None and not isinstance(description, str):
+            raise ValueError("description must be text")
+        privacy_value: str | None = None
+        if privacy is not None:
+            privacy_value = privacy.upper() if isinstance(privacy, str) else ""
+            if privacy_value not in _PRIVACY_STATUSES:
+                raise ValueError("privacy must be PUBLIC, PRIVATE or UNLISTED")
+        if title is None and description is None and privacy_value is None:
+            raise ValueError("at least one of title, description or privacy is required")
+        return self._edit_playlist(
+            playlist_id,
+            title=title,
+            description=description,
+            privacy=privacy_value,
+        )
+
     def _edit_playlist(
         self,
         playlist_id: str,
         *,
         title: str | None = None,
+        description: str | None = None,
         privacy: str | None = None,
     ) -> dict[str, str]:
-        """Run an ``edit_playlist`` title or privacy action and drop the cache."""
+        """Run one ``edit_playlist`` action for title, description or privacy."""
         ytmusic = self._get_ytmusic()
-        result = ytmusic.edit_playlist(playlist_id, title=title, privacyStatus=privacy)
+        result = ytmusic.edit_playlist(playlist_id, title=title, description=description, privacyStatus=privacy)
         status = _edit_status(result, "Could not update the playlist")
         cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
         return {"status": status}
+
+    def delete_playlist(self, playlist_id: str) -> dict[str, str]:
+        """Delete one of the user's playlists and forget its usage score."""
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        ytmusic = self._get_ytmusic()
+        status = _delete_status(ytmusic.delete_playlist(playlist_id))
+        _forget_playlist_stat(playlist_id)
+        return {"status": status}
+
+    def create_playlist(
+        self,
+        title: str,
+        description: str = "",
+        privacy: str = "PRIVATE",
+        video_ids: list[str] | None = None,
+    ) -> dict[str, str]:
+        """Create a new playlist holding up to the given songs.
+
+        Returns its ``playlistId`` so the sidebar can jump straight to it.
+        """
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("title is required")
+        if isinstance(privacy, str):
+            privacy_value = privacy.upper()
+        else:
+            privacy_value = "PRIVATE"
+        if privacy_value not in _PRIVACY_STATUSES:
+            raise ValueError("privacy must be PUBLIC, PRIVATE or UNLISTED")
+        description = description.strip() if isinstance(description, str) else ""
+        ids = [video_id for video_id in (video_ids or []) if isinstance(video_id, str) and video_id]
+        ytmusic = self._get_ytmusic()
+        playlist_id = ytmusic.create_playlist(
+            title.strip(),
+            description,
+            privacy_status=privacy_value,
+            video_ids=ids or None,
+        )
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise RuntimeError("Could not create the playlist")
+        logger.info("Created playlist %s (%d songs)", playlist_id, len(ids))
+        return {"playlistId": playlist_id}
+
+    def rate_playlist(self, playlist_id: str, rating: str) -> dict[str, str]:
+        """Like, remove from library, or dislike a playlist.
+
+        Like adds the playlist to the account library, the way the heart on
+        YouTube Music's playlist page does.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if rating not in _LIKE_STATUSES:
+            raise ValueError(f"Invalid rating: {rating}")
+        self._get_ytmusic().rate_playlist(playlist_id, rating)
+        logger.info("Rated playlist %s as %s", playlist_id, rating)
+        return {"status": "OK"}
+
+    def get_recommended_playlists(self, limit: int = 4) -> dict[str, Any]:
+        """Playlist ids for the add-to-playlist flyout's recommended row, best first.
+
+        Scores the user's own playlists by recent add-to events (weighted
+        highest), then recent plays, both with exponential time decay, so the
+        row reacts to what they reached for lately. The frontend maps the ids
+        onto the playlist list it already shows.
+        """
+        try:
+            limit = max(0, min(int(limit), 8))
+        except (TypeError, ValueError):
+            limit = 4
+        if limit == 0:
+            return {"playlistIds": []}
+        playlists = self.get_playlists()
+        candidates = [
+            playlist
+            for playlist in playlists
+            if playlist.get("owned") is not False and playlist.get("playlistId") not in (None, "", "LM")
+        ]
+        if not candidates:
+            return {"playlistIds": []}
+        stats = _load_playlist_stats()
+        scored = sorted(
+            ((_playlist_stat_score(stats, playlist.get("playlistId", "")), playlist.get("playlistId", "")) for playlist in candidates),
+            key=lambda entry: entry[0],
+            reverse=True,
+        )
+        ranked = [playlist_id for score, playlist_id in scored if score > 0]
+        # Nothing recorded yet: the recently touched library playlists keep the
+        # row useful while the user's habits fill in.
+        if not ranked:
+            ranked = [playlist.get("playlistId", "") for playlist in candidates]
+        return {"playlistIds": [playlist_id for playlist_id in ranked[:limit] if playlist_id]}
 
     def invalidate_playlist_cache(self, playlist_ids: list[str]) -> dict[str, Any]:
         """Invalidate cache for specific playlist IDs.

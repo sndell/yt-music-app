@@ -21,7 +21,7 @@ const writeFile = (file: OrderFile) => {
 };
 
 /** Saved ids first, in that order. Items the map does not mention keep the endpoint order after them. */
-const orderItems = <T>(items: T[], idOf: (item: T) => string, saved: string[] | undefined): T[] => {
+export const orderItems = <T>(items: T[], idOf: (item: T) => string, saved: string[] | undefined): T[] => {
   if (!saved?.length) return items;
   const rank = new Map(saved.map((id, index) => [id, index]));
   const known: T[] = [];
@@ -65,4 +65,13 @@ export const moveItem = <T>(items: T[], from: number, to: number): T[] => {
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   return next;
+};
+
+/** Move the pinned item to the front. Returns the same array when it is absent. */
+export const pinFirst = <T>(items: T[], idOf: (item: T) => string, pinnedId: string): T[] => {
+  if (!items.some((item) => idOf(item) === pinnedId)) return items;
+  return [
+    ...items.filter((item) => idOf(item) === pinnedId),
+    ...items.filter((item) => idOf(item) !== pinnedId),
+  ];
 };

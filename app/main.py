@@ -106,6 +106,14 @@ def _disable_browser_context_menu(window: webview.Window) -> None:
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
+    if _DEBUG:
+        # Dev-only: keep Python logs in memory for the probe's /logs, and let the
+        # page forward its console through the JS API. This runs before the
+        # window is created so `dev_report` is part of the exposed API.
+        from dev import observability
+
+        observability.install_python_ring()
+        observability.attach_renderer_sink(api)
     # Slot 0 stays on port 5173. A worktree's slot moves the Vite URL with it.
     if ENV == "dev":
         from dev.identity import debug_port, ui_origin

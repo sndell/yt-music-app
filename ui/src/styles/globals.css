@@ -21,6 +21,12 @@
   --text-color-primary-dark: oklch(0.75 0 0);
   --text-color-accent: oklch(0.55 0.21 27.19);
 
+  /*
+   * Ring/outline/divide variants read the plain `--color-*` key. Without this,
+   * `ring-accent` falls back to currentColor and paints a bright white halo.
+   */
+  --color-accent: oklch(0.55 0.21 27.19);
+
   --border-color-primary: oklch(0.3 0 0);
 }
 
@@ -93,9 +99,29 @@
   }
 }
 
+/*
+ * Resting fade for ScrollingText. It signals that the shortened text keeps
+ * going; the component drops the mask on row hover while the text scrolls.
+ */
+@utility fade-truncate {
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.25rem), transparent);
+}
+
 body {
   @apply bg-background;
   @apply text-primary;
+}
+
+/*
+ * Keyboard focus gets a soft halo that hugs the control instead of the
+ * browser's bright outline, so it reads on the dark surfaces. Layered under
+ * the utilities so controls that opt out with outline-none keep their own.
+ */
+@layer base {
+  :focus-visible {
+    outline: 2px solid oklch(0.9 0 0 / 0.16);
+    outline-offset: 1px;
+  }
 }
 
 /*

@@ -6,5 +6,9 @@ discord.json
 discord.json.tmp
 preferences.json
 preferences.json.tmp
+playlist_stats.json
 .cache/
 webview-data/
+
+# Scratch probe scripts left in the working tree.
+_probe_*.py

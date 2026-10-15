@@ -21,7 +21,8 @@ if str(APP_DIR) not in sys.path:
 from dev.identity import dev_slot, probe_port
 
 RESTART_LOG = DEV_DIR / ".dev-restarts.jsonl"
-SKIP_DIRS = {"__pycache__", ".cache", ".venv", "webview-data"}
+# Test files and the artifacts dir do not change the running app.
+SKIP_DIRS = {"__pycache__", ".cache", ".venv", "webview-data", ".dev-artifacts", "tests"}
 POLL_SECONDS = 0.3
 DEBOUNCE_SECONDS = 0.4
 

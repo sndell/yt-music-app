@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, type FocusEvent, type Keyboar
 import { Link, useLocation } from "wouter";
 import { usePlayer } from "../context/PlayerContext";
 import { IconButton } from "@/components/ui/IconButton";
+import { ScrollingText } from "@/components/ui/ScrollingText";
 import { PyBridge } from "@/lib/api";
 import { cn } from "@/util/cn";
 import type { LikeStatus, Thumbnail, Track } from "@/lib/api/types";
@@ -16,6 +17,9 @@ const RESTART_THRESHOLD_SECONDS = 3;
 const PRESENCE_SEEK_SECONDS = 3;
 /** Wait for the slider to settle before writing the volume to disk. */
 const VOLUME_SAVE_DELAY_MS = 400;
+
+/** Playbar cap for the track title, in characters. Keeps the like buttons clear of the transport controls. */
+const PLAYBAR_TITLE_CHARS = 30;
 
 const largestThumbnail = (thumbnails: Thumbnail[] | undefined) => {
   let best = "";
@@ -432,43 +436,63 @@ const PlayerControls = ({
   const [, navigate] = useLocation();
   const albumName = currentSong.album?.name;
   const albumId = currentSong.album?.id;
-  const trackTitle = () => (
+  const credits = (
     <>
-      <span className="block truncate text-sm text-primary">{currentSong.title}</span>
-      <span className="block truncate text-sm text-primary-dark">
-        {currentSong.artists.map((artist, index) => (
-          <span key={`${artist.id}-${artist.name}-${index}`}>
-            {index > 0 && ", "}
-            {artist.id ? (
-              <Link
-                href={`/artist/${artist.id}`}
-                onClick={(event) => followLink(event, `/artist/${artist.id}`, navigate)}
-                className="hover:underline"
-              >
-                {artist.name}
-              </Link>
-            ) : (
-              artist.name
-            )}
-          </span>
-        ))}
-        {albumName && (
-          <>
-            {currentSong.artists.length > 0 && <span aria-hidden="true"> • </span>}
-            {albumId ? (
-              <Link
-                href={`/album/${albumId}`}
-                onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
-                className="hover:underline"
-              >
-                {albumName}
-              </Link>
-            ) : (
-              albumName
-            )}
-          </>
-        )}
-      </span>
+      {currentSong.artists.map((artist, index) => (
+        <span key={`${artist.id}-${artist.name}-${index}`}>
+          {index > 0 && ", "}
+          {artist.id ? (
+            <Link
+              href={`/artist/${artist.id}`}
+              onClick={(event) => followLink(event, `/artist/${artist.id}`, navigate)}
+              className="hover:underline"
+            >
+              {artist.name}
+            </Link>
+          ) : (
+            artist.name
+          )}
+        </span>
+      ))}
+      {albumName && (
+        <>
+          {currentSong.artists.length > 0 && <span aria-hidden="true"> • </span>}
+          {albumId ? (
+            <Link
+              href={`/album/${albumId}`}
+              onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
+              className="hover:underline"
+            >
+              {albumName}
+            </Link>
+          ) : (
+            albumName
+          )}
+        </>
+      )}
+    </>
+  );
+
+  // Playbar only: cap the text so a long title or credit list can't push the
+  // like buttons toward the transport controls. The cap is a `ch` width, so it
+  // still shrinks with the window. Below `md` the like buttons overlay the
+  // title, so there the text stays fully responsive and does not scroll.
+  const trackTitle = (capped: boolean) => (
+    <>
+      {capped ? (
+        <ScrollingText maxChars={PLAYBAR_TITLE_CHARS} reveal="self" className="text-sm text-primary">
+          {currentSong.title}
+        </ScrollingText>
+      ) : (
+        <span className="block truncate text-sm text-primary">{currentSong.title}</span>
+      )}
+      {capped ? (
+        <ScrollingText maxChars={PLAYBAR_TITLE_CHARS} reveal="self" className="text-sm text-primary-dark">
+          {credits}
+        </ScrollingText>
+      ) : (
+        <span className="block truncate text-sm text-primary-dark">{credits}</span>
+      )}
     </>
   );
 
@@ -478,14 +502,14 @@ const PlayerControls = ({
         <div className="group/track relative flex w-fit max-w-full items-center gap-1.5">
           <img src={currentSong.thumbnails[0].url} alt="" className="h-12 w-12 shrink-0 rounded-md" />
           <div className="relative min-w-0 max-md:min-w-24">
-            <div className="min-w-0 max-md:hidden">{trackTitle()}</div>
+            <div className="min-w-0 max-md:hidden">{trackTitle(true)}</div>
             <div
               className={cn(
                 "hidden min-w-0 transition-opacity duration-200 ease-out max-md:block",
                 "group-hover/track:opacity-0 group-focus-within/track:opacity-0"
               )}
             >
-              {trackTitle()}
+              {trackTitle(false)}
             </div>
             <div
               className={cn(

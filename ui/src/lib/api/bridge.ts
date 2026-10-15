@@ -2,7 +2,17 @@
  * PyWebView Bridge - Type-safe communication with Python backend
  */
 
-import type { ApiMethodName, ApiParams, ApiResponse, PlaylistPrivacy, Result } from "./types";
+import type {
+  ApiMethodName,
+  ApiParams,
+  ApiResponse,
+  PlaylistItemRef,
+  PlaylistPatch,
+  PlaylistPrivacy,
+  Result,
+  SearchFilter,
+  SearchScope,
+} from "./types";
 
 const BRIDGE_TIMEOUT_MS = 30_000;
 const DEBUG = import.meta.env.DEV;
@@ -82,15 +92,24 @@ export const PyBridge = {
   getLibraryArtists: (limit = 5000) => callPython("get_library_artists", limit),
   getQuickPicks: () => callPython("get_quick_picks"),
   getHome: (forceRefresh = false) => callPython("get_home", forceRefresh),
+  search: (query: string, filter: SearchFilter | "" = "", scope: SearchScope | "" = "", limit = 30) =>
+    callPython("search", query, filter, scope, limit),
+  shuffleTracks: (videoIds: string[]) => callPython("shuffle_tracks", videoIds),
   getPlaylistItems: (playlistId: string, forceRefresh = false) =>
     callPython("get_playlist_items", playlistId, forceRefresh),
   movePlaylistItem: (playlistId: string, setVideoId: string, beforeSetVideoId = "") =>
     callPython("move_playlist_item", playlistId, setVideoId, beforeSetVideoId),
   addPlaylistItems: (playlistId: string, videoIds: string[]) =>
     callPython("add_playlist_items", playlistId, videoIds),
-  renamePlaylist: (playlistId: string, title: string) => callPython("rename_playlist", playlistId, title),
-  setPlaylistPrivacy: (playlistId: string, privacy: PlaylistPrivacy) =>
-    callPython("set_playlist_privacy", playlistId, privacy),
+  removePlaylistItems: (playlistId: string, items: PlaylistItemRef[]) =>
+    callPython("remove_playlist_items", playlistId, items),
+  editPlaylist: (playlistId: string, patch: PlaylistPatch) => callPython("edit_playlist", playlistId, patch),
+  deletePlaylist: (playlistId: string) => callPython("delete_playlist", playlistId),
+  createPlaylist: (title: string, description = "", privacy: PlaylistPrivacy = "PRIVATE", videoIds: string[] = []) =>
+    callPython("create_playlist", title, description, privacy, videoIds),
+  ratePlaylist: (playlistId: string, rating: "LIKE" | "INDIFFERENT" = "LIKE") =>
+    callPython("rate_playlist", playlistId, rating),
+  getRecommendedPlaylists: (limit = 4) => callPython("get_recommended_playlists", limit),
   getAlbum: (browseId: string, forceRefresh = false) => callPython("get_album", browseId, forceRefresh),
   getArtist: (channelId: string, forceRefresh = false) => callPython("get_artist", channelId, forceRefresh),
   getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),

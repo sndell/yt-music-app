@@ -8,6 +8,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { SnapRow } from "@/components/ui/SnapRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
+import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { cn } from "@/util/cn";
 
 const PAGE_SIZE = 12;
@@ -62,8 +63,9 @@ export const Home = () => {
         : false;
   const requestIdRef = useRef(0);
   const [, navigate] = useLocation();
-  const { currentSong, startMix, playTracks, playTrackNext, addTrackToQueue, playPlaylist, queuePlaylist } = usePlayer();
-  const { addToPlaylist, playlists } = usePlaylist();
+  const { currentSong, startMix, playTracks, playTrackNext, addTrackToQueue, playPlaylist, queuePlaylist, trueShufflePlaylist } = usePlayer();
+  const { addToPlaylist, playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
+  const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
 
   const load = useCallback((options?: { clear?: boolean; force?: boolean }) => {
     const requestId = ++requestIdRef.current;
@@ -214,8 +216,12 @@ export const Home = () => {
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
-          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, menu.track.videoId)}
+          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, [menu.track.videoId])}
           playlists={playlists}
+          recommendedPlaylists={recommendedPlaylists}
+          recommendedPending={recommendedPending}
+          onLoadRecommendations={() => void fetchRecommendedPlaylists()}
+          onNewPlaylist={() => setNewPlaylistFor([menu.track.videoId])}
         />
       )}
       {menu?.kind === "playlist" && (
@@ -224,9 +230,20 @@ export const Home = () => {
           y={menu.y}
           onClose={() => setMenu(null)}
           onShuffle={() => void playPlaylist(menu.playlistId, "shuffle")}
+          onTrueShuffle={() => void trueShufflePlaylist(menu.playlistId)}
           onStartMix={() => void playPlaylist(menu.playlistId, "mix")}
           onPlayNext={() => void queuePlaylist(menu.playlistId, "next")}
           onAddToQueue={() => void queuePlaylist(menu.playlistId, "end")}
+        />
+      )}
+      {newPlaylistFor && (
+        <CreatePlaylistDialog
+          onCancel={() => setNewPlaylistFor(null)}
+          onSubmit={async (title, description, privacy) => {
+            const playlistId = await createPlaylist(title, description, privacy, newPlaylistFor);
+            if (playlistId) setNewPlaylistFor(null);
+            return playlistId;
+          }}
         />
       )}
     </div>

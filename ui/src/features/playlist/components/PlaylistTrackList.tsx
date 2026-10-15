@@ -1,12 +1,15 @@
-import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Link, useLocation } from "wouter";
-import { PyBridge, type LikeStatus, type Track } from "@/lib/api";
+import { PyBridge, type LikeStatus, type PlaylistSummary, type Track } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
+import { ScrollingText } from "@/components/ui/ScrollingText";
+import { AddToPlaylistMenu } from "@/components/ui/AddToPlaylistPanel";
+import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
@@ -19,6 +22,7 @@ const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate
 
 const TRACK_HEIGHT = 48; // Height of each track item in pixels
 
+/** Row selection (ctrl/shift-click) plus everything the rows can trigger. */
 export const PlaylistTrackList = ({
   tracks,
   gradient,
@@ -29,6 +33,10 @@ export const PlaylistTrackList = ({
   variant = "collection",
   onReorder,
   tunable,
+  removable,
+  onRemoveTracks,
+  duplicateCounts,
+  filterable,
 }: {
   tracks: Track[];
   gradient: string;
@@ -41,17 +49,68 @@ export const PlaylistTrackList = ({
   actions?: ReactNode;
   /** Popular lists drop the album column and the column labels. */
   variant?: "collection" | "popular";
-  /** Owned playlists. Moves the row through YouTube Music. */
+  /** Owned playlists. Moves the row through YouTube Music. Switched off while filtering. */
   onReorder?: (from: number, to: number) => void;
   /** Genre tuner for this list's rows. Defaults to off for collections. The artist song list turns it on. */
   tunable?: boolean;
+  /** Owned playlist context: rows can be removed through `onRemoveTracks`. */
+  removable?: boolean;
+  /** Called with the rows the user chose to remove; the page confirms and applies. */
+  onRemoveTracks?: (tracks: Track[]) => void;
+  /** videoId -> appearances; rows show a badge when it repeats. */
+  duplicateCounts?: Map<string, number>;
+  /** Shows a filter field above the tracks; searches title, artist and album. */
+  filterable?: boolean;
 }) => {
   const rowsRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
-  const { playTrackNext, addTrackToQueue, startMix } = usePlayer();
-  const { addToPlaylist, playlists } = usePlaylist();
-  const dragIds = tracks.map((track, index) => track.setVideoId || `row-${track.videoId}-${index}`);
+  const [filter, setFilter] = useState("");
+  /** Row indexes the user picked with ctrl/shift-click, into `displayTracks`. */
+  const [selected, setSelected] = useState<number[]>([]);
+  const selectionAnchorRef = useRef<number | null>(null);
+  /** Songs to create a playlist with: one from a row menu, or the whole selection. */
+  const [creatingFor, setCreatingFor] = useState<string[] | null>(null);
+  const [addMenu, setAddMenu] = useState<{ x: number; y: number; videoIds: string[] } | null>(null);
+  /** Playlists the picker already saved to, so it can keep checkmarks. */
+  const [addedIds, setAddedIds] = useState<string[]>([]);
+  const { playTrackNext, addTrackToQueue, startMix, playFromPlaylist } = usePlayer();
+  const { addToPlaylist, playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } =
+    usePlaylist();
+
+  const filterActive = Boolean(filterable && filter.trim());
+  const displayTracks = useMemo(() => {
+    if (!filterable || !filter.trim()) return tracks;
+    // The filter matches the song, its artists and the album, like the
+    // in-playlist search on YouTube Music.
+    const needle = filter.trim().toLowerCase();
+    return tracks.filter(
+      (track) =>
+        track.title.toLowerCase().includes(needle) ||
+        track.artists.some((artist) => artist.name.toLowerCase().includes(needle)) ||
+        (track.album?.name.toLowerCase().includes(needle) ?? false),
+    );
+  }, [tracks, filterable, filter]);
+
+  // A selection pointing past the (filtered) list would bulk-act on wrong rows.
+  useEffect(() => {
+    setSelected([]);
+    selectionAnchorRef.current = null;
+  }, [displayTracks]);
+
+  const addedSet = useMemo(() => new Set(addedIds), [addedIds]);
+
+  const pickPlaylistFor = (videoIds: string[]) => (playlist: PlaylistSummary) => {
+    if (addedSet.has(playlist.playlistId)) return;
+    setAddedIds((current) => [...current, playlist.playlistId]);
+    void addToPlaylist(playlist.playlistId, videoIds);
+  };
+
+  const dragIds = displayTracks.map((track, index) => track.setVideoId || `row-${track.videoId}-${index}`);
+  // Stable, so memoized rows don't re-render just because the list scrolled.
+  const openMenu = useCallback((track: Track, x: number, y: number) => setMenu({ track, x, y }), []);
+
+  const options = playlists.filter((playlist) => playlist.owned !== false && playlist.playlistId !== "LM");
 
   useLayoutEffect(() => {
     const rows = rowsRef.current;
@@ -69,7 +128,7 @@ export const PlaylistTrackList = ({
   }, []);
 
   const virtualizer = useVirtualizer({
-    count: tracks.length,
+    count: displayTracks.length,
     getScrollElement: () => rowsRef.current?.closest(".scrollbar") as HTMLElement | null,
     estimateSize: () => TRACK_HEIGHT,
     overscan: 16,
@@ -78,27 +137,108 @@ export const PlaylistTrackList = ({
 
   const popular = variant === "popular";
   const pad = popular ? "px-6" : "px-3 sm:px-4";
+  // Moving rows while a filter hides some of them, or while some are picked,
+  // would shift indexes the caller does not know about.
+  const reorderLocked = filterActive || selected.length > 0;
+
+  const handleRowSelect = (index: number, event: MouseEvent) => {
+    event.preventDefault();
+    selectionAnchorRef.current = index;
+    setSelected((current) => {
+      const set = new Set(current);
+      const additive = event.ctrlKey || event.metaKey;
+      if (additive) {
+        if (set.has(index)) {
+          set.delete(index);
+        } else {
+          set.add(index);
+        }
+        return [...set].sort((a, b) => a - b);
+      }
+      return [index];
+    });
+  };
+
+  const handleRowShiftSelect = (index: number) => {
+    const anchor = selectionAnchorRef.current;
+    if (anchor == null) {
+      setSelected([index]);
+      return;
+    }
+    const [start, end] = anchor < index ? [anchor, index] : [index, anchor];
+    const set = new Set(selected);
+    for (let i = start; i <= end; i++) set.add(i);
+    setSelected([...set]);
+  };
+
+  const selectedTracks = [...new Set(selected)].sort((a, b) => a - b).map((index) => displayTracks[index]).filter(Boolean);
+
+  const bulkPlay = () => {
+    const [first, ...rest] = selectedTracks;
+    if (!first) return;
+    playFromPlaylist(first, playlistId, tunable);
+    rest.forEach((track) => addTrackToQueue(track));
+    setSelected([]);
+  };
 
   return (
     <div className={cn("relative flex flex-col", popular ? "gap-2 pt-1 pb-2" : "gap-3 pt-3 pb-4 sm:pb-6")}>
       <div className="pointer-events-none absolute top-0 right-0 left-0 h-64" style={{ background: gradient }} />
-      {actions && <div className={cn("relative", pad)}>{actions}</div>}
       {popular ? (
-        title && <h2 className={cn("relative text-xl font-bold", pad)}>{title}</h2>
+        <>
+          {actions && <div className={cn("relative", pad)}>{actions}</div>}
+          {title && <h2 className={cn("relative text-xl font-bold", pad)}>{title}</h2>}
+        </>
       ) : (
+        <div className={cn("relative flex flex-wrap items-center gap-3", pad)}>
+          {actions}
+          {filterable && (
+            <label className="ms-auto flex w-full max-w-xs items-center gap-1.5 rounded-full bg-primary-light/80 px-3 py-1.5 text-sm transition-[box-shadow] focus-within:ring-2 focus-within:ring-white/15 sm:w-64">
+              <span aria-hidden="true" className="shrink-0 text-base text-primary-dark">
+                <span className="icon-[solar--magnifer-linear]" />
+              </span>
+              <input
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                placeholder="Search songs, artists, albums"
+                className="w-full bg-transparent text-primary outline-none placeholder:text-primary-dark/70"
+              />
+              {filter && (
+                <button
+                  type="button"
+                  aria-label="Clear filter"
+                  onClick={() => setFilter("")}
+                  className="shrink-0 cursor-pointer text-base text-primary-dark hover:text-primary"
+                >
+                  <span className="icon-[solar--close-circle-linear]" />
+                </button>
+              )}
+            </label>
+          )}
+        </div>
+      )}
+      {!popular && (
         <div className={cn("relative", pad)}>
-          <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
-            <div>Track</div>
-            <div className="max-md:hidden">Album</div>
-            <div className="justify-self-end">Duration</div>
-          </div>
+          {filterActive ? (
+            <p className="pb-1.5 text-sm text-primary-dark border-b border-primary" role="status">
+              {displayTracks.length === tracks.length
+                ? `${tracks.length} songs`
+                : `${displayTracks.length} of ${tracks.length} songs`}
+            </p>
+          ) : (
+            <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
+              <div>Track</div>
+              <div className="max-md:hidden">Album</div>
+              <div className="justify-self-end">Duration</div>
+            </div>
+          )}
         </div>
       )}
       <ReorderList ids={dragIds} axis="y" onMove={(from, to) => onReorder?.(from, to)}>
         <div ref={rowsRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((virtualItem) => {
-            const track = tracks[virtualItem.index];
-            const reorderable = Boolean(onReorder && track.setVideoId);
+            const track = displayTracks[virtualItem.index];
+            const reorderable = Boolean(onReorder && track.setVideoId) && !reorderLocked;
             return (
               <ReorderItem
                 key={dragIds[virtualItem.index]}
@@ -115,7 +255,11 @@ export const PlaylistTrackList = ({
                   showAlbum={!popular}
                   grabbable={reorderable}
                   menuOpen={menu?.track === track}
-                  onOpenMenu={(x, y) => setMenu({ track, x, y })}
+                  selected={selected.includes(virtualItem.index)}
+                  duplicateCount={duplicateCounts?.get(track.videoId) ?? undefined}
+                  onOpenMenu={openMenu}
+                  onSelect={(event) => handleRowSelect(virtualItem.index, event)}
+                  onShiftSelect={() => handleRowShiftSelect(virtualItem.index)}
                 />
               </ReorderItem>
             );
@@ -131,15 +275,102 @@ export const PlaylistTrackList = ({
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
-          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, menu.track.videoId)}
+          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, [menu.track.videoId])}
           playlists={playlists}
+          recommendedPlaylists={recommendedPlaylists}
+          recommendedPending={recommendedPending}
+          onLoadRecommendations={() => void fetchRecommendedPlaylists()}
+          onNewPlaylist={() => {
+            setCreatingFor([menu.track.videoId]);
+            setMenu(null);
+          }}
+          onRemoveFromPlaylist={
+            onRemoveTracks && removable && menu.track.setVideoId
+              ? () => {
+                  const track = menu.track;
+                  setMenu(null);
+                  onRemoveTracks([track]);
+                }
+              : undefined
+          }
         />
       )}
+      {addMenu && (
+        <AddToPlaylistMenu
+          x={addMenu.x}
+          y={addMenu.y}
+          onClose={() => setAddMenu(null)}
+          playlists={options}
+          recommended={recommendedPlaylists}
+          recommendedPending={recommendedPending}
+          addedIds={addedSet}
+          onPick={pickPlaylistFor(addMenu.videoIds)}
+          onNewPlaylist={() => {
+            setCreatingFor(addMenu.videoIds);
+            setAddMenu(null);
+          }}
+        />
+      )}
+      {creatingFor && (
+        <CreatePlaylistDialog
+          onCancel={() => setCreatingFor(null)}
+          onSubmit={async (newTitle, description, privacy) => {
+            const created = await createPlaylist(newTitle, description, privacy, creatingFor);
+            if (created) setCreatingFor(null);
+            return created;
+          }}
+        />
+      )}
+      {selectedTracks.length > 0 &&
+        (popular ? null : (
+          <div className="fixed bottom-24 left-1/2 z-[55] flex -translate-x-1/2 items-center gap-1 rounded-full bg-black px-1.5 py-1.5 shadow-[0_10px_30px_rgb(0_0_0/0.7)]">
+            <button
+              type="button"
+              onClick={bulkPlay}
+              className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-black bg-white hover:bg-white/85"
+              title={`Play ${selectedTracks.length} songs`}
+            >
+              <span aria-hidden="true" className="icon-[solar--play-bold] text-base" />
+              {selectedTracks.length} selected
+            </button>
+            <IconButton
+              iconClass="icon-[solar--add-linear]"
+              label="Add to playlist"
+              size="sm"
+              tone="ghost"
+              onClick={(event) => {
+                void fetchRecommendedPlaylists();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setAddMenu({ x: rect.left, y: rect.top - 8, videoIds: selectedTracks.map((track) => track.videoId) });
+                setAddedIds([]);
+              }}
+            />
+            {onRemoveTracks && (
+              <IconButton
+                iconClass="icon-[solar--trash-bin-minimalistic-linear]"
+                label="Remove from playlist"
+                size="sm"
+                tone="ghost"
+                onClick={() => {
+                  onRemoveTracks(selectedTracks);
+                  setSelected([]);
+                }}
+              />
+            )}
+            <IconButton
+              iconClass="icon-[solar--close-circle-linear]"
+              label="Clear selection"
+              size="sm"
+              tone="ghost"
+              onClick={() => setSelected([])}
+            />
+          </div>
+        ))}
     </div>
   );
 };
 
-const PlaylistTrackItem = ({
+const PlaylistTrackItem = memo(({
   track,
   playlistId,
   tunable,
@@ -148,17 +379,30 @@ const PlaylistTrackItem = ({
   showAlbum,
   grabbable = false,
   menuOpen = false,
+  selected = false,
+  duplicateCount,
+  onSelect,
+  onShiftSelect,
 }: {
   track: Track;
   playlistId?: string;
   /** Genre tuner for clicks on this row. Defaults to off for collections. */
   tunable?: boolean;
-  onOpenMenu: (x: number, y: number) => void;
+  /** Stable across renders, so the row can be memoized. */
+  onOpenMenu: (track: Track, x: number, y: number) => void;
   index?: number;
   showAlbum: boolean;
   grabbable?: boolean;
   /** Keeps the row in its hover state while its context menu is open. */
   menuOpen?: boolean;
+  /** Part of a ctrl/shift-click selection over the list. */
+  selected?: boolean;
+  /** Times this song already sits in the playlist; shown as a badge when it repeats. */
+  duplicateCount?: number;
+  /** Ctrl+click toggles this row in the selection. */
+  onSelect: (event: MouseEvent) => void;
+  /** Shift+click extends the selection from the last clicked row. */
+  onShiftSelect: () => void;
 }) => {
   const { playFromPlaylist, rateTrack } = usePlayer();
   const [, navigate] = useLocation();
@@ -202,19 +446,27 @@ const PlaylistTrackItem = ({
       onContextMenu={(event) => {
         event.preventDefault();
         if (!track.isAvailable || !track.videoId) return;
-        onOpenMenu(event.clientX, event.clientY);
+        onOpenMenu(track, event.clientX, event.clientY);
       }}
       data-menu-open={menuOpen ? "true" : undefined}
       className={cn(
         "group relative h-full w-full overflow-hidden transition-colors hover:bg-primary-light",
-        menuOpen && "bg-primary-light",
+        (menuOpen || selected) && "bg-primary-light",
         track.isAvailable ? "opacity-100" : "opacity-25"
       )}
     >
       <button
         type="button"
-        onClick={() => {
+        onClick={(event) => {
           if (consumeDragClick()) return;
+          if (event.ctrlKey || event.metaKey) {
+            onSelect(event);
+            return;
+          }
+          if (event.shiftKey) {
+            onShiftSelect();
+            return;
+          }
           handleClick();
         }}
         aria-label={`Play ${track.title}`}
@@ -255,13 +507,15 @@ const PlaylistTrackItem = ({
           </div>
           <div className="flex min-w-0 flex-col items-start overflow-hidden text-start">
             <span className="flex w-full min-w-0 items-center gap-1">
-              <span className="min-w-0 truncate font-medium">{track.title}</span>
+              <ScrollingText className="font-medium">{track.title}</ScrollingText>
               {!showAlbum && track.isExplicit && <ExplicitBadge />}
+              {!showAlbum && duplicateCount != null && duplicateCount > 1 && <DuplicateBadge count={duplicateCount} />}
             </span>
             {showAlbum && (
               <span className="flex w-full min-w-0 items-center gap-1 text-sm text-primary-dark">
                 {track.isExplicit && <ExplicitBadge />}
-                <span className="truncate">
+                {duplicateCount != null && duplicateCount > 1 && <DuplicateBadge count={duplicateCount} />}
+                <ScrollingText>
                   {track.artists.map((artist, artistIndex) => (
                     <span key={`${artist.id}-${artist.name}-${artistIndex}`}>
                       {artistIndex > 0 && ", "}
@@ -279,7 +533,7 @@ const PlaylistTrackItem = ({
                       )}
                     </span>
                   ))}
-                </span>
+                </ScrollingText>
               </span>
             )}
           </div>
@@ -287,16 +541,18 @@ const PlaylistTrackItem = ({
         {showAlbum ? (
           <div className="flex min-w-0 text-start text-primary-dark max-md:hidden">
             {albumId ? (
-              <Link
-                href={`/album/${albumId}`}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
-                className="pointer-events-auto relative z-10 w-full truncate hover:underline"
-              >
-                {albumName}
-              </Link>
+              <ScrollingText>
+                <Link
+                  href={`/album/${albumId}`}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => followLink(event, `/album/${albumId}`, navigate)}
+                  className="pointer-events-auto relative z-10 hover:underline"
+                >
+                  {albumName}
+                </Link>
+              </ScrollingText>
             ) : (
-              <span className="w-full truncate">{albumName}</span>
+              <ScrollingText>{albumName}</ScrollingText>
             )}
           </div>
         ) : (
@@ -335,4 +591,13 @@ const PlaylistTrackItem = ({
       </div>
     </div>
   );
-};
+});
+
+const DuplicateBadge = ({ count }: { count: number }) => (
+  <span
+    title={`This song appears ${count} times in the playlist`}
+    className="shrink-0 rounded-full border border-red-400/50 px-1.5 text-[0.65rem] font-medium leading-4 text-red-400/90"
+  >
+    {count}×
+  </span>
+);

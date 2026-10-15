@@ -12,6 +12,7 @@ export const MenuFlyout = ({
   anchor,
   width = 208,
   sideOffset = 6,
+  flush = false,
   onPointerEnter,
   onPointerLeave,
   children,
@@ -20,6 +21,8 @@ export const MenuFlyout = ({
   anchor: DOMRect;
   width?: number;
   sideOffset?: number;
+  /** Drops the panel's vertical padding so rows sit flush against the edge. */
+  flush?: boolean;
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
   children: ReactNode;
@@ -59,7 +62,8 @@ export const MenuFlyout = ({
       onPointerLeave={onPointerLeave}
       style={{ width }}
       className={cn(
-        "fixed z-[55] origin-left overflow-hidden rounded-2xl bg-black py-1 shadow-[0_10px_28px_rgb(0_0_0/0.65)]",
+        "fixed z-[55] origin-left overflow-hidden rounded-2xl bg-black shadow-[0_10px_28px_rgb(0_0_0/0.65)]",
+        flush ? "py-0" : "py-1",
         "transition-[opacity,translate,scale] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
         "starting:-translate-x-1 starting:scale-95 starting:opacity-0",
       )}

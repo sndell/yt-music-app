@@ -27,7 +27,7 @@ export interface Album {
   id: string;
 }
 
-export interface PlaylistSummary {
+export type PlaylistSummary = {
   title: string;
   playlistId: string;
   thumbnails: Thumbnail[];
@@ -36,6 +36,19 @@ export interface PlaylistSummary {
   author?: Author[];
   /** Present on library playlists. False means the user cannot edit it. */
   owned?: boolean;
+};
+
+/** One row in an owned playlist, addressed by its playlist-specific id. */
+export interface PlaylistItemRef {
+  videoId: string;
+  setVideoId: string;
+}
+
+/** Fields the playlist edit dialog may change at once. Untouched ones are omitted. */
+export interface PlaylistPatch {
+  title?: string;
+  description?: string;
+  privacy?: PlaylistPrivacy;
 }
 
 export interface LibraryAlbum {
@@ -284,6 +297,54 @@ export interface AudioStream {
   expiresInSeconds: number;
 }
 
+export type SearchFilter =
+  | "songs"
+  | "videos"
+  | "albums"
+  | "artists"
+  | "playlists"
+  | "community_playlists"
+  | "featured_playlists"
+  | "profiles"
+  | "podcasts"
+  | "episodes";
+
+export type SearchScope = "library" | "uploads";
+
+export type SearchKind =
+  | "song"
+  | "video"
+  | "album"
+  | "artist"
+  | "playlist"
+  | "profile"
+  | "podcast"
+  | "episode";
+
+/** One flattened YouTube Music search row. */
+export interface SearchResult {
+  kind: SearchKind;
+  title: string;
+  subtitle: string;
+  artists: Artist[];
+  album: Album | null;
+  thumbnails: Thumbnail[];
+  videoId: string | null;
+  browseId: string | null;
+  playlistId: string | null;
+  duration: string;
+  durationSeconds: number;
+  views: string | null;
+  explicit: boolean;
+  inLibrary: boolean;
+  year: string | null;
+  itemCount: number | null;
+  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV";
+  /** Default-search section label ("Top result", "Songs", ...); null when filtered. */
+  category: string | null;
+  resultType: string;
+}
+
 /** API method signatures */
 export interface ApiMethods {
   get_cover_color: { params: [imageUrl: string]; response: string | null };
@@ -294,17 +355,35 @@ export interface ApiMethods {
   get_library_artists: { params: [limit?: number]; response: LibraryArtist[] };
   get_quick_picks: { params: []; response: QuickPicks };
   get_home: { params: [forceRefresh?: boolean]; response: HomeFeed };
+  search: {
+    params: [query: string, filter?: SearchFilter | "", scope?: SearchScope | "", limit?: number];
+    response: SearchResult[];
+  };
+  shuffle_tracks: { params: [videoIds: string[]]; response: string[] };
   get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
   move_playlist_item: {
     params: [playlistId: string, setVideoId: string, beforeSetVideoId: string];
     response: { status: string };
   };
-  add_playlist_items: { params: [playlistId: string, videoIds: string[]]; response: { status: string } };
-  rename_playlist: { params: [playlistId: string, title: string]; response: { status: string } };
-  set_playlist_privacy: {
-    params: [playlistId: string, privacy: PlaylistPrivacy];
+  add_playlist_items: {
+    params: [playlistId: string, videoIds: string[]];
+    response: { status: string; /** New setVideoId per added video, for position-restoring undo. */ setVideoIds: Record<string, string> };
+  };
+  remove_playlist_items: {
+    params: [playlistId: string, items: PlaylistItemRef[]];
     response: { status: string };
   };
+  edit_playlist: {
+    params: [playlistId: string, patch: PlaylistPatch];
+    response: { status: string };
+  };
+  delete_playlist: { params: [playlistId: string]; response: { status: string } };
+  create_playlist: {
+    params: [title: string, description: string, privacy: PlaylistPrivacy, videoIds: string[]];
+    response: { playlistId: string };
+  };
+  rate_playlist: { params: [playlistId: string, rating: LikeStatus]; response: { status: string } };
+  get_recommended_playlists: { params: [limit?: number]; response: { playlistIds: string[] } };
   get_album: { params: [browseId: string, forceRefresh?: boolean]; response: AlbumDetails };
   get_artist: { params: [channelId: string, forceRefresh?: boolean]; response: ArtistDetails };
   get_artist_albums: { params: [channelId: string, params: string]; response: ArtistRelease[] };

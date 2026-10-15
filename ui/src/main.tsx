@@ -10,8 +10,11 @@ import "./styles/globals.css";
 import { Playlist, PlaylistProvider } from "./features/playlist";
 import { Album } from "./features/album";
 import { Artist } from "./features/artist";
+import { Search } from "./features/search";
 import { Player, PlayerProvider, QueuePanel } from "./features/player";
 import { ToastProvider } from "./components/ui/Toast";
+import { AgentErrorBoundary } from "./dev/AgentErrorBoundary";
+import { installAgentBridge } from "./dev/agentBridge";
 
 const App = () => {
   useEffect(() => {
@@ -38,6 +41,7 @@ const App = () => {
                     <Route path="/playlist/:id" component={Playlist} />
                     <Route path="/album/:id" component={Album} />
                     <Route path="/artist/:id" component={Artist} />
+                    <Route path="/search" component={Search} />
                   </Switch>
                 </div>
                 <QueuePanel />
@@ -51,4 +55,21 @@ const App = () => {
   );
 };
 
-createRoot(document.getElementById("root")!).render(<App />);
+if (import.meta.env.DEV) installAgentBridge();
+
+// Reuse the root if this module runs again (HMR): calling createRoot twice on
+// the same container is an error, re-rendering the existing root is not.
+type RootContainer = HTMLElement & { __ytmusicRoot?: ReturnType<typeof createRoot> };
+const container = document.getElementById("root") as RootContainer;
+const root = container.__ytmusicRoot ?? createRoot(container);
+container.__ytmusicRoot = root;
+
+root.render(
+  import.meta.env.DEV ? (
+    <AgentErrorBoundary>
+      <App />
+    </AgentErrorBoundary>
+  ) : (
+    <App />
+  ),
+);

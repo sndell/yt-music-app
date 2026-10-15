@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { PlaybackButtons, type PlaybackExtraAction } from "@/components/ui/PlaybackButtons";
+import { PlaybackButtons, type PlaybackExtraAction, type ShuffleMenuOptions } from "@/components/ui/PlaybackButtons";
 import { cn } from "@/util/cn";
 
 const thumbClass = "size-12 shrink-0 rounded-md shadow-md";
@@ -36,6 +36,7 @@ export const StickyCollectionBar = ({
   meta,
   onPlay,
   onShuffle,
+  shuffleMenu,
   extra,
   coverFallback = false,
   columnHeaders = false,
@@ -49,14 +50,16 @@ export const StickyCollectionBar = ({
   meta?: ReactNode;
   onPlay?: () => void;
   onShuffle?: () => void;
-  extra?: PlaybackExtraAction;
+  /** Album and Playlist: the Shuffle control opens a menu with both shuffles. */
+  shuffleMenu?: ShuffleMenuOptions;
+  extra?: PlaybackExtraAction | PlaybackExtraAction[];
   /** Album and Artist show a note icon when the thumb is missing or fails. Playlist leaves the slot empty. */
   coverFallback?: boolean;
   /** Track / Album / Duration row. Playlist and Album only. */
   columnHeaders?: boolean;
 }) => (
   <div
-    className="absolute top-0 right-0 left-0 z-10 transition-transform duration-300"
+    className="absolute top-0 right-0 left-0 z-10 bg-primary transition-transform duration-300"
     style={{
       transform: visible ? "translateY(0)" : "translateY(-100%)",
       opacity: visible ? 1 : 0,
@@ -70,10 +73,10 @@ export const StickyCollectionBar = ({
         </h2>
         {meta}
       </div>
-      <PlaybackButtons variant="icon" onPlay={onPlay} onShuffle={onShuffle} extra={extra} />
+      <PlaybackButtons variant="icon" onPlay={onPlay} onShuffle={onShuffle} shuffleMenu={shuffleMenu} extra={extra} />
     </div>
     {columnHeaders && (
-      <div className="grid grid-cols-[5fr_1fr] border-y border-primary bg-secondary/60 px-3 py-1.5 backdrop-blur-2xl sm:px-4 md:grid-cols-[7fr_5fr_1fr]">
+      <div className="grid grid-cols-[5fr_1fr] border-y border-primary bg-secondary px-3 py-1.5 sm:px-4 md:grid-cols-[7fr_5fr_1fr]">
         <div>Track</div>
         <div className="max-md:hidden">Album</div>
         <div className="justify-self-end">Duration</div>

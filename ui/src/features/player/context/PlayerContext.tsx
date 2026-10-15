@@ -29,7 +29,11 @@ type PlayerContextType = {
   startMix: (track: Track | WatchTrack) => void;
   playPlaylist: (playlistId: string, mode: "play" | "shuffle" | "mix", tunable?: boolean) => Promise<void>;
   queuePlaylist: (playlistId: string, position: "next" | "end") => Promise<void>;
-  playTracks: (tracks: Track[]) => void;
+  playTracks: (tracks: Track[], preserveOrder?: boolean) => void;
+  /** Start a list in a true-random order (OS CSPRNG). Album/playlist only. */
+  trueShuffle: (tracks: Track[]) => Promise<void>;
+  /** Fetch every song in a playlist, then start it true-randomly shuffled. */
+  trueShufflePlaylist: (playlistId: string) => Promise<void>;
   playNext: () => Promise<boolean>;
   playPrevious: () => void;
   hasNext: boolean;
@@ -59,6 +63,22 @@ const shuffleCopy = <T,>(items: readonly T[]): T[] => {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
+};
+
+/**
+ * Unbiased index in [0, max) drawn from the browser CSPRNG. Rejection sampling
+ * avoids the modulo bias a plain `%` would introduce.
+ */
+const secureRandomIndex = (max: number): number => {
+  if (max <= 1) return 0;
+  const limit = Math.floor(0x1_0000_0000 / max) * max;
+  const buffer = new Uint32Array(1);
+  let value: number;
+  do {
+    crypto.getRandomValues(buffer);
+    value = buffer[0];
+  } while (value >= limit);
+  return value % max;
 };
 
 const splitAtIndex = (tracks: WatchTrack[], index: number) => {
@@ -685,7 +705,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  const playTracks = useCallback((tracks: Track[]) => {
+  const playTracks = useCallback((tracks: Track[], preserveOrder = false) => {
     const playable = tracks.filter((track) => track.videoId && track.isAvailable);
     if (playable.length === 0) return;
     const song = playable[0];
@@ -702,7 +722,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     knownVideoIdsRef.current = new Set(next.map((track) => track.videoId));
 
     let queued = next;
-    if (shuffleRef.current) {
+    if (!preserveOrder && shuffleRef.current) {
       const upcoming = next.slice(1);
       normalUpcomingRef.current = upcoming.slice();
       queued = [next[0], ...shuffleCopy(upcoming)];
@@ -718,6 +738,54 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     setQueueIndex(0);
     setQueueRevision((revision) => revision + 1);
   }, []);
+
+  /**
+   * Start a list in a true-random order.
+   *
+   * The opener is drawn from the browser CSPRNG and plays right away, then the
+   * rest is permuted by Python's `SystemRandom` (OS CSPRNG) and swapped into the
+   * queue while that first song plays. Drawing the opener first and shuffling the
+   * remainder is still a uniform permutation of the whole list, and it starts
+   * the audio without waiting on the shuffle round trip.
+   */
+  const trueShuffle = useCallback(
+    async (tracks: Track[]) => {
+      const playable = tracks.filter((track) => track.videoId && track.isAvailable);
+      if (playable.length === 0) return;
+
+      const openerIndex = secureRandomIndex(playable.length);
+      const opener = playable[openerIndex];
+      const rest = playable.filter((_, index) => index !== openerIndex);
+      playTracks([opener, ...rest], true);
+
+      const generation = playGenerationRef.current;
+      const result = await PyBridge.shuffleTracks(rest.map((track) => track.videoId));
+      if (!result.success || !Array.isArray(result.data)) return;
+      // The user may have started something else while the shuffle was in flight.
+      if (playGenerationRef.current !== generation || currentSongRef.current?.videoId !== opener.videoId) return;
+
+      const byId = new Map(rest.map((track) => [track.videoId, track]));
+      const shuffled = result.data
+        .map((videoId) => byId.get(videoId))
+        .filter((track): track is Track => Boolean(track));
+      const seen = new Set(shuffled.map((track) => track.videoId));
+      const leftover = rest.filter((track) => !seen.has(track.videoId));
+      const ordered = [opener, ...shuffled, ...leftover].map(trackToWatchTrack);
+      queueRef.current = ordered;
+      setQueue(ordered);
+    },
+    [playTracks],
+  );
+
+  const trueShufflePlaylist = useCallback(
+    async (playlistId: string) => {
+      if (!playlistId) return;
+      const result = await PyBridge.getPlaylistItems(playlistId);
+      if (!result.success || !Array.isArray(result.data?.tracks)) return;
+      await trueShuffle(result.data.tracks);
+    },
+    [trueShuffle],
+  );
 
   const reorderQueue = useCallback((from: number, to: number) => {
     const current = queueRef.current;
@@ -842,6 +910,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         playPlaylist,
         queuePlaylist,
         playTracks,
+        trueShuffle,
+        trueShufflePlaylist,
         playNext,
         playPrevious,
         hasNext,
