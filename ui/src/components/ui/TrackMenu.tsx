@@ -4,6 +4,7 @@ import type { PlaylistSummary } from "@/lib/api/types";
 import { cn } from "@/util/cn";
 import { AddToPlaylistPanel, panelWidth } from "./AddToPlaylistPanel";
 import { MenuFlyout } from "./MenuFlyout";
+import { MenuSeparator } from "./MenuSeparator";
 import { announceMenuOpen, isInsideMenuFlyout, nextMenuId, onOtherMenuOpen } from "./menuDom";
 import { useMenuPosition } from "./useMenuPosition";
 
@@ -217,7 +218,7 @@ export const TrackMenu = ({
 
         {(onAddToPlaylist || onRemoveFromPlaylist) && (
           <>
-            <div className="mx-2.5 my-1 border-t border-white/10" />
+            <MenuSeparator />
             {onAddToPlaylist && (
               <button
                 type="button"

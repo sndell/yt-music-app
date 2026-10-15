@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/util/cn";
 import { MenuFlyout } from "./MenuFlyout";
+import { MenuSeparator } from "./MenuSeparator";
 import { announceMenuOpen, isInsideMenuFlyout, nextMenuId, onOtherMenuOpen } from "./menuDom";
 import { useMenuPosition } from "./useMenuPosition";
 
@@ -176,16 +177,19 @@ export const PlaylistMenu = ({
         </button>
 
         {onEdit && (
-          <button
-            type="button"
-            role="menuitem"
-            className={itemClass}
-            onClick={() => choose(onEdit)}
-            onPointerEnter={closeFlyouts}
-          >
-            <span className={`${iconClass} icon-[solar--pen-2-linear]`} />
-            Edit playlist
-          </button>
+          <>
+            <MenuSeparator />
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              onClick={() => choose(onEdit)}
+              onPointerEnter={closeFlyouts}
+            >
+              <span className={`${iconClass} icon-[solar--pen-2-linear]`} />
+              Edit playlist
+            </button>
+          </>
         )}
       </div>
 
