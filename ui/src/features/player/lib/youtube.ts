@@ -5,7 +5,7 @@ export type YouTubePlayer = {
   mute: () => void;
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   getCurrentTime: () => number;
-  getDuration: () => number;
+  getPlayerState: () => number;
   getIframe: () => HTMLIFrameElement;
   destroy: () => void;
 };
@@ -16,7 +16,10 @@ type YouTubeNamespace = {
     options: {
       videoId: string;
       playerVars?: Record<string, string | number>;
-      events?: { onReady?: () => void };
+      events?: {
+        onReady?: () => void;
+        onStateChange?: (event: { data: number }) => void;
+      };
     },
   ) => YouTubePlayer;
 };
