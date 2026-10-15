@@ -24,7 +24,7 @@ Drive and verify the running app from the command line, prove a change, and repe
 
 A browser tab on the Vite port is not the app. If a bridge call fails there, it is the surface, not the code.
 
-Ports: probe `127.0.0.1:8765` (IPv4), Vite `http://localhost:5173` (IPv6 `::1`). Add `--slot N` in a worktree.
+Ports: probe `127.0.0.1:8765` (IPv4), Vite `http://localhost:5173` (IPv6 `::1`). Those base ports are the main checkout only. `tools/dev.py` resolves this checkout's slot itself. It reads `app/dev/.dev-slot` and allocates one when a worktree has none, and it refuses a probe whose `/health` names another checkout. `--slot N` overrides.
 
 ## The loop
 
@@ -60,8 +60,8 @@ detect → settle → capture → assert → verdict.
 # Prove it end to end. Prints PASS / FAIL <what> / UNKNOWN <infra>, exits 0/1/2.
 .\app\.venv\Scripts\python.exe tools\dev.py watch --check "document.querySelectorAll('[data-playlist-id]').length > 0"
 
-# Start the servers in the background.
-.\app\.venv\Scripts\python.exe tools\dev.py up --devtools
+# Start your own instance. Run --attach as a background task so it stays visible.
+.\app\.venv\Scripts\python.exe tools\dev.py up --attach
 ```
 
 Global flags: `--slot N`, `--json`. `call` runs public Python methods only; names starting with `_` are rejected. `eval` runs in the desktop window and awaits a returned promise. `screenshot` writes `app/dev/.dev-artifacts/current.png`, with `baseline.png` and `diff.png` beside it.

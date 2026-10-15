@@ -267,9 +267,11 @@ def _probe_checkout(slot: int, timeout: float = 0.8) -> str | None:
     return None
 
 
-def preferred_slots() -> dict[int, str]:
-    """Slot to path for the other worktrees, from their .dev-slot files."""
-    mapping: dict[int, str] = {}
+def _worktree_entries() -> list[Path]:
+    """Every worktree path for this repository, main checkout first.
+
+    Empty when git is unavailable, so the frozen exe and tests stay quiet.
+    """
     try:
         result = subprocess.run(
             ["git", "-C", str(identity.REPO_DIR), "worktree", "list", "--porcelain"],
@@ -279,11 +281,11 @@ def preferred_slots() -> dict[int, str]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return mapping
+        return []
     if result.returncode != 0:
-        return mapping
+        return []
 
-    mine = os.path.normcase(str(identity.REPO_DIR.resolve()))
+    roots: list[Path] = []
     for line in result.stdout.splitlines():
         if not line.startswith("worktree "):
             continue
@@ -291,9 +293,41 @@ def preferred_slots() -> dict[int, str]:
         if not raw:
             continue
         try:
-            root = Path(raw).resolve()
+            roots.append(Path(raw).resolve())
         except OSError:
             continue
+    return roots
+
+
+def main_checkout() -> Path | None:
+    """The main checkout of this repository, or None when git is unavailable."""
+    roots = _worktree_entries()
+    return roots[0] if roots else None
+
+
+def main_venv_python() -> Path | None:
+    """The main checkout's venv interpreter, when it exists.
+
+    A linked worktree has no venv of its own; tooling shares the main
+    checkout's so a new worktree needs no separate Python environment.
+    """
+    main = main_checkout()
+    if main is None:
+        return None
+    for candidate in (
+        main / "app" / ".venv" / "Scripts" / "python.exe",
+        main / "app" / ".venv" / "bin" / "python",
+    ):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def preferred_slots() -> dict[int, str]:
+    """Slot to path for the other worktrees, from their .dev-slot files."""
+    mapping: dict[int, str] = {}
+    mine = os.path.normcase(str(identity.REPO_DIR.resolve()))
+    for root in _worktree_entries():
         if os.path.normcase(str(root)) == mine:
             continue
         slot = _parse_slot(_slot_text_at(root))
@@ -414,13 +448,18 @@ def existing_session_slot() -> int | None:
     return None
 
 
-def ensure_checkout_slot() -> int:
+def ensure_checkout_slot(claim: bool = True) -> int:
     """Resolve, reserve, and claim this checkout's slot.
 
     A session already serving this checkout returns its slot untouched. A free
     preferred slot is kept and the file is not rewritten. When the preferred
     slot belongs to another checkout, take a free slot and rewrite only this
     checkout's file.
+
+    Pass ``claim=False`` to persist the ``.dev-slot`` preference without
+    writing a live claim. Tooling that only needs the number, and the app
+    process itself, use that so a short-lived command or a bare window does
+    not look like a running session.
     """
     running = existing_session_slot()
     if running is not None:
@@ -463,8 +502,19 @@ def ensure_checkout_slot() -> int:
 
     if chosen != _parse_slot(_slot_text()):
         _write_slot_file(chosen)
-    claim_slot(chosen, "checkout")
+    if claim:
+        claim_slot(chosen, "checkout")
     return chosen
+
+
+def resolve_checkout_slot() -> int:
+    """This checkout's slot, allocating and persisting one in a worktree.
+
+    Never falls back to slot 0 in a linked worktree. Slot 0 is the main
+    checkout's probe and Vite ports, so a worktree that used it would read
+    another checkout's window. Leaves no claim behind.
+    """
+    return ensure_checkout_slot(claim=False)
 
 
 def allocate_instance_slot(extra: dict | None = None) -> int:

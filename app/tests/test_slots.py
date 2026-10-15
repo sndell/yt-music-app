@@ -134,3 +134,48 @@ def test_cli_ensure_prints_the_slot(
 
     assert slots.main(["ensure"]) == 0
     assert capsys.readouterr().out.strip() == "2"
+
+
+def test_worktree_without_a_slot_never_resolves_to_zero(
+    env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Slot 0 is the main checkout's ports; a worktree must never take them."""
+    monkeypatch.setattr(slots, "is_linked_worktree", lambda: True)
+
+    assert slots.resolve_checkout_slot() != 0
+
+
+def test_resolve_checkout_slot_persists_without_claiming(
+    env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry, slot_file = env
+    monkeypatch.setattr(slots, "is_linked_worktree", lambda: True)
+
+    slot = slots.resolve_checkout_slot()
+
+    assert slot >= 1
+    assert slot_file.read_text(encoding="utf-8") == str(slot)
+    # Tooling that only needs the number must not look like a live session.
+    assert not (registry / "slots" / f"{slot}.json").exists()
+
+
+def test_env_slot_wins_over_allocating(
+    env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, slot_file = env
+    monkeypatch.setattr(slots, "is_linked_worktree", lambda: True)
+    monkeypatch.setenv("DEV_UI_SLOT", "4")
+
+    assert slots.resolve_checkout_slot() == 4
+    assert slot_file.read_text(encoding="utf-8") == "4"
+
+
+def test_claim_true_still_writes_a_live_claim(
+    env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry, _ = env
+    monkeypatch.setattr(slots, "is_linked_worktree", lambda: True)
+
+    slot = slots.ensure_checkout_slot(claim=True)
+
+    assert (registry / "slots" / f"{slot}.json").exists()

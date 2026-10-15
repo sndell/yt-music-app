@@ -9,6 +9,13 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $Repo "app\.venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $Python)) {
+    # An opencode worktree has no venv; tools/dev.py records the main one.
+    $Recorded = Join-Path $Repo "app\dev\.dev-python"
+    if (Test-Path -LiteralPath $Recorded) {
+        $Python = (Get-Content -LiteralPath $Recorded -Raw).Trim()
+    }
+}
 $failed = @()
 
 function Step([string]$Name, [scriptblock]$Body) {

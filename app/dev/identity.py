@@ -28,7 +28,11 @@ _title: str | None = None
 
 
 def _read_slot_file() -> str:
-    """Slot text from app/dev/.dev-slot, then older locations. Does not create files."""
+    """Slot text from app/dev/.dev-slot, then older locations. Does not create files.
+
+    Returns an empty string when no file exists, so a caller can tell "no slot
+    named" from a file that deliberately says 0.
+    """
     candidates = (
         DEV_DIR / ".dev-slot",
         REPO_DIR / "dev" / ".dev-slot",
@@ -39,11 +43,32 @@ def _read_slot_file() -> str:
             return path.read_text(encoding="utf-8-sig")
         except OSError:
             continue
-    return "0"
+    return ""
+
+
+def _worktree_slot() -> int | None:
+    """Allocate this worktree's own slot when no file or env names one.
+
+    Slot 0 belongs to the main checkout. A linked worktree falling back to it
+    would bind the main checkout's probe and Vite ports, which is the exact
+    parallel-worktree collision this guards against. Imported lazily because
+    slots imports this module.
+    """
+    try:
+        from dev import slots
+    except ImportError:
+        return None
+    try:
+        return slots.resolve_checkout_slot()
+    except (RuntimeError, OSError):
+        return None
 
 
 def ui_slot() -> int:
-    """Checkout slot. DEV_UI_SLOT wins, then the slot file, then 0."""
+    """Checkout slot. DEV_UI_SLOT wins, then the slot file, then 0.
+
+    A linked worktree with neither gets its own slot allocated, never 0.
+    """
     global _ui_slot
     if _ui_slot is not None:
         return _ui_slot
@@ -51,14 +76,21 @@ def ui_slot() -> int:
     raw = os.environ.get("DEV_UI_SLOT")
     if raw is None or not raw.strip():
         raw = _read_slot_file()
+    named = bool(raw and raw.strip())
+    if not named and is_linked_worktree():
+        resolved = _worktree_slot()
+        if resolved is not None:
+            _ui_slot = resolved
+            return _ui_slot
+
     try:
-        slot = int(raw.strip())
+        slot = int(raw.strip()) if named else 0
     except ValueError:
         slot = 0
     if slot < 0:
         slot = 0
     _ui_slot = slot
-    return slot
+    return _ui_slot
 
 
 def dev_slot() -> int:

@@ -214,6 +214,11 @@ def main() -> None:
     except KeyboardInterrupt:
         if proc is not None:
             stop(proc)
+        # An attached session (tools/dev.py up --attach) is stopped from this
+        # loop, so Vite has to come down here too, not only on a clean close.
+        stopped = stop_vite()
+        if stopped:
+            print(f"[dev] stopped vite pid={stopped}", flush=True)
         print("[dev] stopped", flush=True)
     finally:
         slots.release_slot(slot)

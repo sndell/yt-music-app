@@ -27,6 +27,8 @@ The app changes, so these notes change with it. While you work, watch for a bett
 
 Write it the way the rest of this file is written: what to run or check, when it helps, and the trap that wastes time. Short and specific, from a real run, not a guess. Do not rewrite or delete notes you have not verified.
 
+Add only what running the repo taught you. No note about your own edit, no in-joke, no "do not delete this"; the next agent cannot use it.
+
 ## Do what they meant
 
 Treat a request as the intent behind it, not a literal script. When someone asks for X, work out what X implies and do the parts that are clearly the same change: a renamed method moves its callers, a new field reaches the type, the parser, the stored shape and the UI, a fixed bug gets the test that would have caught it. Before you call it done, search for the other places the change touches.
@@ -47,9 +49,9 @@ The repo is Windows-only (pywebview + WebView2, PowerShell build script). Run co
 
 One Python window per checkout. A second `app\dev\watch.py` or debugger session on the same slot fights for that probe port.
 
-`tools\dev.py up` starts Vite and the watcher with `CREATE_NO_WINDOW`, and the watcher gives the app that flag too when the watcher's own output is on a log file. So a worktree started that way shows only the pywebview window, with no console window. Start `app\dev\watch.py` in a terminal when you want the app's tracebacks in that terminal; then the app inherits it and no extra window appears.
+`tools\dev.py up` starts Vite and the watcher with `CREATE_NO_WINDOW`, and the watcher gives the app that flag too when the watcher's own output is on a log file. So a worktree started that way shows only the pywebview window, with no console window. `tools\dev.py up --attach` runs Vite and the watcher in the calling shell instead, so the `[dev]` lines land there and the task stays visibly running; run that one as a background task. Start `app\dev\watch.py` in a terminal when you want the app's tracebacks in that terminal; then the app inherits it and no extra window appears.
 
-`pnpm dev` never exits. `app\dev\watch.py` runs until the window it started is closed (see below). Start each as a background task, not a foreground command. Before starting either, check `curl.exe -s http://127.0.0.1:8765/health` (add the slot from `app/dev/.dev-slot` when present): a response means the app is already up, so do not start a second watcher on that slot.
+`pnpm dev` never exits. `app\dev\watch.py` runs until the window it started is closed (see below). Start each as a background task, not a foreground command. Ask `tools\dev.py doctor` whether this checkout is up; do not probe a fixed port. On the main checkout `8765` is right, but in a worktree `8765` is the main checkout's window, so a response there says nothing about yours.
 
 UI, from `ui`:
 
@@ -85,7 +87,9 @@ Vite edits refresh inside the open window. Python edits close and reopen it. Wai
 
 ## Parallel worktrees and slots
 
-Run `tools\dev.py up` from a checkout to start it. It ensures a slot, claims it, starts Vite and the watcher detached, and waits for `/health`. `pnpm dev` plus `app\dev\watch.py` still work once `app/dev/.dev-slot` exists. When a session already runs for this checkout, `up` prints its ports and exits instead of starting a second one.
+Every checkout starts its own instance. `tools\dev.py up --attach` from a checkout runs Vite and the watcher in the calling shell, so run it as a background task. The `[dev]` lines stream there and the session stays visible. `tools\dev.py up` without `--attach` detaches and logs to `app/dev/.dev-artifacts/`. Both ensure a slot, claim it, provision the worktree, and wait for `/health`. `pnpm dev` plus `app\dev\watch.py` still work once `app/dev/.dev-slot` exists. When a session already runs for this checkout, `up` prints its ports and exits instead of starting a second one.
+
+A worktree never resolves to slot 0 and never reads another checkout's probe. `tools/dev.py` allocates a slot when `app/dev/.dev-slot` is missing, and every probe command checks that `/health` reports this checkout, so a stranger's port fails loudly instead of answering with the wrong window. Start your own instance when a task begins; do not attach to a window another worktree owns.
 
 A slot is stable. A checkout keeps its number in `app/dev/.dev-slot`, rewrites only its own file when another checkout took that number, and frees the slot when the session ends so the next start reuses it. The allocator is `app/dev/slots.py`. The live registry is shared by every worktree at `<git-common-dir>/ytmusic-dev/<slot>.json`, found with `git rev-parse --path-format=absolute --git-common-dir`, so the per-checkout files never coordinate. The ports are the hard truth: a slot is busy while a live claim names it or one of its three ports is bound. `port_in_use` binds, it does not connect, because a connect to an unbound loopback port here times out and would call every free port busy.
 
@@ -199,7 +203,7 @@ Setup installs the UI dependencies, copies `app/browser.json` when the new check
 
 One `app\dev\watch.py` per worktree. Two agents in the same folder still share one app. The restart log names the files behind the current process.
 
-An opencode worktree never runs the setup script, so it has no `app\.venv` and no `app/dev/.dev-python`. `tools\test.ps1` still runs the UI steps there, since pnpm pulls from the store, but its pytest step dies on the missing interpreter with `CommandNotFoundException`. Run that step with the interpreter from the main checkout's venv, `& "<main checkout>\app\.venv\Scripts\python.exe" -m pytest -q`, from the worktree root. The same interpreter runs `app\dev\watch.py` from such a worktree.
+An opencode worktree never runs the Cursor setup script, so the first `tools\dev.py` command in it provisions the checkout: allocate a slot, record the main checkout's interpreter in `app/dev/.dev-python`, copy `app/browser.json`, and run `pnpm install` when `ui/node_modules` is missing. `tools\dev.py setup` does the same and prints the ports. `tools\test.ps1` and `app\dev\watch.py` read `app/dev/.dev-python`, so they run with that interpreter; `pytest` still runs from the worktree root. Python packages come from the main checkout's venv, not a per-worktree one.
 
 ## Breakpoints
 
@@ -242,3 +246,4 @@ A normal `app\dev\watch.py` session and the `Python: YTMusic` launch config leav
 - Don't run `pnpm build` alone to produce a release. Use `.\build\build.ps1` (it sets `--base ./`).
 - Don't read, print, or commit `app/browser.json`. It holds the signed-in session.
 - Don't edit `app/dev/.dev-restarts.jsonl`, `.dev-slot`, or `.dev-python` by hand.
+- Don't read another checkout's window or probe a port you do not own. Start your own instance with `tools\dev.py up --attach`.

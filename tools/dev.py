@@ -55,15 +55,17 @@ class ToolError(Exception):
     """Something the CLI could not do; reported as an infra failure."""
 
 
-def dev_slot(explicit: int | None) -> int:
-    if explicit is not None:
-        return max(0, explicit)
-    env = os.environ.get("DEV_SLOT", "").strip()
-    if env:
-        try:
-            return max(0, int(env))
-        except ValueError:
-            pass
+def _slot_from_env(name: str) -> int | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return None
+
+
+def _slot_from_file() -> int | None:
     for candidate in (
         APP_DIR / "dev" / ".dev-slot",
         REPO / "dev" / ".dev-slot",
@@ -73,27 +75,46 @@ def dev_slot(explicit: int | None) -> int:
             return max(0, int(candidate.read_text(encoding="utf-8-sig").strip()))
         except (OSError, ValueError):
             continue
-    return 0
+    return None
+
+
+def _resolved_checkout_slot() -> int:
+    """This checkout's slot, allocating and persisting one in a worktree.
+
+    A linked worktree with no app/dev/.dev-slot must never fall back to slot
+    0. That is the main checkout's probe and Vite ports, so a parallel agent
+    would silently read another worktree's window. Allocate its own instead.
+    """
+    slots = _load_slots()
+    if not slots.is_linked_worktree():
+        return 0
+    try:
+        return slots.resolve_checkout_slot()
+    except RuntimeError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+def dev_slot(explicit: int | None) -> int:
+    if explicit is not None:
+        return max(0, explicit)
+    env = _slot_from_env("DEV_SLOT")
+    if env is not None:
+        return env
+    from_file = _slot_from_file()
+    if from_file is not None:
+        return from_file
+    return _resolved_checkout_slot()
 
 
 def ui_slot() -> int:
     """Checkout slot: the Vite port and the URL the window loads."""
-    env = os.environ.get("DEV_UI_SLOT", "").strip()
-    if env:
-        try:
-            return max(0, int(env))
-        except ValueError:
-            pass
-    for candidate in (
-        APP_DIR / "dev" / ".dev-slot",
-        REPO / "dev" / ".dev-slot",
-        APP_DIR / ".dev-slot",
-    ):
-        try:
-            return max(0, int(candidate.read_text(encoding="utf-8-sig").strip()))
-        except (OSError, ValueError):
-            continue
-    return 0
+    env = _slot_from_env("DEV_UI_SLOT")
+    if env is not None:
+        return env
+    from_file = _slot_from_file()
+    if from_file is not None:
+        return from_file
+    return _resolved_checkout_slot()
 
 
 def ports(slot: int) -> dict[str, int]:
@@ -149,10 +170,15 @@ def _checkout_session_slot(slots: Any) -> int | None:
 
 
 def _recorded_interpreter() -> str:
-    """The main checkout's venv when app/dev/.dev-python records one."""
+    """The main checkout's venv, from .dev-python or the main checkout itself."""
     recorded = APP_DIR / "dev" / ".dev-python"
     if recorded.exists():
-        return recorded.read_text(encoding="utf-8").strip() or sys.executable
+        text = recorded.read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    python = _load_slots().main_venv_python()
+    if python is not None:
+        return str(python)
     return sys.executable
 
 
@@ -194,6 +220,33 @@ def request(
 
 def probe(method: str, path: str, payload: Any | None = None, slot: int = 0) -> tuple[dict[str, Any], Any]:
     return request(method, f"http://127.0.0.1:{ports(slot)['probe']}{path}", payload)
+
+
+def current_checkout() -> str:
+    """This checkout's path, the identity the probe reports for it."""
+    return REPO.resolve().as_posix()
+
+
+def guard_checkout(slot: int) -> None:
+    """Refuse to read a probe that belongs to a different checkout.
+
+    A stale or wrong slot otherwise reads another worktree's window without a
+    word. An unreachable probe is left to the caller's own error path, so this
+    only fires on an answer that names a stranger.
+    """
+    try:
+        _, health = probe("GET", "/health", slot=slot)
+    except ToolError:
+        return
+    if not isinstance(health, dict):
+        return
+    owner = health.get("checkout")
+    if isinstance(owner, str) and owner and os.path.normcase(owner) != os.path.normcase(current_checkout()):
+        raise ToolError(
+            f"slot {slot} belongs to another checkout: {owner}. "
+            "Refusing to read it; start this checkout's own app with "
+            "tools/dev.py up --attach."
+        )
 
 
 def run_browser_driver(node_args: list[str], slot: int, timeout: float = 180.0) -> int:
@@ -238,6 +291,71 @@ def run_command(command: list[str], cwd: Path, timeout: float) -> tuple[int | No
     return proc.returncode, f"{proc.stdout or ''}{proc.stderr or ''}".strip()
 
 
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def install_ui_deps(force: bool = False, stream: bool = False) -> bool:
+    """Run pnpm install when the checkout has no node_modules. True when it ran.
+
+    opencode never runs the Cursor worktree setup, so a fresh worktree has no
+    ui/node_modules. pnpm hardlinks from the shared store, so this is cheap.
+    """
+    marker = UI_DIR / "node_modules" / ".modules.yaml"
+    if marker.exists() and not force:
+        return False
+    if shutil.which("pnpm") is None:
+        raise ToolError("pnpm is not on PATH; cannot install UI dependencies")
+    command = ["pnpm", "install"]
+    if os.name == "nt":
+        command = ["cmd", "/c", *command]
+    print("installing ui dependencies with pnpm (first run in this checkout)…", flush=True)
+    if stream:
+        proc = subprocess.run(command, cwd=str(UI_DIR))
+    else:
+        proc = subprocess.run(command, cwd=str(UI_DIR), capture_output=True, text=True)
+    if proc.returncode != 0:
+        output = "" if stream else f"{proc.stdout or ''}{proc.stderr or ''}"
+        tail = "\n".join(output.strip().splitlines()[-15:])
+        detail = f":\n{tail}" if tail else ""
+        raise ToolError(f"pnpm install failed (exit {proc.returncode}){detail}")
+    return True
+
+
+def ensure_worktree_setup(stream: bool = False) -> list[str]:
+    """Provision a linked worktree once: interpreter, auth file, UI deps.
+
+    Idempotent, and a no-op in the main checkout. Runs before a session starts
+    so the first tools/dev.py up in a worktree works with no manual setup.
+    """
+    slots = _load_slots()
+    if not slots.is_linked_worktree():
+        return []
+
+    done: list[str] = []
+
+    recorded = APP_DIR / "dev" / ".dev-python"
+    if not recorded.exists():
+        python = slots.main_venv_python()
+        if python is not None:
+            _write_text(recorded, str(python))
+            done.append(f"recorded interpreter {python}")
+
+    main = slots.main_checkout()
+    if main is not None:
+        source = main / "app" / "browser.json"
+        target = APP_DIR / "browser.json"
+        if source.exists() and not target.exists():
+            shutil.copy2(source, target)
+            done.append("copied app/browser.json")
+
+    if install_ui_deps(stream=stream):
+        done.append("installed ui dependencies")
+
+    return done
+
+
 def dump(value: Any, as_json: bool) -> None:
     if as_json:
         print(json.dumps(value, indent=2, ensure_ascii=False))
@@ -253,6 +371,7 @@ def dump(value: Any, as_json: bool) -> None:
 
 
 def cmd_health(args: argparse.Namespace) -> int:
+    guard_checkout(args.slot_resolved)
     meta, body = probe("GET", "/health", slot=args.slot_resolved)
     dump(body, args.json)
     return EXIT_OK if isinstance(body, dict) and body.get("ok") else EXIT_FAIL
@@ -298,6 +417,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_call(args: argparse.Namespace) -> int:
+    guard_checkout(args.slot_resolved)
     raw_args = args.args
     try:
         call_args = json.loads(raw_args) if raw_args else []
@@ -311,6 +431,7 @@ def cmd_call(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
+    guard_checkout(args.slot_resolved)
     expression = args.expression
     if args.file:
         expression = Path(args.file).read_text(encoding="utf-8")
@@ -322,6 +443,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 
 def cmd_state(args: argparse.Namespace) -> int:
+    guard_checkout(args.slot_resolved)
     _, body = probe("GET", "/state", slot=args.slot_resolved)
     if args.json:
         print(json.dumps(body, indent=2, ensure_ascii=False))
@@ -348,6 +470,7 @@ def cmd_state(args: argparse.Namespace) -> int:
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
+    guard_checkout(args.slot_resolved)
     query = []
     if args.since is not None:
         query.append(f"since={args.since}")
@@ -380,6 +503,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
 
 
 def cmd_screenshot(args: argparse.Namespace) -> int:
+    guard_checkout(args.slot_resolved)
     payload: dict[str, Any] = {"diff": args.diff, "accept": args.accept_baseline}
     if args.out:
         payload["out"] = str(Path(args.out).resolve())
@@ -389,6 +513,7 @@ def cmd_screenshot(args: argparse.Namespace) -> int:
 
 
 def cmd_reload(args: argparse.Namespace) -> int:
+    guard_checkout(args.slot_resolved)
     _, body = probe("POST", "/reload", {}, slot=args.slot_resolved)
     dump(body, args.json)
     return EXIT_OK
@@ -404,7 +529,7 @@ def cmd_browse(args: argparse.Namespace) -> int:
 
 
 def cmd_up(args: argparse.Namespace) -> int:
-    """Start the dev servers detached, logging into the artifacts dir."""
+    """Start the dev servers, detached or attached to this shell."""
     slots = _load_slots()
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
 
@@ -426,12 +551,18 @@ def cmd_up(args: argparse.Namespace) -> int:
         raise ToolError(str(exc)) from exc
     p = ports(slot)
 
+    for item in ensure_worktree_setup(stream=args.attach):
+        print(f"setup    {item}", flush=True)
+
     env = os.environ.copy()
     env["ENV"] = "dev"
     env["DEV_SLOT"] = str(slot)
     env["DEV_UI_SLOT"] = str(slot)
     if args.devtools:
         env["DEVTOOLS"] = "1"
+
+    if args.attach:
+        return run_attached(slot, env, devtools=args.devtools)
 
     interpreter = _recorded_interpreter()
 
@@ -494,6 +625,72 @@ def cmd_up(args: argparse.Namespace) -> int:
         print("Ready. Check it with: tools/dev.py state")
     else:
         print("Probe did not answer within 90s; check app.log")
+    return EXIT_OK
+
+
+def _stop_child(proc: subprocess.Popen | None) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    _kill_pid_tree(proc.pid)
+
+
+def run_attached(slot: int, env: dict[str, str], *, devtools: bool) -> int:
+    """Run Vite and the watcher in this shell until the window closes.
+
+    This is the mode an agent runs as a background task. The ``[dev]`` lines
+    and Vite output stream here, and the task stays visibly running instead of
+    a hidden detached process. Everything it starts stops on the way out.
+    """
+    ui = ports(slot)["ui"]
+    print(f"slot     {slot}", flush=True)
+    print(f"vite     http://localhost:{ui}", flush=True)
+    print(f"probe    http://127.0.0.1:{ports(slot)['probe']}", flush=True)
+    if devtools:
+        print(f"devtools cdp http://127.0.0.1:{ports(slot)['cdp']}", flush=True)
+
+    node = shutil.which("node")
+    vite_bin = UI_DIR / "node_modules" / "vite" / "bin" / "vite.js"
+    if node and vite_bin.exists():
+        vite_command = [node, str(vite_bin)]
+    else:
+        vite_command = ["cmd", "/c", "pnpm", "dev"]
+    vite = subprocess.Popen(vite_command, cwd=UI_DIR, env=env)
+
+    # The watcher runs in this process, so hand it the same environment the
+    # detached path gives a child.
+    os.environ.update(env)
+
+    try:
+        if not wait_for_http(f"http://localhost:{ui}/", timeout=60.0):
+            print(f"warning: vite did not answer on http://localhost:{ui}/ within 60s", flush=True)
+        print("attached: edit a file and the app restarts here. Ctrl-C to stop.", flush=True)
+        from dev import watch
+
+        watch.main()
+        return EXIT_OK
+    except KeyboardInterrupt:
+        print("stopped", file=sys.stderr)
+        return EXIT_OK
+    finally:
+        _stop_child(vite)
+        try:
+            from dev import vite_server
+
+            vite_server.stop_vite(ui)
+        except Exception:
+            pass
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Provision this checkout for a dev session, then print its ports."""
+    slot = args.slot_resolved
+    for item in ensure_worktree_setup(stream=True):
+        print(f"setup    {item}")
+    print(f"slot     {slot}")
+    print(f"vite     http://localhost:{ports(args.ui_slot)['ui']}")
+    print(f"probe    http://127.0.0.1:{ports(slot)['probe']}")
+    print(f"artifacts {ARTIFACTS}")
+    print("Next: tools/dev.py up --attach")
     return EXIT_OK
 
 
@@ -677,6 +874,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     """Loop: detect a change, settle, capture evidence, assert, print a verdict."""
     slot = args.slot_resolved
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    guard_checkout(slot)
     try:
         _, health = probe("GET", "/health", slot=slot)
         generation = health.get("generation") if isinstance(health, dict) else 0
@@ -914,9 +1112,16 @@ def build_parser() -> argparse.ArgumentParser:
     browse.add_argument("browse_args", nargs=argparse.REMAINDER)
     browse.set_defaults(func=cmd_browse)
 
-    up = sub.add_parser("up", help="start vite + the watcher detached")
+    up = sub.add_parser("up", help="start vite + the watcher")
     up.add_argument("--devtools", action="store_true", help="also enable the CDP port")
+    up.add_argument(
+        "--attach",
+        action="store_true",
+        help="run in this shell (for a background task) instead of detaching",
+    )
     up.set_defaults(func=cmd_up)
+
+    sub.add_parser("setup", help="install deps and assign this worktree's slot").set_defaults(func=cmd_setup)
 
     instance = sub.add_parser("instance", help="spawn and manage extra app instances")
     instance_sub = instance.add_subparsers(dest="instance_command", required=True)
