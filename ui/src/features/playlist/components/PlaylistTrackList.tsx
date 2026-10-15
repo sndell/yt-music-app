@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Link, useLocation } from "wouter";
-import { PyBridge, type LikeStatus, type PlaylistSummary, type Track } from "@/lib/api";
+import { PyBridge, type LikeStatus, type Track } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
@@ -72,10 +72,8 @@ export const PlaylistTrackList = ({
   /** Songs to create a playlist with: one from a row menu, or the whole selection. */
   const [creatingFor, setCreatingFor] = useState<string[] | null>(null);
   const [addMenu, setAddMenu] = useState<{ x: number; y: number; videoIds: string[] } | null>(null);
-  /** Playlists the picker already saved to, so it can keep checkmarks. */
-  const [addedIds, setAddedIds] = useState<string[]>([]);
   const { playTrackNext, addTrackToQueue, startMix, playFromPlaylist } = usePlayer();
-  const { addToPlaylist, playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } =
+  const { playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } =
     usePlaylist();
 
   const filterActive = Boolean(filterable && filter.trim());
@@ -97,14 +95,6 @@ export const PlaylistTrackList = ({
     setSelected([]);
     selectionAnchorRef.current = null;
   }, [displayTracks]);
-
-  const addedSet = useMemo(() => new Set(addedIds), [addedIds]);
-
-  const pickPlaylistFor = (videoIds: string[]) => (playlist: PlaylistSummary) => {
-    if (addedSet.has(playlist.playlistId)) return;
-    setAddedIds((current) => [...current, playlist.playlistId]);
-    void addToPlaylist(playlist.playlistId, videoIds);
-  };
 
   const dragIds = displayTracks.map((track, index) => track.setVideoId || `row-${track.videoId}-${index}`);
   // Stable, so memoized rows don't re-render just because the list scrolled.
@@ -275,7 +265,7 @@ export const PlaylistTrackList = ({
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
-          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, [menu.track.videoId])}
+          addToPlaylistVideoIds={[menu.track.videoId]}
           playlists={playlists}
           recommendedPlaylists={recommendedPlaylists}
           recommendedPending={recommendedPending}
@@ -300,11 +290,10 @@ export const PlaylistTrackList = ({
           x={addMenu.x}
           y={addMenu.y}
           onClose={() => setAddMenu(null)}
+          videoIds={addMenu.videoIds}
           playlists={options}
           recommended={recommendedPlaylists}
           recommendedPending={recommendedPending}
-          addedIds={addedSet}
-          onPick={pickPlaylistFor(addMenu.videoIds)}
           onNewPlaylist={() => {
             setCreatingFor(addMenu.videoIds);
             setAddMenu(null);
@@ -342,7 +331,6 @@ export const PlaylistTrackList = ({
                 void fetchRecommendedPlaylists();
                 const rect = event.currentTarget.getBoundingClientRect();
                 setAddMenu({ x: rect.left, y: rect.top - 8, videoIds: selectedTracks.map((track) => track.videoId) });
-                setAddedIds([]);
               }}
             />
             {onRemoveTracks && (

@@ -9,6 +9,8 @@ vi.mock("@/lib/api/bridge", () => ({
   PyBridge: {
     getPlaylists: vi.fn(),
     createPlaylist: vi.fn(),
+    addPlaylistItems: vi.fn(),
+    removePlaylistVideos: vi.fn(),
   },
 }));
 
@@ -95,5 +97,60 @@ describe("usePlaylist.createPlaylist", () => {
     });
 
     expect(ids().filter((id) => id === "NEW")).toHaveLength(1);
+  });
+});
+
+describe("usePlaylist.addToPlaylist", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("runs one add at a time so quick picks do not race", async () => {
+    const order: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    (PyBridge.addPlaylistItems as Mock).mockImplementation(async (playlistId: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      order.push(`start:${playlistId}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      order.push(`end:${playlistId}`);
+      inFlight -= 1;
+      return { success: true, data: { status: "STATUS_SUCCEEDED", setVideoIds: {}, duplicate: false } };
+    });
+    setup();
+
+    await act(async () => {
+      await Promise.all([
+        context.addToPlaylist("A", ["v1"]),
+        context.addToPlaylist("B", ["v1"]),
+        context.addToPlaylist("C", ["v1"]),
+      ]);
+    });
+
+    expect(maxInFlight).toBe(1);
+    expect(order).toEqual([
+      "start:A",
+      "end:A",
+      "start:B",
+      "end:B",
+      "start:C",
+      "end:C",
+    ]);
+  });
+
+  it("reports a pick that was already there as a duplicate, not an error", async () => {
+    (PyBridge.addPlaylistItems as Mock).mockResolvedValue({
+      success: true,
+      data: { status: "DUPLICATE", setVideoIds: {}, duplicate: true },
+    });
+    setup();
+
+    let result: Awaited<ReturnType<typeof context.addToPlaylist>> | undefined;
+    await act(async () => {
+      result = await context.addToPlaylist("A", ["v1"]);
+    });
+
+    expect(result).toEqual({ ok: true, duplicate: true, setVideoIds: {} });
   });
 });

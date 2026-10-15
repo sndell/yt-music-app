@@ -371,7 +371,7 @@ export const QueuePanel = () => {
     addTrackToQueue,
     startMix,
   } = usePlayer();
-  const { addToPlaylist, playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
+  const { playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
   const [menu, setMenu] = useState<{ track: WatchTrack; x: number; y: number } | null>(null);
   const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
   const [tunerAnchor, setTunerAnchor] = useState<HTMLButtonElement | null>(null);
@@ -622,7 +622,7 @@ export const QueuePanel = () => {
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
-          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, [menu.track.videoId])}
+          addToPlaylistVideoIds={[menu.track.videoId]}
           playlists={playlists}
           recommendedPlaylists={recommendedPlaylists}
           recommendedPending={recommendedPending}

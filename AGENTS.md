@@ -4,6 +4,10 @@ The UI is Vite in `ui`. The desktop window is Python (`app/main.py`, pywebview).
 
 The main checkout is slot 0: Vite `5173`, probe `8765`, remote debugging `9222`. A worktree writes `app/dev/.dev-slot`, and its ports are those numbers plus the slot.
 
+## Apply unslop by default
+
+Run the `unslop` skill (id `unslop`, installed in the global skills source) over all prose in this repo: chat replies, commits, PR text, UI copy, and edits to this file. It is hidden from the model's skill list, so load it yourself with `@unslop` or the skill tool before finalizing text. The existing notes in this file keep their wording; apply unslop to what you add.
+
 ## Never destroy what the user has
 
 The signed-in YouTube Music account is the user's data. It is read-only unless this exact conversation asked for a change. Deleting is the one thing that cannot be undone, so it is a hard stop, not a judgement call:
@@ -132,6 +136,8 @@ Stop as soon as the evidence covers the change, and never re-run something you a
 Writing JS or JSON on the command line is the biggest time sink here: PowerShell eats `|`, `||`, `>` and nested quotes. Put anything beyond a trivial expression in a file and use `tools\dev.py eval --file <path>`, and use `tools\dev.py call` instead of hand-writing a `python -c` one-liner.
 
 Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v2:<playlistId>` with a 7 day expiry. The payload's `id` field is `None` — the id is only in the key. `app/dev/` also keeps the probe, the screenshot capture, and `app/dev/.dev-artifacts/`.
+
+Add-to-playlist writes: the picker sends every add and remove through one queue in `usePlaylist` (`enqueue`, a promise chain), so several quick picks finish one at a time instead of racing the session. YouTube rejects an add whose songs are already in the playlist, because `add_playlist_items` sends no dedupe option. Python returns that as `duplicate: true`, and the toast offers "Add anyway" to send the same edit again with `duplicates=True`. Clicking an added row calls `remove_playlist_videos`, which removes one row per song, using the `setVideoId`s it was given or looking them up in the playlist.
 
 ## Whose error
 
