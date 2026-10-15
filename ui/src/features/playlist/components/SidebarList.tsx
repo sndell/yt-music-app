@@ -1,11 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
-import type { PlaylistSummary } from "@/lib/api";
+import type { PlaylistDetails, PlaylistSummary } from "@/lib/api";
+import { PyBridge } from "@/lib/api";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 import { PlaylistMenu } from "@/components/ui/PlaylistMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
+import { EditPlaylistDialog } from "@/components/ui/EditPlaylistDialog";
 import { useEdgeFade } from "@/components/ui/useEdgeFade";
+import { useToast } from "@/components/ui/Toast";
 import { usePlayer } from "@/features/player";
 import { moveItem, pinFirst, useOrderMap } from "@/lib/orderMap";
 import { cn } from "@/util/cn";
@@ -28,7 +31,8 @@ type PreviewState = {
 };
 
 export const SidebarList = () => {
-  const { playlists, isLoading, error, fetchPlaylists, createPlaylist } = usePlaylist();
+  const { playlists, isLoading, error, fetchPlaylists, createPlaylist, editPlaylist, deletePlaylist } = usePlaylist();
+  const { showToast } = useToast();
   const orderMap = useOrderMap();
   const applyOrderMap = orderMap.apply;
   // Liked Music is pinned to the panel's first row: keep it there even if a
@@ -56,6 +60,9 @@ export const SidebarList = () => {
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
   const [menu, setMenu] = useState<{ playlistId: string; x: number; y: number } | null>(null);
   const [creating, setCreating] = useState(false);
+  /** Details of the playlist being edited, loaded before the dialog opens so its
+   * visibility field shows the real value instead of a guess. */
+  const [editing, setEditing] = useState<PlaylistDetails | null>(null);
   playlistsRef.current = ordered;
   menuOpenRef.current = menu != null;
 
@@ -226,6 +233,20 @@ export const SidebarList = () => {
     hideFromTarget(event.target, event.relatedTarget);
   };
 
+  /**
+   * Read the playlist before opening the dialog: the sidebar summary has no
+   * visibility, and guessing it would show the user the wrong setting.
+   */
+  const openEditor = (playlistId: string) => {
+    void PyBridge.getPlaylistItems(playlistId, false).then((result) => {
+      if (!result.success) {
+        showToast(result.error.message || "Could not open the playlist", "error");
+        return;
+      }
+      setEditing(result.data);
+    });
+  };
+
   return (
     <>
     <div
@@ -346,6 +367,40 @@ export const SidebarList = () => {
           onStartMix={() => void playPlaylist(menu.playlistId, "mix")}
           onPlayNext={() => void queuePlaylist(menu.playlistId, "next")}
           onAddToQueue={() => void queuePlaylist(menu.playlistId, "end")}
+          onEdit={
+            menu.playlistId !== PINNED_PLAYLIST_ID &&
+            playlists.find((playlist) => playlist.playlistId === menu.playlistId)?.owned !== false
+              ? () => {
+                  const playlistId = menu.playlistId;
+                  setMenu(null);
+                  menuOpenRef.current = false;
+                  openEditor(playlistId);
+                }
+              : undefined
+          }
+        />
+      )}
+      {editing && (
+        <EditPlaylistDialog
+          initialTitle={editing.title}
+          initialDescription={editing.description ?? ""}
+          initialPrivacy={editing.privacy ?? "PRIVATE"}
+          onSubmit={async (patch) => {
+            const playlistId = editing.id;
+            const ok = await editPlaylist(playlistId, {
+              ...(patch.title !== editing.title ? { title: patch.title } : {}),
+              ...(patch.description !== (editing.description ?? "") ? { description: patch.description } : {}),
+              ...(patch.privacy !== editing.privacy ? { privacy: patch.privacy } : {}),
+            });
+            if (ok) setEditing(null);
+            return ok;
+          }}
+          onDelete={async () => {
+            const ok = await deletePlaylist(editing.id);
+            if (ok) setEditing(null);
+            return ok;
+          }}
+          onCancel={() => setEditing(null)}
         />
       )}
       {creating && (
