@@ -131,7 +131,7 @@ Call through the real bridge, or read and click the live page (`POST /eval`). Th
 .\.venv\Scripts\python.exe -c "import json,urllib.request; body=json.dumps({'expression':'document.querySelector(\'a\').click()'}).encode(); req=urllib.request.Request('http://127.0.0.1:8765/eval', data=body, headers={'Content-Type':'application/json'}); print(urllib.request.urlopen(req, timeout=30).read().decode())"
 ```
 
-A success body is JSON. A failure is HTTP 500 with the error text. The Python terminal also logs the call and any traceback from the API method. Names starting with `_` are rejected.
+A success body is JSON. A failure is HTTP 500 with the error text. The body is the method's raw Python return value, so `get_playlists` comes back as a JSON list, not an object. The `{success, data}` envelope the UI code reads is added by `ui/src/lib/api/bridge.ts`, not the probe. The Python terminal also logs the call and any traceback from the API method. Names starting with `_` are rejected.
 
 `/call` can run before the page has finished loading. `/eval` waits until the webview is ready.
 

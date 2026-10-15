@@ -162,7 +162,9 @@ export const PlaylistTrackList = ({
   const selectedTracks = [...new Set(selected)].sort((a, b) => a - b).map((index) => displayTracks[index]).filter(Boolean);
 
   const bulkPlay = () => {
-    const [first, ...rest] = selectedTracks;
+    // Unavailable rows can be selected for bulk remove/add; skip them here so
+    // an unplayable song never becomes the track the queue starts on.
+    const [first, ...rest] = selectedTracks.filter((track) => track.isAvailable && track.videoId);
     if (!first) return;
     playFromPlaylist(first, playlistId, tunable);
     rest.forEach((track) => addTrackToQueue(track));
@@ -425,7 +427,10 @@ const PlaylistTrackItem = memo(({
   const views = track.views != null && track.views > 0 ? track.views.toLocaleString() : null;
   const pad = showAlbum ? "px-3 sm:px-4" : "px-6";
 
+  const available = track.isAvailable && Boolean(track.videoId);
+
   const handleClick = () => {
+    if (!available) return;
     playFromPlaylist(track, playlistId, tunable);
   };
 
@@ -457,7 +462,8 @@ const PlaylistTrackItem = memo(({
       }}
       data-menu-open={menuOpen ? "true" : undefined}
       className={cn(
-        "group relative h-full w-full overflow-hidden transition-colors hover:bg-primary-light",
+        "group relative h-full w-full overflow-hidden transition-colors",
+        available && "hover:bg-primary-light",
         (menuOpen || selected) && "bg-primary-light",
         track.isAvailable ? "opacity-100" : "opacity-25"
       )}
@@ -477,7 +483,7 @@ const PlaylistTrackItem = memo(({
           handleClick();
         }}
         aria-label={`Play ${track.title}`}
-        className="absolute inset-0 z-0 cursor-pointer"
+        className={cn("absolute inset-0 z-0", available ? "cursor-pointer" : "cursor-default")}
       />
       <div
         className={cn(
@@ -508,9 +514,11 @@ const PlaylistTrackItem = memo(({
                 <span className="icon-[solar--music-note-linear] text-primary-dark" />
               </div>
             )}
-            <span className={mediaScrimClass}>
-              <RevealIcon iconClassName="icon-[solar--play-bold] text-lg" />
-            </span>
+            {available && (
+              <span className={mediaScrimClass}>
+                <RevealIcon iconClassName="icon-[solar--play-bold] text-lg" />
+              </span>
+            )}
           </div>
           <div className="flex min-w-0 flex-col items-start overflow-hidden text-start">
             <span className="flex w-full min-w-0 items-center gap-1">

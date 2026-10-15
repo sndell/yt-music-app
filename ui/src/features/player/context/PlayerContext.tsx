@@ -821,7 +821,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
   const playFromPlaylist = useCallback(
     (track: Track, playlistId?: string, tunable?: boolean) => {
-      if (!track.videoId) return;
+      // A removed or region-blocked track has no playable stream; starting it
+      // just races the player into an error. The row stays for selection and
+      // removal, but it never becomes the current song.
+      if (!track.videoId || !track.isAvailable) return;
       const source = libraryPlaylistId(playlistId);
       const samePlaylist = source !== null && source === sourcePlaylistIdRef.current;
       if (samePlaylist) {
