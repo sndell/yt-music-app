@@ -19,7 +19,8 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
 from dev import slots
-from dev.identity import probe_port, ui_slot
+from dev.identity import dev_slot, probe_port, ui_slot
+from dev.vite_server import stop_vite
 
 RESTART_LOG = DEV_DIR / ".dev-restarts.jsonl"
 # Test files and the artifacts dir do not change the running app.
@@ -200,6 +201,15 @@ def main() -> None:
                     flush=True,
                 )
                 append_restart_log("exit", generation, files, proc.pid, proc.returncode)
+                if proc.returncode == 0:
+                    # The window was closed, which ends the session. The app
+                    # stops Vite on its way out; do it here too so the server
+                    # cannot be left behind, then let the slot go.
+                    stopped = stop_vite()
+                    if stopped:
+                        print(f"[dev] stopped vite pid={stopped}", flush=True)
+                    print("[dev] session ended", flush=True)
+                    return
                 proc = None
     except KeyboardInterrupt:
         if proc is not None:

@@ -49,7 +49,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe dev\watch.py
 ```
 
-`app\dev\watch.py` restarts the window when a Python file under `app` is saved. Vite refreshes the page in place. Keep a single Python window per checkout. A second feature should be a Cursor worktree: in the Agents Window set Default Environment to New Worktree, or start an editor chat with `/worktree`. That checkout gets its own window and ports.
+`app\dev\watch.py` restarts the window when a Python file under `app` is saved. Vite refreshes the page in place. Closing the window ends the session. The app stops the Vite server it was loading from, and the watcher exits. Keep a single Python window per checkout. A second feature should be a Cursor worktree: in the Agents Window set Default Environment to New Worktree, or start an editor chat with `/worktree`. That checkout gets its own window and ports.
 
 Sign in from **Settings**. The app opens YouTube Music, waits until you are logged in, and stores the request it needs. Auth, the WebView2 profile, and the cache stay in the `app` folder while you are developing.
 

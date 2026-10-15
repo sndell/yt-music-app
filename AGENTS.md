@@ -49,7 +49,7 @@ One Python window per checkout. A second `app\dev\watch.py` or debugger session 
 
 `tools\dev.py up` starts Vite and the watcher with `CREATE_NO_WINDOW`, and the watcher gives the app that flag too when the watcher's own output is on a log file. So a worktree started that way shows only the pywebview window, with no console window. Start `app\dev\watch.py` in a terminal when you want the app's tracebacks in that terminal; then the app inherits it and no extra window appears.
 
-`pnpm dev` and `app\dev\watch.py` never exit. Start each as a background task, not a foreground command. Before starting either, check `curl.exe -s http://127.0.0.1:8765/health` (add the slot from `app/dev/.dev-slot` when present): a response means the app is already up, so do not start a second watcher on that slot.
+`pnpm dev` never exits. `app\dev\watch.py` runs until the window it started is closed (see below). Start each as a background task, not a foreground command. Before starting either, check `curl.exe -s http://127.0.0.1:8765/health` (add the slot from `app/dev/.dev-slot` when present): a response means the app is already up, so do not start a second watcher on that slot.
 
 UI, from `ui`:
 
@@ -71,7 +71,13 @@ Python, from the repo root:
 
 The path is the file that changed. `generation` increases on every restart. Then read that same terminal for tracebacks and `logger` lines. `GET http://127.0.0.1:<probe>/health` returns `"ok": true` plus `pid`, `slot`, `generation`, and `restarted_files` once the new process is listening. On the main checkout the probe port is 8765. Elsewhere it is `8765` plus the slot from the `[dev] started` line.
 
-If the window is closed or the process crashes, the watcher stays up and prints `[dev] exited code=N generation=4 files=app/features/music_api.py`. The same facts are appended to `app/dev/.dev-restarts.jsonl`. The next Python save starts it again.
+Closing the window ends the session. The app stops the Vite server it was loading from, found through the checkout's UI port, so it works for `tools\dev.py up`, a raw `pnpm dev`, or the `Python: YTMusic` launch config. The watcher prints `[dev] exited code=0 ...` then `[dev] session ended`, and exits, releasing the checkout slot. A crash is different. The watcher prints `[dev] exited code=N generation=4 files=app/features/music_api.py`, stays up, and the next Python save starts the app again. Both events go to `app/dev/.dev-restarts.jsonl`.
+
+Vite listens on `localhost`, which is the IPv6 loopback `[::1]` on this machine, so `netstat -ano -p tcp` shows no listener for its port. Look it up with `netstat -ano`, or `Get-NetTCPConnection -LocalPort 5173`. The stop code is `app/dev/vite_server.py`; `app/tests/test_vite_server.py` covers it.
+
+A watcher that dies is quiet. It prints `[dev] started slot=... generation=1 pid=...` and then stops, while the app process it already spawned keeps working, so `state` and `/health` look healthy and every save silently does nothing. Read the tail of `app/dev/.dev-artifacts/app.log` or the `start`/`restart` records in `.dev-restarts.jsonl` before blaming the app. Nothing in `tools/test.ps1` imported `app/dev/watch.py`, so a `NameError` in it went unnoticed until a live run; `app/tests/test_watch.py` covers it now.
+
+`subprocess.Popen().pid` is not always the real process pid here; a shim process sits in between. The watcher's `[dev] restarted ... pid=` can differ from `/health`'s `pid` for the same window. Use `/health` for the app's pid and `netstat -ano` for whoever holds a port.
 
 Vite edits refresh inside the open window. Python edits close and reopen it. Wait for `[dev] restarted` and `/health` again before the next probe call.
 

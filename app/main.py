@@ -156,10 +156,28 @@ if __name__ == "__main__":
         start_dev_probe(api, window)
     storage_path = webview_data_dir()
     storage_path.mkdir(parents=True, exist_ok=True)
+    window_closed = False
     try:
         webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
+        # start() returns when the window is closed, and raises instead when
+        # startup fails. Only a real close ends the session.
+        window_closed = True
     finally:
         discord_presence.shutdown()
+        if window_closed and ENV == "dev" and not claim_instance:
+            # Closing the window ends the dev session, so the Vite server that
+            # serves it must not outlive the window. An instance shares the
+            # checkout's Vite, so only the default session stops it.
+            _log = logging.getLogger(__name__)
+            try:
+                from dev.vite_server import stop_vite
+
+                stopped = stop_vite()
+            except Exception:
+                _log.exception("Could not stop the Vite dev server")
+            else:
+                if stopped:
+                    _log.info("Stopped the Vite dev server (pid=%s)", stopped)
         if claim_instance:
             slots.release_slot(instance_slot)
 
