@@ -43,7 +43,7 @@ cache = diskcache.Cache(str(_CACHE_DIR))
 CACHE_DURATION = 7 * 24 * 60 * 60  # 7 days
 
 # Cache key prefixes
-CACHE_KEY_PLAYLIST_PREFIX = "playlist:v2:"
+CACHE_KEY_PLAYLIST_PREFIX = "playlist:v3:"
 CACHE_KEY_ALBUM_PREFIX = "album:"
 CACHE_KEY_ARTIST_PREFIX = "artist:"
 CACHE_KEY_HOME = "home:shelves:v3"
@@ -165,6 +165,125 @@ def _playlist_contains_videos(playlist: Any, video_ids: list[str]) -> bool | Non
         return None
     present = {track.get("videoId") for track in tracks if isinstance(track, dict)}
     return all(video_id in present for video_id in video_ids)
+
+
+def _walk_playlist_item_data(response: Any):
+    """Yield every ``playlistItemData`` in a browse response, in page order.
+
+    Each playlist item carries its add time here. The dict sits under
+    ``musicResponsiveListItemRenderer``, but that wrapper moves between app
+    versions, so walk the whole response rather than hard-code the path.
+    """
+    if isinstance(response, dict):
+        data = response.get("playlistItemData")
+        if isinstance(data, dict):
+            yield data
+        for value in response.values():
+            yield from _walk_playlist_item_data(value)
+    elif isinstance(response, list):
+        for value in response:
+            yield from _walk_playlist_item_data(value)
+
+
+# Sinks the recorder writes into, one per thread and stack-shaped. A list at
+# the top means "a playlist fetch is running on this thread, collect its items".
+_date_sinks = threading.local()
+
+
+def _date_sink() -> list[dict[str, Any]] | None:
+    stack = getattr(_date_sinks, "stack", None)
+    return stack[-1] if stack else None
+
+
+def _install_date_recorder(ytmusic: Any) -> None:
+    """Route this client's browse responses through the add-time recorder.
+
+    Installed once per client. The wrapper only forwards and writes to the
+    calling thread's sink, so a fetch cannot leave the client patched or
+    unpatched for another, and overlapping fetches keep their own items.
+    """
+    if getattr(ytmusic, "_date_recorder", None) is not None:
+        return
+    original = ytmusic._send_request
+
+    def send(endpoint: str, body: Any, additional_params: Any = "") -> Any:
+        response = original(endpoint, body, additional_params)
+        sink = _date_sink()
+        if sink is not None:
+            sink.extend(_walk_playlist_item_data(response))
+        return response
+
+    ytmusic._send_request = send
+    ytmusic._date_recorder = send
+
+
+class _PlaylistDateCapture:
+    """Collects each item's add time while a single playlist is fetched.
+
+    The playlist browse response carries ``playlistItemData.voteSortValue``,
+    the Unix second a track was added, which is the value YouTube Music's own
+    "Date added" sort orders by. ytmusicapi parses that same response but drops
+    the field, so recording it while ``get_playlist`` runs keeps the timestamps
+    without a second request.
+    """
+
+    def __init__(self, ytmusic: Any) -> None:
+        _install_date_recorder(ytmusic)
+        self.items: list[dict[str, Any]] = []
+
+    def __enter__(self) -> "_PlaylistDateCapture":
+        stack = getattr(_date_sinks, "stack", None)
+        if stack is None:
+            stack = _date_sinks.stack = []
+        stack.append(self.items)
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        stack = getattr(_date_sinks, "stack", None)
+        if stack:
+            stack.pop()
+
+
+def _apply_added_dates(tracks: Any, items: list[dict[str, Any]]) -> int:
+    """Stamp ``addedAt`` (Unix seconds) onto parsed playlist tracks.
+
+    Owned playlists keep a ``setVideoId`` per track, which matches the raw item
+    exactly. Playlists owned by anyone else come back without one, so those
+    tracks take the remaining raw items in the order both lists share. Returns
+    how many tracks got an add time.
+    """
+    if not isinstance(tracks, list):
+        return 0
+
+    by_set_video: dict[str, int] = {}
+    by_video: dict[str, list[int]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("voteSortValue")
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            continue
+        set_video_id = item.get("playlistSetVideoId")
+        if isinstance(set_video_id, str) and set_video_id:
+            by_set_video[set_video_id] = value
+        video_id = item.get("videoId")
+        if isinstance(video_id, str) and video_id:
+            by_video.setdefault(video_id, []).append(value)
+
+    stamped = 0
+    for track in tracks:
+        if not isinstance(track, dict):
+            continue
+        set_video_id = track.get("setVideoId")
+        value = by_set_video.get(set_video_id) if isinstance(set_video_id, str) and set_video_id else None
+        if value is None:
+            queue = by_video.get(track.get("videoId"))
+            if queue:
+                value = queue.pop(0)
+        if value is not None:
+            track["addedAt"] = value
+            stamped += 1
+    return stamped
 
 
 def _delete_status(result: Any) -> str:
@@ -1787,11 +1906,14 @@ class MusicApi:
             
             logger.info("Fetching playlist items from API for ID: %s", playlist_id)
             ytmusic = self._get_ytmusic()
-            playlist = ytmusic.get_playlist(playlist_id, limit=None)
+            with _PlaylistDateCapture(ytmusic) as item_dates:
+                playlist = ytmusic.get_playlist(playlist_id, limit=None)
+            added = _apply_added_dates(playlist.get("tracks"), item_dates.items)
             logger.info(
-                "Playlist '%s' fetched successfully (tracks: %d)",
+                "Playlist '%s' fetched successfully (tracks: %d, dated: %d)",
                 playlist.get("title", "Unknown"),
-                len(playlist.get("tracks", []))
+                len(playlist.get("tracks", [])),
+                added
             )
             
             playlist["dominantColor"] = _dominant_color(playlist.get("thumbnails", []))

@@ -14,7 +14,7 @@ import { SongListMenu } from "@/components/ui/SongListMenu";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
-import { visibleTracks } from "./trackFilter";
+import { formatAddedAt, sortTracks, visibleTracks, type TrackSort } from "./trackFilter";
 
 const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate: (to: string) => void) => {
   event.preventDefault();
@@ -69,6 +69,8 @@ export const PlaylistTrackList = ({
   const [listMenu, setListMenu] = useState<{ x: number; y: number; trigger: HTMLButtonElement } | null>(null);
   /** Narrows the list to songs that appear more than once. Set from the kebab. */
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  /** Rows' order. `playlist` is YouTube Music's own; the kebab switches it. */
+  const [sort, setSort] = useState<TrackSort>("playlist");
   /** Row indexes the user picked with ctrl/shift-click, into `displayTracks`. */
   const [selected, setSelected] = useState<number[]>([]);
   const selectionAnchorRef = useRef<number | null>(null);
@@ -81,8 +83,8 @@ export const PlaylistTrackList = ({
 
   const filterActive = Boolean(filterable && filter.trim());
   const displayTracks = useMemo(
-    () => visibleTracks(tracks, { search: filter, duplicatesOnly }),
-    [tracks, filter, duplicatesOnly],
+    () => sortTracks(visibleTracks(tracks, { search: filter, duplicatesOnly }), sort),
+    [tracks, filter, duplicatesOnly, sort],
   );
 
   // A selection pointing past the (filtered) list would bulk-act on wrong rows.
@@ -122,12 +124,19 @@ export const PlaylistTrackList = ({
 
   const popular = variant === "popular";
   const pad = popular ? "px-6" : "px-3 sm:px-4";
+  // Playlists carry an add time per track; albums and artist song lists do not,
+  // so only the collection lists that have one grow an "Added" column.
+  const showAdded = !popular && tracks.some((track) => track.addedAt != null);
   // Either narrowing control hides rows; the count line replaces the column heads.
   const narrowing = filterActive || duplicatesOnly;
+  // A date sort shows rows out of the playlist's own order, so dragging one to a
+  // new slot could not map back to a real position.
+  const sorted = sort !== "playlist";
   // Moving rows while a filter hides some of them, while finding duplicates groups
-  // them, or while some are picked, would shift indexes the caller does not know
-  // about. Finding duplicates keeps dragging off entirely.
-  const reorderLocked = narrowing || selected.length > 0;
+  // them, while a date sort reorders them, or while some are picked, would shift
+  // indexes the caller does not know about. Finding duplicates keeps dragging off
+  // entirely.
+  const reorderLocked = narrowing || sorted || selected.length > 0;
 
   const handleRowSelect = (index: number, event: MouseEvent) => {
     event.preventDefault();
@@ -229,9 +238,17 @@ export const PlaylistTrackList = ({
                 : `${displayTracks.length} of ${tracks.length} songs`}
             </p>
           ) : (
-            <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
+            <div
+              className={cn(
+                "grid border-b border-primary pb-1.5 text-sm text-primary-dark",
+                showAdded
+                  ? "grid-cols-[5fr_2fr_1fr] md:grid-cols-[7fr_4fr_2fr_1fr]"
+                  : "grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr]",
+              )}
+            >
               <div>Track</div>
               <div className="max-md:hidden">Album</div>
+              {showAdded && <div>Added</div>}
               <div className="justify-self-end">Duration</div>
             </div>
           )}
@@ -261,6 +278,7 @@ export const PlaylistTrackList = ({
                   tunable={tunable}
                   index={popular ? virtualItem.index + 1 : undefined}
                   showAlbum={!popular}
+                  showAdded={showAdded}
                   menuOpen={menu?.track === track}
                   selected={selected.includes(virtualItem.index)}
                   onOpenMenu={openMenu}
@@ -280,6 +298,8 @@ export const PlaylistTrackList = ({
           trigger={listMenu.trigger}
           duplicatesOnly={duplicatesOnly}
           onToggleDuplicates={() => setDuplicatesOnly((current) => !current)}
+          sort={sort}
+          onSort={setSort}
           onClose={() => setListMenu(null)}
         />
       )}
@@ -391,6 +411,7 @@ const PlaylistTrackItem = memo(({
   onOpenMenu,
   index,
   showAlbum,
+  showAdded = false,
   menuOpen = false,
   selected = false,
   onSelect,
@@ -404,6 +425,8 @@ const PlaylistTrackItem = memo(({
   onOpenMenu: (track: Track, x: number, y: number) => void;
   index?: number;
   showAlbum: boolean;
+  /** Adds the date-added column. On for playlists that carry an add time. */
+  showAdded?: boolean;
   /** Keeps the row in its hover state while its context menu is open. */
   menuOpen?: boolean;
   /** Part of a ctrl/shift-click selection over the list. */
@@ -424,6 +447,7 @@ const PlaylistTrackItem = memo(({
   const likeStatus = track.likeStatus ?? "INDIFFERENT";
   const albumName = track.album?.name || "Unknown Album";
   const albumId = track.album?.id;
+  const addedDate = formatAddedAt(track.addedAt);
   const views = track.views != null && track.views > 0 ? track.views.toLocaleString() : null;
   const pad = showAlbum ? "px-3 sm:px-4" : "px-6";
 
@@ -490,7 +514,9 @@ const PlaylistTrackItem = memo(({
           "pointer-events-none relative z-0 grid h-full min-h-0 grid-rows-1 content-center items-center gap-4",
           pad,
           showAlbum
-            ? "grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr]"
+            ? showAdded
+              ? "grid-cols-[5fr_2fr_1fr] md:grid-cols-[7fr_4fr_2fr_1fr]"
+              : "grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr]"
             : views
               ? "grid-cols-[1fr_auto] md:grid-cols-[1fr_auto_auto]"
               : "grid-cols-[1fr_auto]"
@@ -570,6 +596,9 @@ const PlaylistTrackItem = memo(({
           </div>
         ) : (
           views && <div className="hidden truncate text-sm text-primary-dark md:block">{views}</div>
+        )}
+        {showAlbum && showAdded && (
+          <div className="min-w-0 truncate text-sm text-primary-dark">{addedDate ?? ""}</div>
         )}
         <div className="shrink-0 justify-self-end text-sm text-primary-dark transition-opacity duration-200 group-hover:opacity-0 group-data-[menu-open=true]:opacity-0">
           {track.duration}

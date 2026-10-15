@@ -129,6 +129,11 @@ export interface Track {
   duration: string;
   durationSeconds: number;
   setVideoId: string;
+  /**
+   * Unix seconds when the song was added to the playlist. Only playlist
+   * tracks carry it; every other list leaves it off.
+   */
+  addedAt?: number | null;
 }
 
 export interface PlaylistDetails {
