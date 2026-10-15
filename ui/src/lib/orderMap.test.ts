@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderItems, pinFirst } from "./orderMap";
+import { orderFreshLast, orderItems, pinFirst } from "./orderMap";
 
 const idOf = (value: string) => value;
 
@@ -22,5 +22,25 @@ describe("pinFirst", () => {
   it("leaves the array alone when the pinned id is not present", () => {
     const items = ["a", "b"];
     expect(pinFirst(items, idOf, "LM")).toBe(items);
+  });
+});
+
+describe("orderFreshLast", () => {
+  it("puts ids seen for the first time at the bottom", () => {
+    expect(orderFreshLast(["LM", "a", "new"], "LM", ["new"])).toEqual(["LM", "a", "new"]);
+  });
+
+  it("moves a fresh id to the bottom even when it arrived first", () => {
+    expect(orderFreshLast(["new", "LM", "a"], "LM", ["new"])).toEqual(["LM", "a", "new"]);
+  });
+
+  it("keeps the pinned id first and the fresh ids in order", () => {
+    expect(orderFreshLast(["a", "LM", "b", "second", "first"], "LM", ["second", "first"])).toEqual([
+      "LM",
+      "a",
+      "b",
+      "second",
+      "first",
+    ]);
   });
 });
