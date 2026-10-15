@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { PyBridge, showCachedThenRefresh, type LikeStatus, type PlaylistDetails, type PlaylistItemRef, type PlaylistSummary } from "@/lib/api";
 import { usePlayer } from "@/features/player";
@@ -220,14 +220,6 @@ export const Playlist = () => {
     setIsScrolled(container.scrollTop > headerHeight * 0.75);
   };
 
-  const duplicateCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const track of playlist?.tracks ?? []) {
-      counts.set(track.videoId, (counts.get(track.videoId) ?? 0) + 1);
-    }
-    return counts;
-  }, [playlist?.tracks]);
-
   if (!playlist?.title) {
     const summary = playlists.find((item) => item.playlistId === id);
     if (summary?.title) return <PlaylistTracksLoading summary={summary} />;
@@ -402,7 +394,6 @@ export const Playlist = () => {
           onReorder={reorderTrack}
           removable={removable}
           onRemoveTracks={(tracks) => setRemoving(tracks)}
-          duplicateCounts={duplicateCounts}
           filterable
           actions={
             <PlaybackButtons onPlay={() => play("play")} shuffleMenu={shuffleMenu} extra={extraActions} />
