@@ -157,6 +157,8 @@ Where the data lives: opened playlists are cached on disk by Python (`diskcache`
 
 The UI accent lives in `ui/src/styles/globals.css` as three literals: `--color-accent`, `--text-color-accent`, and `--background-color-accent`. Change all three together. It colors the playing ring, the player progress and volume bars, and the search library toggle. A separate `--color-success` group (also `--text-color-success` and `--background-color-success`) greens the added-to-playlist checkmarks and the toast success icon and action label. Red stays for errors, destructive actions, and the duplicate badge.
 
+Draggable rows keep the normal pointer cursor. Songs, sidebar playlists, queue entries, and the `SnapRow` card strips all reorder by drag, but hover shows `cursor-pointer`, not `cursor-grab`. `ui/src/components/ui/reorder.tsx` is the shared wrapper, so a `cursor-grab` added there comes back on every list at once. `SnapRow` still sets `grabbing` while a pointer drag is live, which is the only place that is wanted.
+
 Add-to-playlist writes: the picker sends every add and remove through one queue in `usePlaylist` (`enqueue`, a promise chain), so several quick picks finish one at a time instead of racing the session. YouTube rejects an add whose songs are already in the playlist, because `add_playlist_items` sends no dedupe option. Python returns that as `duplicate: true`, and the toast offers "Add anyway" to send the same edit again with `duplicates=True`. Clicking an added row calls `remove_playlist_videos`, which removes one row per song, using the `setVideoId`s it was given or looking them up in the playlist.
 
 ## Whose error

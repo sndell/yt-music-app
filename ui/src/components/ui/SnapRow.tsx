@@ -316,7 +316,7 @@ export const SnapRow = ({ children }: { children: ReactNode }) => {
         ref={scrollerRef}
         onPointerDown={onPointerDown}
         onDragStart={(event) => event.preventDefault()}
-        className="flex w-full cursor-grab touch-pan-y gap-3 overflow-x-auto overflow-y-hidden pb-1 scrollbar-none snap-x snap-mandatory overscroll-x-contain *:snap-start"
+        className="flex w-full cursor-pointer touch-pan-y gap-3 overflow-x-auto overflow-y-hidden pb-1 scrollbar-none snap-x snap-mandatory overscroll-x-contain *:snap-start"
       >
         {children}
         <div

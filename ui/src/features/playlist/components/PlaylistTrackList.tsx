@@ -243,7 +243,6 @@ export const PlaylistTrackList = ({
                   tunable={tunable}
                   index={popular ? virtualItem.index + 1 : undefined}
                   showAlbum={!popular}
-                  grabbable={reorderable}
                   menuOpen={menu?.track === track}
                   selected={selected.includes(virtualItem.index)}
                   duplicateCount={duplicateCounts?.get(track.videoId) ?? undefined}
@@ -365,7 +364,6 @@ const PlaylistTrackItem = memo(({
   onOpenMenu,
   index,
   showAlbum,
-  grabbable = false,
   menuOpen = false,
   selected = false,
   duplicateCount,
@@ -380,7 +378,6 @@ const PlaylistTrackItem = memo(({
   onOpenMenu: (track: Track, x: number, y: number) => void;
   index?: number;
   showAlbum: boolean;
-  grabbable?: boolean;
   /** Keeps the row in its hover state while its context menu is open. */
   menuOpen?: boolean;
   /** Part of a ctrl/shift-click selection over the list. */
@@ -458,7 +455,7 @@ const PlaylistTrackItem = memo(({
           handleClick();
         }}
         aria-label={`Play ${track.title}`}
-        className={cn("absolute inset-0 z-0", grabbable ? "cursor-grab" : "cursor-pointer")}
+        className="absolute inset-0 z-0 cursor-pointer"
       />
       <div
         className={cn(
