@@ -115,18 +115,18 @@ The signed-in account is the user's data. Treat it as read-only.
 
 ## Run the checks
 
-```powershell
-.\tools\test.ps1          # tsc + vitest + pytest
-.\tools\test.ps1 -Lint    # also eslint (the repo's lint baseline is currently red)
-```
+Check the cheapest way first and escalate only when that is not enough. Speed matters more than completeness here.
 
-Match the check to the change. Pick by what the edit touches:
+| # | Cost | Do |
+| --- | --- | --- |
+| 1 | free | reason about the diff |
+| 2 | one call | look: `state`, `screenshot`, or the thing in the window |
+| 3 | one call | `logs --level error` for what the eye misses |
+| 4 | seconds | the one test file: `pnpm exec vitest run <file>`, `pytest app/tests/test_x.py` |
+| 5 | slow | `pnpm exec tsc --noEmit` when types changed |
+| 6 | slow | `.\tools\test.ps1` for cross-module, shared, or PR-bound changes |
+| 7 | last | `browse run tools/verify/<journey>.mjs` (needs `DEVTOOLS=1`), then the packaged exe |
 
-| Change | Check |
-| --- | --- |
-| cosmetic, one line, copy | look at it: `state`, `screenshot`, or the feature itself |
-| one module's logic | that suite only: `pnpm exec vitest run <file>` or `pytest app/tests/test_x.py` |
-| Python under `app/` | `pytest -q` |
-| crosses modules, shared behaviour, or going into a PR | `.\tools\test.ps1` |
+Stop as soon as the evidence covers the change, and never re-run something you already ran.
 
-Running the whole suite for a colour or a comment wastes more time than it saves. The tests are fast and offline — they never touch the window or the account — but they are not free.
+Keep output small — `state` instead of a raw payload. A raw `get_playlists` or `get_playlist_items` dump is thousands of tokens of base64 thumbnails; `state` and `logs --limit` give the same answer for a fraction of the cost.

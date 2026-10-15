@@ -117,7 +117,17 @@ The full workflow — which surface can see `window.pywebview.api`, how to read 
 
 Run the checks with `.\tools\test.ps1` (tsc + vitest + pytest); add `-Lint` for eslint.
 
-Match the check to the change. A one-line or cosmetic edit needs a look, not a suite: `state`, `screenshot`, or the thing in the window. Run the narrow suite for a logic change (`pnpm exec vitest run <file>`, `pytest app/tests/test_x.py`). Save `.\tools\test.ps1` for changes that cross modules, touch shared behaviour, or are about to be shared. `dev.py watch` runs the suites only when you pass `--tests`.
+Check the cheapest way first and escalate only when it is not enough; speed is the point.
+
+1. Reason about the diff.
+2. Look: `state`, `screenshot`, or the thing in the window. HMR or the restart already applied the change.
+3. `logs --level error` for whatever the eye misses.
+4. The one test file for what you touched: `pnpm exec vitest run <file>`, `pytest app/tests/test_x.py`.
+5. `pnpm exec tsc --noEmit` when types changed.
+6. `.\tools\test.ps1` for changes that cross modules, touch shared behaviour, or are headed into a PR.
+7. `dev.py browse run tools/verify/<journey>.mjs` (needs `DEVTOOLS=1`), then the packaged exe.
+
+Stop as soon as the evidence covers the change, and never re-run something you already ran. Keep output small: `state` instead of a raw payload, because a playlist dump is thousands of tokens of base64 thumbnails. `dev.py watch` runs the suites only with `--tests`.
 
 Writing JS or JSON on the command line is the biggest time sink here: PowerShell eats `|`, `||`, `>` and nested quotes. Put anything beyond a trivial expression in a file and use `tools\dev.py eval --file <path>`, and use `tools\dev.py call` instead of hand-writing a `python -c` one-liner.
 
