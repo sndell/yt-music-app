@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Agent-friendly debugging CLI for the YTMusic dev window.
 
-Talks to the dev probe (8765 + slot) and the Vite server (5173 + slot) so a
-change can be checked without hand-rolled PowerShell or DOM scripts.
+Talks to the dev probe (8765 + instance slot) and the Vite server
+(5173 + checkout slot) so a change can be checked without hand-rolled
+PowerShell or DOM scripts.
 
     .\\app\\.venv\\Scripts\\python.exe tools\\dev.py health
     .\\app\\.venv\\Scripts\\python.exe tools\\dev.py state
@@ -75,8 +76,84 @@ def dev_slot(explicit: int | None) -> int:
     return 0
 
 
+def ui_slot() -> int:
+    """Checkout slot: the Vite port and the URL the window loads."""
+    env = os.environ.get("DEV_UI_SLOT", "").strip()
+    if env:
+        try:
+            return max(0, int(env))
+        except ValueError:
+            pass
+    for candidate in (
+        APP_DIR / "dev" / ".dev-slot",
+        REPO / "dev" / ".dev-slot",
+        APP_DIR / ".dev-slot",
+    ):
+        try:
+            return max(0, int(candidate.read_text(encoding="utf-8-sig").strip()))
+        except (OSError, ValueError):
+            continue
+    return 0
+
+
 def ports(slot: int) -> dict[str, int]:
     return {"probe": PROBE_BASE + slot, "ui": UI_BASE + slot, "cdp": DEBUG_BASE + slot}
+
+
+def _load_slots() -> Any:
+    """Import app/dev/slots.py on first use so plain probe commands stay stdlib."""
+    if str(APP_DIR) not in sys.path:
+        sys.path.insert(0, str(APP_DIR))
+    from dev import slots
+
+    return slots
+
+
+def _claim_pids(claim: dict[str, Any]) -> list[int]:
+    """Every pid a claim records, matching the shape slots.py reads."""
+    pids: list[int] = []
+    for key, value in claim.items():
+        if key == "pid" or key.endswith("_pid"):
+            if isinstance(value, int) and not isinstance(value, bool):
+                pids.append(value)
+        elif key == "pids" and isinstance(value, list):
+            pids.extend(pid for pid in value if isinstance(pid, int) and not isinstance(pid, bool))
+    return pids
+
+
+def _kill_pid_tree(pid: int) -> None:
+    """Kill one pid and its children. taskkill /T is the Windows way."""
+    if pid <= 0:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        pass
+
+
+def _checkout_session_slot(slots: Any) -> int | None:
+    """The slot a running session for this checkout holds, or None.
+
+    Delegates to the allocator so a session with no live claim, such as a
+    watcher started before claims existed, is still detected through its probe.
+    """
+    return slots.existing_session_slot()
+
+
+def _recorded_interpreter() -> str:
+    """The main checkout's venv when app/dev/.dev-python records one."""
+    recorded = APP_DIR / "dev" / ".dev-python"
+    if recorded.exists():
+        return recorded.read_text(encoding="utf-8").strip() or sys.executable
+    return sys.executable
 
 
 def request(
@@ -183,8 +260,10 @@ def cmd_health(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     slot = args.slot_resolved
+    ui = args.ui_slot
     p = ports(slot)
-    rows: list[tuple[str, str]] = [("slot", str(slot))]
+    ui_port = ports(ui)["ui"]
+    rows: list[tuple[str, str]] = [("slot", str(slot)), ("ui slot", str(ui))]
     healthy = True
 
     try:
@@ -195,8 +274,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         rows.append(("probe", f"DOWN  {exc}"))
 
     try:
-        request("GET", f"http://localhost:{p['ui']}/", timeout=5.0)
-        rows.append(("vite", f"up  http://localhost:{p['ui']}"))
+        request("GET", f"http://localhost:{ui_port}/", timeout=5.0)
+        rows.append(("vite", f"up  http://localhost:{ui_port}"))
     except ToolError as exc:
         rows.append(("vite", f"down  {exc}"))
 
@@ -326,24 +405,41 @@ def cmd_browse(args: argparse.Namespace) -> int:
 
 def cmd_up(args: argparse.Namespace) -> int:
     """Start the dev servers detached, logging into the artifacts dir."""
-    slot = args.slot_resolved
-    p = ports(slot)
+    slots = _load_slots()
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
+
+    running = _checkout_session_slot(slots)
+    if running is not None:
+        # A session already supervises this checkout. Attach to it rather than
+        # bind a second Vite or probe on the same ports.
+        p = ports(running)
+        print(
+            f"already running: slot={running} "
+            f"vite=http://localhost:{p['ui']} probe=http://127.0.0.1:{p['probe']} "
+            f"cdp=http://127.0.0.1:{p['cdp']}"
+        )
+        return EXIT_OK
+
+    try:
+        slot = slots.ensure_checkout_slot()
+    except RuntimeError as exc:
+        raise ToolError(str(exc)) from exc
+    p = ports(slot)
 
     env = os.environ.copy()
     env["ENV"] = "dev"
     env["DEV_SLOT"] = str(slot)
+    env["DEV_UI_SLOT"] = str(slot)
     if args.devtools:
         env["DEVTOOLS"] = "1"
 
-    interpreter = sys.executable
-    recorded = APP_DIR / "dev" / ".dev-python"
-    if recorded.exists():
-        interpreter = recorded.read_text(encoding="utf-8").strip() or interpreter
+    interpreter = _recorded_interpreter()
 
     flags = 0
     if os.name == "nt":
-        flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        # CREATE_NO_WINDOW: no console window for the background children. The
+        # output already goes to vite.log and app.log.
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
 
     ui_log = (ARTIFACTS / "vite.log").open("ab")
     py_log = (ARTIFACTS / "app.log").open("ab")
@@ -398,6 +494,82 @@ def cmd_up(args: argparse.Namespace) -> int:
         print("Ready. Check it with: tools/dev.py state")
     else:
         print("Probe did not answer within 90s; check app.log")
+    return EXIT_OK
+
+
+def cmd_instance_up(args: argparse.Namespace) -> int:
+    """Start one extra app instance on its own slot, probe, and CDP port."""
+    slots = _load_slots()
+    ARTIFACTS.mkdir(parents=True, exist_ok=True)
+
+    try:
+        slot = slots.allocate_instance_slot()
+    except RuntimeError as exc:
+        raise ToolError(str(exc)) from exc
+    ui = slots.checkout_slot()
+    p = ports(slot)
+    ui_port = ports(ui)["ui"]
+
+    env = os.environ.copy()
+    env["ENV"] = "dev"
+    env["DEV_SLOT"] = str(slot)
+    env["DEV_UI_SLOT"] = str(ui)
+    # An instance exists to be driven over CDP, so its debugging port is on.
+    env["DEVTOOLS"] = "1"
+
+    interpreter = _recorded_interpreter()
+
+    flags = 0
+    if os.name == "nt":
+        # CREATE_NO_WINDOW: no console window for the background children. The
+        # output already goes to vite.log and app.log.
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+
+    log = ARTIFACTS / f"instance-{slot}.log"
+    handle = log.open("ab")
+    try:
+        proc = subprocess.Popen(
+            [interpreter, "-u", str(APP_DIR / "main.py")],
+            cwd=APP_DIR,
+            env=env,
+            stdout=handle,
+            stderr=handle,
+            creationflags=flags,
+        )
+    except OSError as exc:
+        handle.close()
+        slots.release_slot(slot)
+        raise ToolError(f"could not start the instance: {exc}") from exc
+    handle.close()
+
+    print(f"instance slot={slot} pid={proc.pid} vite=http://localhost:{ui_port}")
+    print(f"probe    http://127.0.0.1:{p['probe']}")
+    print(f"cdp      http://127.0.0.1:{p['cdp']}")
+    print(f"log      {log}")
+    return EXIT_OK
+
+
+def cmd_instance_down(args: argparse.Namespace) -> int:
+    """Stop the instance on a slot and release it."""
+    slots = _load_slots()
+    slot = args.slot
+    claim = slots.live_claims().get(slot)
+    if claim is None:
+        print(f"no live claim for slot {slot}")
+        return EXIT_FAIL
+
+    pids = _claim_pids(claim)
+    for pid in pids:
+        _kill_pid_tree(pid)
+    slots.release_slot(slot)
+    print(f"stopped slot={slot} pids={pids}")
+    return EXIT_OK
+
+
+def cmd_instance_list(args: argparse.Namespace) -> int:
+    """Print the live slot claims as JSON."""
+    slots = _load_slots()
+    print(json.dumps(slots.list_claims(), indent=2))
     return EXIT_OK
 
 
@@ -706,7 +878,7 @@ def _evaluate_iteration(slot: int, changed: list[str], baseline_ts: float, args:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dev.py", description="Debug the YTMusic dev window.")
-    parser.add_argument("--slot", type=int, default=None, help="dev slot (default: auto from app/dev/.dev-slot)")
+    parser.add_argument("--slot", type=int, default=None, help="instance slot (default: DEV_SLOT, then app/dev/.dev-slot)")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -746,6 +918,14 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--devtools", action="store_true", help="also enable the CDP port")
     up.set_defaults(func=cmd_up)
 
+    instance = sub.add_parser("instance", help="spawn and manage extra app instances")
+    instance_sub = instance.add_subparsers(dest="instance_command", required=True)
+    instance_sub.add_parser("up", help="allocate a slot and start a detached instance").set_defaults(func=cmd_instance_up)
+    instance_down = instance_sub.add_parser("down", help="stop the instance on a slot")
+    instance_down.add_argument("--slot", type=int, required=True, help="instance slot to stop")
+    instance_down.set_defaults(func=cmd_instance_down)
+    instance_sub.add_parser("list", help="print the live claims as JSON").set_defaults(func=cmd_instance_list)
+
     watch = sub.add_parser("watch", help="live loop: change -> settle -> capture -> verdict")
     watch.add_argument("--check", default=None, help="JS expression that must be truthy")
     watch.add_argument("--verify", default=None, help="CDP verify script to run (tools/verify/*.mjs)")
@@ -762,6 +942,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     args.slot_resolved = dev_slot(args.slot)
+    args.ui_slot = ui_slot()
     try:
         return int(args.func(args) or EXIT_OK)
     except ToolError as exc:

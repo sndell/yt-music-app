@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import sys
@@ -106,6 +107,16 @@ def _disable_browser_context_menu(window: webview.Window) -> None:
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
+    # The default session shares the checkout slot. An ephemeral instance
+    # claims its own, so its probe, CDP port, and WebView2 profile stay apart.
+    from dev import slots
+    from dev.identity import dev_slot, ui_slot, webview_data_dir, window_title
+
+    instance_slot = dev_slot()
+    claim_instance = instance_slot != ui_slot()
+    if claim_instance:
+        slots.claim_slot(instance_slot, "instance")
+        atexit.register(slots.release_slot, instance_slot)
     if _DEBUG:
         # Dev-only: keep Python logs in memory for the probe's /logs, and let the
         # page forward its console through the JS API. This runs before the
@@ -122,7 +133,7 @@ if __name__ == "__main__":
     else:
         url = serve_ui(resource_path("ui"))
     window = webview.create_window(
-        "YTMusic",
+        window_title(),
         url,
         js_api=api,
         resizable=True,
@@ -143,10 +154,12 @@ if __name__ == "__main__":
             remote_port = debug_port() if ENV == "dev" else 9222
             webview.settings["REMOTE_DEBUGGING_PORT"] = remote_port
         start_dev_probe(api, window)
-    storage_path = data_dir() / "webview-data"
+    storage_path = webview_data_dir()
     storage_path.mkdir(parents=True, exist_ok=True)
     try:
         webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
     finally:
         discord_presence.shutdown()
+        if claim_instance:
+            slots.release_slot(instance_slot)
 

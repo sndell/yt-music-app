@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
-from util.app_paths import is_frozen
+from util.app_paths import data_dir, is_frozen
 
 DEV_DIR = Path(__file__).resolve().parent
 APP_DIR = DEV_DIR.parent
@@ -22,6 +23,8 @@ UI_BASE = 5173
 DEBUG_BASE = 9222
 
 _slot: int | None = None
+_ui_slot: int | None = None
+_title: str | None = None
 
 
 def _read_slot_file() -> str:
@@ -39,8 +42,27 @@ def _read_slot_file() -> str:
     return "0"
 
 
+def ui_slot() -> int:
+    """Checkout slot. DEV_UI_SLOT wins, then the slot file, then 0."""
+    global _ui_slot
+    if _ui_slot is not None:
+        return _ui_slot
+
+    raw = os.environ.get("DEV_UI_SLOT")
+    if raw is None or not raw.strip():
+        raw = _read_slot_file()
+    try:
+        slot = int(raw.strip())
+    except ValueError:
+        slot = 0
+    if slot < 0:
+        slot = 0
+    _ui_slot = slot
+    return slot
+
+
 def dev_slot() -> int:
-    """Slot for this process. Env wins, then the slot file, then 0."""
+    """Instance slot for this process. Env wins, then the checkout slot."""
     global _slot
     if _slot is not None:
         return _slot
@@ -50,7 +72,8 @@ def dev_slot() -> int:
 
     raw = os.environ.get("DEV_SLOT")
     if raw is None or not raw.strip():
-        raw = _read_slot_file()
+        _slot = ui_slot()
+        return _slot
     try:
         slot = int(raw.strip())
     except ValueError:
@@ -69,7 +92,7 @@ def probe_port(slot: int | None = None) -> int:
 
 def ui_port(slot: int | None = None) -> int:
     if slot is None:
-        slot = dev_slot()
+        slot = ui_slot()
     return UI_BASE + slot
 
 
@@ -81,6 +104,66 @@ def debug_port(slot: int | None = None) -> int:
 
 def ui_origin(slot: int | None = None) -> str:
     return f"http://localhost:{ui_port(slot)}"
+
+
+def checkout() -> str:
+    """Repo path for this checkout, the one identity shared by its instances."""
+    return REPO_DIR.as_posix()
+
+
+def webview_data_dir(slot: int | None = None) -> Path:
+    """WebView2 profile for this instance.
+
+    The default session keeps webview-data/; every other slot gets its own
+    folder, because WebView2 forbids two processes sharing one profile.
+    """
+    if slot is None:
+        slot = dev_slot()
+    if slot == ui_slot():
+        return data_dir() / "webview-data"
+    return data_dir() / f"webview-data-{slot}"
+
+
+def is_linked_worktree() -> bool:
+    """True when this checkout is a git worktree, not the main checkout."""
+    return (REPO_DIR / ".git").is_file()
+
+
+def _branch_name() -> str:
+    """Current branch, or the checkout folder name when git is unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_DIR), "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        name = result.stdout.strip()
+        if result.returncode == 0 and name:
+            return name
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return REPO_DIR.name
+
+
+def window_title() -> str:
+    """Title for this window, so parallel agents can tell them apart.
+
+    The main checkout stays ``YTMusic``. A worktree adds its branch name, and a
+    non-default instance adds its slot. Memoized.
+    """
+    global _title
+    if _title is not None:
+        return _title
+    if is_frozen():
+        _title = "YTMusic"
+        return _title
+    title = f"YTMusic - {_branch_name()}" if is_linked_worktree() else "YTMusic"
+    if dev_slot() != ui_slot():
+        title = f"{title} (slot {dev_slot()})"
+    _title = title
+    return title
 
 
 def generation() -> int:
@@ -110,6 +193,7 @@ def health_payload() -> dict[str, object]:
         "ok": True,
         "pid": os.getpid(),
         "slot": dev_slot(),
+        "checkout": checkout(),
         "generation": generation(),
         "restarted_files": restarted_files(),
     }

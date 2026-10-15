@@ -18,7 +18,8 @@ REPO_DIR = APP_DIR.parent
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-from dev.identity import dev_slot, probe_port
+from dev import slots
+from dev.identity import probe_port, ui_slot
 
 RESTART_LOG = DEV_DIR / ".dev-restarts.jsonl"
 # Test files and the artifacts dir do not change the running app.
@@ -55,17 +56,36 @@ def file_list(paths: list[Path]) -> list[str]:
     return [display_path(path) for path in paths]
 
 
+def child_flags() -> int:
+    """Creation flags for the app process.
+
+    ``tools/dev.py up`` runs this watcher with its output on a log file, so the
+    app would otherwise get a console window of its own. A watcher started in a
+    terminal keeps inheriting that terminal, so its tracebacks stay in view.
+    """
+    if os.name != "nt":
+        return 0
+    if sys.stdout.isatty():
+        return 0
+    return subprocess.CREATE_NO_WINDOW
+
+
 def start(generation: int, files: list[str]) -> subprocess.Popen[bytes]:
     env = os.environ.copy()
     env["ENV"] = "dev"
     env["PYTHONUNBUFFERED"] = "1"
-    env["DEV_SLOT"] = str(dev_slot())
+    # The default session runs on its checkout slot, so both the probe and Vite
+    # read the same number.
+    slot = ui_slot()
+    env["DEV_SLOT"] = str(slot)
+    env["DEV_UI_SLOT"] = str(slot)
     env["DEV_GENERATION"] = str(generation)
     env["DEV_RESTART_FILES"] = json.dumps(files)
     return subprocess.Popen(
         [sys.executable, "-u", str(APP_DIR / "main.py")],
         cwd=APP_DIR,
         env=env,
+        creationflags=child_flags(),
     )
 
 
@@ -128,10 +148,16 @@ def wait_for_changes(baseline: dict[Path, int]) -> tuple[dict[Path, int], list[P
 
 
 def main() -> None:
+    # Heal a checkout with no slot file, then hold the checkout slot for the
+    # life of the session so a closed session frees it.
+    if slots.SLOT_FILE.exists():
+        slot = ui_slot()
+        slots.claim_slot(slot, "checkout")
+    else:
+        slot = slots.ensure_checkout_slot()
     baseline = snapshot()
     generation = 1
     files: list[str] = []
-    slot = dev_slot()
     proc: subprocess.Popen[bytes] | None = start(generation, files)
     append_restart_log("start", generation, files, proc.pid)
     print(
@@ -179,6 +205,8 @@ def main() -> None:
         if proc is not None:
             stop(proc)
         print("[dev] stopped", flush=True)
+    finally:
+        slots.release_slot(slot)
 
 
 if __name__ == "__main__":

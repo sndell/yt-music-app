@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import fs from 'fs';
 import path from 'path';
 // Slot 0 is the main checkout (port 5173). A worktree writes app/dev/.dev-slot.
+// Vite loads this file before vite.config.ts, so keep the two in sync.
 function readDevSlotFile() {
     for (const relative of ['../app/dev/.dev-slot', '../dev/.dev-slot', '../app/.dev-slot']) {
         try {
@@ -14,11 +15,27 @@ function readDevSlotFile() {
             // Missing slot file; try the next location.
         }
     }
-    return '0';
+    return null;
 }
+// A linked worktree has ../.git as a file; the main checkout has a directory.
+function isLinkedWorktree() {
+    try {
+        return fs.statSync(path.resolve(import.meta.dirname, '../.git')).isFile();
+    }
+    catch {
+        return false;
+    }
+}
+// The checkout slot drives the Vite port. DEV_SLOT is the instance slot and must not move it.
 function devSlot() {
-    const fromEnv = process.env.DEV_SLOT?.trim();
+    const fromEnv = process.env.DEV_UI_SLOT?.trim();
     const raw = fromEnv ? fromEnv : readDevSlotFile();
+    if (raw === null) {
+        if (isLinkedWorktree()) {
+            throw new Error('No app/dev/.dev-slot in this worktree. Run "tools/dev.py up" once to assign a slot.');
+        }
+        return 0;
+    }
     const slot = Number.parseInt(raw.trim().replace(/^\uFEFF/, ''), 10);
     return Number.isNaN(slot) || slot < 0 ? 0 : slot;
 }

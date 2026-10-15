@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import os
 import struct
 import time
 import zlib
@@ -22,6 +23,8 @@ from typing import Any
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+
+_WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
 PW_RENDERFULLCONTENT = 0x00000002  # ask WebView2 to render into the DC, not just the frame
 SRCCOPY = 0x00CC0020
@@ -56,6 +59,40 @@ def _set_dpi_aware() -> None:
 
 
 def find_window(title: str = WINDOW_TITLE) -> int:
+    """Return this process's window titled ``title``.
+
+    ``FindWindowW`` hands back the first match on title alone, so with two
+    YTMusic windows open it can return another checkout's window. A worktree
+    names its window after its branch, so match the exact title first, then any
+    own window whose title starts with ``title``, and always keep the owning
+    pid. Falls back to ``FindWindowW`` when nothing matches.
+    """
+    pid = os.getpid()
+    exact: list[int] = []
+    prefixed: list[int] = []
+
+    def _visit(hwnd: int, _lparam: int) -> bool:
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length:
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            text = buf.value
+            if text == title or text.startswith(title):
+                owner = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+                if owner.value == pid:
+                    if text == title:
+                        exact.append(hwnd)
+                        return False  # exact, ours, stop walking
+                    prefixed.append(hwnd)
+        return True
+
+    user32.EnumWindows(_WNDENUMPROC(_visit), 0)
+    if exact:
+        return exact[0]
+    if prefixed:
+        return prefixed[0]
+
     hwnd = user32.FindWindowW(None, title)
     if not hwnd:
         raise RuntimeError(f"window {title!r} not found")
