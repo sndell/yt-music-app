@@ -11,7 +11,7 @@ import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { OverlayScroll } from "@/components/ui/OverlayScroll";
 import { useToast } from "@/components/ui/Toast";
 import { usePlayer } from "@/features/player";
-import { moveItem, pinFirst, useOrderMap } from "@/lib/orderMap";
+import { moveItem, orderFreshLast, pinFirst, useOrderMap } from "@/lib/orderMap";
 import { cn } from "@/util/cn";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
 
@@ -136,27 +136,23 @@ export const SidebarList = () => {
     return () => window.removeEventListener("ytmusic-auth-changed", onAuthChanged);
   }, [fetchPlaylists]);
 
-  // A freshly created playlist should land near the top of the panel. The saved
-  // order map pins ids, so unknown ones get written ahead of the rest once.
-  // Liked Music stays pinned above it: the panel's first row, always.
+  // A freshly created playlist belongs at the bottom of the panel. The saved
+  // order map pins ids, so a new one has to be written after the rest once;
+  // without that, the next fetch would place it by the endpoint's order.
+  // Liked Music stays pinned above everything: the panel's first row, always.
   const seenIdsRef = useRef<Set<string> | null>(null);
   useEffect(() => {
     const ids = ordered.map((playlist) => playlist.playlistId);
     if (ids.length === 0) return;
-    if (seenIdsRef.current == null) {
+    const seen = seenIdsRef.current;
+    if (seen == null) {
       seenIdsRef.current = new Set(ids);
       return;
     }
-    const isPinned = (id: string) => id === PINNED_PLAYLIST_ID;
-    const fresh = ids.filter((id) => !isPinned(id) && !seenIdsRef.current?.has(id));
-    ids.forEach((id) => seenIdsRef.current?.add(id));
+    const fresh = ids.filter((id) => id !== PINNED_PLAYLIST_ID && !seen.has(id));
     if (fresh.length === 0) return;
-    const rest = ids.filter((id) => !isPinned(id) && !fresh.includes(id));
-    orderMap.commit(SIDEBAR_SCOPE, [
-      ...ids.filter(isPinned),
-      ...fresh,
-      ...rest,
-    ]);
+    ids.forEach((id) => seen.add(id));
+    orderMap.commit(SIDEBAR_SCOPE, orderFreshLast(ids, PINNED_PLAYLIST_ID, fresh));
   }, [ordered, orderMap]);
 
   useEffect(() => {
