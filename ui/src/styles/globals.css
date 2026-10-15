@@ -125,6 +125,17 @@ body {
     outline: 2px solid oklch(0.9 0 0 / 0.16);
     outline-offset: 1px;
   }
+
+  /*
+   * Iconify icons are 1em inline-blocks and set no vertical-align, so on the
+   * text baseline they sit about 2px above the label beside them. -0.125em drops
+   * them to the middle of the text. Flex and grid items ignore vertical-align,
+   * so centred icon buttons are untouched.
+   */
+  [class^="icon-"],
+  [class*=" icon-"] {
+    vertical-align: -0.125em;
+  }
 }
 
 /*
