@@ -159,6 +159,8 @@ The UI accent lives in `ui/src/styles/globals.css` as three literals: `--color-a
 
 `StickyCollectionBar` (Playlist, Album, Artist) is z-30, above the track rows' z-10 wrappers. The collection pages clear the scroll container's edge-fade mask (`useEdgeFade`) at the very bottom, which drops the container's stacking context, so a z-10 bar ties with the rows and loses to DOM order and the songs paint over it. Only scrolling fully to the bottom shows this.
 
+Draggable rows keep the normal pointer cursor. Songs, sidebar playlists, queue entries, and the `SnapRow` card strips all reorder by drag, but hover shows `cursor-pointer`, not `cursor-grab`. `ui/src/components/ui/reorder.tsx` is the shared wrapper, so a `cursor-grab` added there comes back on every list at once. `SnapRow` still sets `grabbing` while a pointer drag is live, which is the only place that is wanted.
+
 Add-to-playlist writes: the picker sends every add and remove through one queue in `usePlaylist` (`enqueue`, a promise chain), so several quick picks finish one at a time instead of racing the session. YouTube rejects an add whose songs are already in the playlist, because `add_playlist_items` sends no dedupe option. Python returns that as `duplicate: true`, and the toast offers "Add anyway" to send the same edit again with `duplicates=True`. Clicking an added row calls `remove_playlist_videos`, which removes one row per song, using the `setVideoId`s it was given or looking them up in the playlist.
 
 ## Whose error
@@ -190,6 +192,8 @@ That runs `git worktree add` to `..\yt-music-app-<branch-name>` on a new branch 
 Setup installs the UI dependencies, copies `app/browser.json` when the new checkout has none, and writes `app/dev/.dev-python` and `app/dev/.dev-slot`. The slot comes from `app/dev/slots.py`, so it matches what any other starting checkout reserves. From that worktree, `tools\dev.py up` starts Vite and the watcher together against its slot. To start them by hand, run `pnpm dev` from the worktree's `ui`, and run `app\dev\watch.py` with the interpreter path stored in `app/dev/.dev-python` (the main checkout's venv). The window and the probe use that slot's ports.
 
 One `app\dev\watch.py` per worktree. Two agents in the same folder still share one app. The restart log names the files behind the current process.
+
+An opencode worktree never runs the setup script, so it has no `app\.venv` and no `app/dev/.dev-python`. `tools\test.ps1` still runs the UI steps there, since pnpm pulls from the store, but its pytest step dies on the missing interpreter with `CommandNotFoundException`. Run that step with the interpreter from the main checkout's venv, `& "<main checkout>\app\.venv\Scripts\python.exe" -m pytest -q`, from the worktree root. The same interpreter runs `app\dev\watch.py` from such a worktree.
 
 ## Breakpoints
 

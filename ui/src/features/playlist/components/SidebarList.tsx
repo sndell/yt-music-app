@@ -338,7 +338,6 @@ export const SidebarList = () => {
               >
                 <PlaylistSidebarItem
                   playlist={playlist}
-                  draggable={!pinned}
                   active={phase === "open" && preview?.playlistId === playlist.playlistId}
                   menuOpen={menu?.playlistId === playlist.playlistId}
                   onOpen={() => navigate(`/playlist/${playlist.playlistId}`)}
@@ -459,7 +458,6 @@ const PlaylistSidebarItem = ({
   playlist,
   active,
   menuOpen = false,
-  draggable = true,
   onOpen,
   onOpenMenu,
 }: {
@@ -467,8 +465,6 @@ const PlaylistSidebarItem = ({
   active: boolean;
   /** Keeps the row in its hover state while its context menu is open. */
   menuOpen?: boolean;
-  /** Pinned rows (Liked Music) are not draggable, so they show a pointer cursor. */
-  draggable?: boolean;
   onOpen: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) => {
@@ -492,7 +488,7 @@ const PlaylistSidebarItem = ({
       data-menu-open={menuOpen ? "true" : undefined}
       className={cn(
         "flex w-full min-w-0 items-center gap-2 rounded-lg p-1.5 text-left text-sm text-primary-dark lg:transition-colors hover:bg-primary-light hover:text-primary max-lg:justify-center max-lg:hover:bg-transparent",
-        draggable ? "cursor-grab" : "cursor-pointer",
+        "cursor-pointer",
         "data-[menu-open=true]:bg-primary-light data-[menu-open=true]:text-primary max-lg:data-[menu-open=true]:bg-transparent",
         active && "max-lg:bg-primary-light max-lg:text-primary",
       )}

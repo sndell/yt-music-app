@@ -202,7 +202,7 @@ export const ReorderItem = ({
       ref={setNodeRef}
       data-drag-item={dragDisabled ? undefined : ""}
       style={style}
-      className={cn("relative", !dragDisabled && "cursor-grab touch-none", className)}
+      className={cn("relative", !dragDisabled && "touch-none", className)}
       {...(dragDisabled ? {} : listeners)}
     >
       {isDragging && <DropPlaceholder />}

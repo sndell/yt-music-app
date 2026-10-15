@@ -801,7 +801,7 @@ const QueueItem = ({
         onOpenMenu(event.clientX, event.clientY);
       }}
       className={cn(
-        "group flex w-full cursor-grab items-center gap-2.5 rounded-lg p-1.5 text-left transition-[background-color,box-shadow,color] duration-700",
+        "group flex w-full cursor-pointer items-center gap-2.5 rounded-lg p-1.5 text-left transition-[background-color,box-shadow,color] duration-700",
         isCurrent ? "text-primary" : "text-primary-dark hover:bg-primary-light hover:text-primary",
         "data-[menu-open=true]:bg-primary-light data-[menu-open=true]:text-primary",
         isCurrent && !tone && "bg-primary-light"
