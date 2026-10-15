@@ -191,6 +191,8 @@ Setup installs the UI dependencies, copies `app/browser.json` when the new check
 
 One `app\dev\watch.py` per worktree. Two agents in the same folder still share one app. The restart log names the files behind the current process.
 
+An opencode worktree never runs the setup script, so it has no `app\.venv` and no `app/dev/.dev-python`. `tools\test.ps1` still runs the UI steps there, since pnpm pulls from the store, but its pytest step dies on the missing interpreter with `CommandNotFoundException`. Run that step with the interpreter from the main checkout's venv, `& "<main checkout>\app\.venv\Scripts\python.exe" -m pytest -q`, from the worktree root. The same interpreter runs `app\dev\watch.py` from such a worktree.
+
 ## Breakpoints
 
 Use the `Python: YTMusic` launch config. It starts `app/main.py` with the venv, `cwd` `app`, and `ENV=dev`. The probe listens on this checkout's slot port (8765 on the main checkout). Do not run `app\dev\watch.py` at the same time: a save would kill the debug session, and the port is already taken. Stop the debugger and return to `.\app\.venv\Scripts\python.exe app\dev\watch.py` from the repo root when finished.
