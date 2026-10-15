@@ -69,12 +69,18 @@ export const EditPlaylistDialog = ({
   return createPortal(
     <>
       <Modal pending={pending} onPointerDownOutside={onCancel} cardClassName="flex max-h-full flex-col">
+        {/*
+          The form is the scroll container, so overflow clips at its padding
+          box. The inset padding gives the inputs' focus ring room to show at
+          the left and right edges; the negative margin cancels it out, so the
+          resting layout is unchanged.
+        */}
         <form
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
           }}
-          className="min-h-0 flex-1 overflow-y-auto scrollbar-thin"
+          className="-m-1 min-h-0 flex-1 overflow-y-auto p-1 scrollbar-thin"
         >
           <h2 className="text-lg font-bold">Edit playlist</h2>
 
