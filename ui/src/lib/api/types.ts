@@ -254,6 +254,8 @@ export interface WatchCounterpart {
   likeStatus: LikeStatus;
   artists: WatchArtist[];
   views: string;
+  /** The counterpart's own kind; the music-video rendition is `..._OMV`. */
+  videoType?: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | null;
 }
 
 export interface WatchTrack {

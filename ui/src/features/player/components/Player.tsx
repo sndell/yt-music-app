@@ -57,6 +57,9 @@ export const Player = () => {
     toggleShuffle,
     rateSong,
     ratingPending,
+    currentVideoId,
+    videoOpen,
+    toggleVideo,
   } = usePlayer();
   const [isPlaying, setIsPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
@@ -319,6 +322,9 @@ export const Player = () => {
           canPrevious={hasPrevious || elapsedTime > RESTART_THRESHOLD_SECONDS}
           queueOpen={queueOpen}
           onToggleQueue={toggleQueue}
+          hasVideo={Boolean(currentVideoId)}
+          videoOpen={videoOpen}
+          onToggleVideo={toggleVideo}
           shuffle={shuffle}
           onToggleShuffle={toggleShuffle}
           loop={loop}
@@ -406,6 +412,9 @@ const PlayerControls = ({
   canPrevious,
   queueOpen,
   onToggleQueue,
+  hasVideo,
+  videoOpen,
+  onToggleVideo,
   shuffle,
   onToggleShuffle,
   loop,
@@ -425,6 +434,9 @@ const PlayerControls = ({
   canPrevious: boolean;
   queueOpen: boolean;
   onToggleQueue: () => void;
+  hasVideo: boolean;
+  videoOpen: boolean;
+  onToggleVideo: () => void;
   shuffle: boolean;
   onToggleShuffle: () => void;
   loop: boolean;
@@ -572,6 +584,16 @@ const PlayerControls = ({
           onClick={onToggleLoop}
         />
         <VolumeControl volume={volume} setVolume={setVolume} />
+        {hasVideo && (
+          <IconButton
+            iconClass="icon-[solar--video-frame-linear]"
+            label={videoOpen ? "Hide video" : "Show video"}
+            size="md"
+            tone={videoOpen ? "active" : "ghost"}
+            iconScale="dense"
+            onClick={onToggleVideo}
+          />
+        )}
         <IconButton
           iconClass={cn(
             "icon-[solar--alt-arrow-up-bold] transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",

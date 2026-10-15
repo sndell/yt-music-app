@@ -238,3 +238,16 @@ body {
     }
   }
 }
+
+/*
+ * The video fills its rounded section. Pointer events stay off so the embed
+ * cannot be clicked or focused, but YouTube still draws its own UI.
+ */
+.video-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+  pointer-events: none;
+}
