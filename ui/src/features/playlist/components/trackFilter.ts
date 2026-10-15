@@ -12,7 +12,8 @@ export const duplicateVideoIds = (tracks: readonly Track[]): Set<string> => {
 /**
  * The rows a collection list should show. `search` matches the song, its artists
  * and the album, like the in-playlist search on YouTube Music. `duplicatesOnly`
- * keeps every appearance of a song that repeats, so they can be told apart.
+ * keeps every appearance of a song that repeats, so they can be told apart, and
+ * groups each song's copies together in the order the song is first seen.
  */
 export const visibleTracks = (
   tracks: readonly Track[],
@@ -20,7 +21,7 @@ export const visibleTracks = (
 ): Track[] => {
   const needle = search.trim().toLowerCase();
   const duplicateIds = duplicatesOnly ? duplicateVideoIds(tracks) : null;
-  return tracks.filter((track) => {
+  const shown = tracks.filter((track) => {
     if (duplicateIds && !duplicateIds.has(track.videoId)) return false;
     if (!needle) return true;
     return (
@@ -29,4 +30,18 @@ export const visibleTracks = (
       (track.album?.name.toLowerCase().includes(needle) ?? false)
     );
   });
+  if (!duplicatesOnly) return shown;
+  // Group the copies of a song into one run: the song's first appearance sets the
+  // run's place, and its copies keep their own order inside the run.
+  const firstSeen = new Map<string, number>();
+  tracks.forEach((track, index) => {
+    if (!firstSeen.has(track.videoId)) firstSeen.set(track.videoId, index);
+  });
+  return shown
+    .map((track, index) => ({ track, index }))
+    .sort((a, b) => {
+      const byFirstSeen = (firstSeen.get(a.track.videoId) ?? 0) - (firstSeen.get(b.track.videoId) ?? 0);
+      return byFirstSeen || a.index - b.index;
+    })
+    .map(({ track }) => track);
 };

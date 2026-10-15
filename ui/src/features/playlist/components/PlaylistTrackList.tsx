@@ -124,8 +124,9 @@ export const PlaylistTrackList = ({
   const pad = popular ? "px-6" : "px-3 sm:px-4";
   // Either narrowing control hides rows; the count line replaces the column heads.
   const narrowing = filterActive || duplicatesOnly;
-  // Moving rows while a filter hides some of them, or while some are picked,
-  // would shift indexes the caller does not know about.
+  // Moving rows while a filter hides some of them, while finding duplicates groups
+  // them, or while some are picked, would shift indexes the caller does not know
+  // about. Finding duplicates keeps dragging off entirely.
   const reorderLocked = narrowing || selected.length > 0;
 
   const handleRowSelect = (index: number, event: MouseEvent) => {

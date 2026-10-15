@@ -60,4 +60,38 @@ describe("visibleTracks", () => {
     expect(visibleTracks(songs, { search: "alpha", duplicatesOnly: true })).toHaveLength(2);
     expect(visibleTracks(songs, { search: "beta", duplicatesOnly: true })).toHaveLength(0);
   });
+
+  it("groups the copies of each repeated song together", () => {
+    const songs = [
+      track("a", { title: "Alpha" }),
+      track("b", { title: "Beta" }),
+      track("a", { title: "Alpha" }),
+      track("c", { title: "Gamma" }),
+      track("b", { title: "Beta" }),
+    ];
+    const shown = visibleTracks(songs, { search: "", duplicatesOnly: true });
+    expect(shown.map((item) => item.videoId)).toEqual(["a", "a", "b", "b"]);
+  });
+
+  it("orders the groups by where each song is first seen", () => {
+    const songs = [
+      track("b", { title: "B one" }),
+      track("x", { title: "Single" }),
+      track("a", { title: "A one" }),
+      track("b", { title: "B two" }),
+      track("a", { title: "A two" }),
+    ];
+    const shown = visibleTracks(songs, { search: "", duplicatesOnly: true });
+    expect(shown.map((item) => item.title)).toEqual(["B one", "B two", "A one", "A two"]);
+  });
+
+  it("keeps the original list's order when not finding duplicates", () => {
+    const songs = [track("a"), track("b"), track("a"), track("b")];
+    expect(visibleTracks(songs, { search: "", duplicatesOnly: false }).map((t) => t.videoId)).toEqual([
+      "a",
+      "b",
+      "a",
+      "b",
+    ]);
+  });
 });
