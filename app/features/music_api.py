@@ -286,6 +286,37 @@ def _apply_added_dates(tracks: Any, items: list[dict[str, Any]]) -> int:
     return stamped
 
 
+def _cache_created_playlist(playlist_id: str, title: str, description: str, privacy: str) -> None:
+    """Cache the empty playlist ``create_playlist`` just made.
+
+    YouTube Music answers with a stub browse page while a new playlist is still
+    being prepared, and ytmusicapi cannot parse that page, so the first read
+    would fail and the playlist view would sit on its loader. The creation call
+    already knows the header, so cache it here and let the next successful
+    fetch replace it.
+    """
+    cache.set(
+        f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}",
+        {
+            "owned": True,
+            "id": playlist_id,
+            "privacy": privacy,
+            "description": description or None,
+            "views": None,
+            "duration": "",
+            "trackCount": 0,
+            "title": title,
+            "thumbnails": [],
+            "author": {"name": "", "id": None},
+            "year": "",
+            "durationSeconds": 0,
+            "tracks": [],
+            "dominantColor": None,
+        },
+        expire=CACHE_DURATION,
+    )
+
+
 def _delete_status(result: Any) -> str:
     """Decide the outcome of a ``delete_playlist`` call.
 
@@ -2894,6 +2925,9 @@ class MusicApi:
         )
         if not isinstance(playlist_id, str) or not playlist_id:
             raise RuntimeError("Could not create the playlist")
+        if not ids:
+            # Only an empty playlist can be described without reading it back.
+            _cache_created_playlist(playlist_id, title.strip(), description, privacy_value)
         logger.info("Created playlist %s (%d songs)", playlist_id, len(ids))
         return {"playlistId": playlist_id}
 

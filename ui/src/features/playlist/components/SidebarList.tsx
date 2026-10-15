@@ -8,6 +8,7 @@ import { PlaylistMenu } from "@/components/ui/PlaylistMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { EditPlaylistDialog } from "@/components/ui/EditPlaylistDialog";
 import { useEdgeFade } from "@/components/ui/useEdgeFade";
+import { OverlayScroll } from "@/components/ui/OverlayScroll";
 import { useToast } from "@/components/ui/Toast";
 import { usePlayer } from "@/features/player";
 import { moveItem, pinFirst, useOrderMap } from "@/lib/orderMap";
@@ -249,13 +250,14 @@ export const SidebarList = () => {
 
   return (
     <>
-    <div
-      ref={listRef}
+    <OverlayScroll
+      viewportRef={listRef}
+      className="h-full"
+      viewportClassName="flex flex-col gap-2 overflow-y-auto p-1.5"
       onPointerMove={onPointerMove}
       onPointerOut={onPointerOut}
       onFocus={onFocus}
       onBlur={onBlur}
-      className="flex h-full flex-col gap-2 overflow-y-auto p-1.5 scrollbar-thin"
     >
       <div className="flex h-9 items-center justify-between pl-2.5 pr-1.5 max-lg:justify-center max-lg:pl-0 max-lg:pr-0">
         <span className="truncate text-xs font-medium uppercase tracking-wide text-primary-dark max-lg:hidden">
@@ -352,7 +354,7 @@ export const SidebarList = () => {
           })}
         </ReorderList>
       </div>
-    </div>
+    </OverlayScroll>
       {menu && (
         <PlaylistMenu
           x={menu.x}
