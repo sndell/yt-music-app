@@ -207,6 +207,8 @@ One `app\dev\watch.py` per worktree. Two agents in the same folder still share o
 
 An opencode worktree never runs the Cursor setup script, so the first `tools\dev.py` command in it provisions the checkout: allocate a slot, record the main checkout's interpreter in `app/dev/.dev-python`, copy `app/browser.json`, and run `pnpm install` when `ui/node_modules` is missing. `tools\dev.py setup` does the same and prints the ports. `tools\test.ps1` and `app\dev\watch.py` read `app/dev/.dev-python`, so they run with that interpreter; `pytest` still runs from the worktree root. Python packages come from the main checkout's venv, not a per-worktree one.
 
+`.opencode/plugins/ytmusic-dev-instance/` does that on creation. It registers the worktree strategy, so `worktree_create` runs `git worktree add`, then `tools\dev.py setup`, then starts that worktree's app detached. The window and probe are up before the agent starts, with no manual step. It delegates every operation to git, so branch and detached behavior are unchanged. `opencode plugin list` shows it; it loads on `opencode reload` or a restart. To provision without starting a window, drop the `start` call in the plugin. Removal still hits the locked pnpm binaries above.
+
 ## Breakpoints
 
 Use the `Python: YTMusic` launch config. It starts `app/main.py` with the venv, `cwd` `app`, and `ENV=dev`. The probe listens on this checkout's slot port (8765 on the main checkout). Do not run `app\dev\watch.py` at the same time: a save would kill the debug session, and the port is already taken. Stop the debugger and return to `.\app\.venv\Scripts\python.exe app\dev\watch.py` from the repo root when finished.
