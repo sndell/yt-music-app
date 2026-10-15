@@ -317,6 +317,8 @@ export interface ApiMethods {
     params: [title: string, artist: string, playing: boolean, hasNext: boolean, artwork: string];
     response: void;
   };
+  get_volume: { params: []; response: number };
+  set_volume: { params: [volume: number]; response: number };
   get_discord_presence: { params: []; response: DiscordPresenceStatus };
   set_discord_presence: { params: [enabled: boolean]; response: DiscordPresenceStatus };
   update_discord_presence: {

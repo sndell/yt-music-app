@@ -4,5 +4,7 @@
 browser.json
 discord.json
 discord.json.tmp
+preferences.json
+preferences.json.tmp
 .cache/
 webview-data/
