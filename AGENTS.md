@@ -161,11 +161,13 @@ Check the cheapest way first and escalate only when it is not enough; speed is t
 
 Stop as soon as the evidence covers the change, and never re-run something you already ran. Keep output small: `state` instead of a raw payload, because a playlist dump is thousands of tokens of base64 thumbnails. `dev.py watch` runs the suites only with `--tests`.
 
-Writing JS or JSON on the command line is the biggest time sink here: PowerShell eats `|`, `||`, `>` and nested quotes. Put anything beyond a trivial expression in a file and use `tools\dev.py eval --file <path>`, and use `tools\dev.py call` instead of hand-writing a `python -c` one-liner.
+Writing JS or JSON on the command line is the biggest time sink here: PowerShell eats `|`, `||`, `>` and nested quotes. Put anything beyond a trivial expression in a file and use `tools\dev.py eval --file <path>`, and use `tools\dev.py call` instead of hand-writing a `python -c` one-liner. The app uses wouter's hash router, so a file with `window.location.hash = "#/album/<browseId>"` moves the window to a route. Pushing a pathname does not, and a reload then drops back to Home.
 
 A track row's context menu has no visible button; it opens on `contextmenu`. To raise it from the probe, find the row with `button[aria-label^="Play "]`, then dispatch `new MouseEvent("contextmenu", { bubbles: true, clientX, clientY })` on the button's parent. The menu's `Add to playlist` item opens the picker whose rows are easy to compare side by side.
 
 Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v2:<playlistId>` with a 7 day expiry. The payload's `id` field is `None` — the id is only in the key. `app/dev/` also keeps the probe, the screenshot capture, and `app/dev/.dev-artifacts/`.
+
+Albums are rated through `rate_playlist` with the album's `audioPlaylistId`. ytmusicapi has no `rate_album`. Read the saved state from `get_library_albums` and match on `browseId` or `playlistId`. `get_album`'s `likeStatus` is always `INDIFFERENT`, even for a saved album, because ytmusicapi reads the header toggle's `defaultServiceEndpoint` and never looks at `isToggled`. The album heart is in `ui/src/features/album`, backed by `useAlbumLibrary`.
 
 The UI accent lives in `ui/src/styles/globals.css` as three literals: `--color-accent`, `--text-color-accent`, and `--background-color-accent`. Change all three together. It colors the playing ring, the player progress and volume bars, and the search library toggle. A separate `--color-success` group (also `--text-color-success` and `--background-color-success`) greens the added-to-playlist checkmarks and the toast success icon and action label. Red stays for errors, destructive actions, and the duplicate badge.
 
