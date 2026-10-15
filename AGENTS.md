@@ -2,7 +2,7 @@
 
 The UI is Vite in `ui`. The desktop window is Python (`app/main.py`, pywebview). In dev the window loads Vite and calls Python through `window.pywebview.api`. That object exists only inside the desktop window. A browser tab on the Vite port, including the Cursor browser, does not have it.
 
-The main checkout is slot 0: Vite `5173`, probe `8765`, remote debugging `9222`. A worktree writes `app/dev/.dev-slot`, and its ports are those numbers plus the slot.
+The main checkout is slot 0: Vite `5173`, probe `8765`, remote debugging `9222`. A worktree writes `app/dev/.dev-slot`, and its ports are those numbers plus the slot. Two numbers matter. `DEV_UI_SLOT` is the checkout slot, which picks the Vite port and the URL the window loads. `DEV_SLOT` is the instance slot, which picks the probe port, the CDP port, and the WebView2 profile. They are equal for the default session.
 
 ## Apply unslop by default
 
@@ -47,6 +47,8 @@ The repo is Windows-only (pywebview + WebView2, PowerShell build script). Run co
 
 One Python window per checkout. A second `app\dev\watch.py` or debugger session on the same slot fights for that probe port.
 
+`tools\dev.py up` starts Vite and the watcher with `CREATE_NO_WINDOW`, and the watcher gives the app that flag too when the watcher's own output is on a log file. So a worktree started that way shows only the pywebview window, with no console window. Start `app\dev\watch.py` in a terminal when you want the app's tracebacks in that terminal; then the app inherits it and no extra window appears.
+
 `pnpm dev` and `app\dev\watch.py` never exit. Start each as a background task, not a foreground command. Before starting either, check `curl.exe -s http://127.0.0.1:8765/health` (add the slot from `app/dev/.dev-slot` when present): a response means the app is already up, so do not start a second watcher on that slot.
 
 UI, from `ui`:
@@ -74,6 +76,16 @@ If the window is closed or the process crashes, the watcher stays up and prints 
 Vite edits refresh inside the open window. Python edits close and reopen it. Wait for `[dev] restarted` and `/health` again before the next probe call.
 
 `__pycache__`, `.cache`, and `.venv` do not trigger a restart.
+
+## Parallel worktrees and slots
+
+Run `tools\dev.py up` from a checkout to start it. It ensures a slot, claims it, starts Vite and the watcher detached, and waits for `/health`. `pnpm dev` plus `app\dev\watch.py` still work once `app/dev/.dev-slot` exists. When a session already runs for this checkout, `up` prints its ports and exits instead of starting a second one.
+
+A slot is stable. A checkout keeps its number in `app/dev/.dev-slot`, rewrites only its own file when another checkout took that number, and frees the slot when the session ends so the next start reuses it. The allocator is `app/dev/slots.py`. The live registry is shared by every worktree at `<git-common-dir>/ytmusic-dev/<slot>.json`, found with `git rev-parse --path-format=absolute --git-common-dir`, so the per-checkout files never coordinate. The ports are the hard truth: a slot is busy while a live claim names it or one of its three ports is bound. `port_in_use` binds, it does not connect, because a connect to an unbound loopback port here times out and would call every free port busy.
+
+An extra app process for a test or a second agent is `tools\dev.py instance up`, which takes a free slot and prints its probe and CDP ports. Use `instance list` and `instance down --slot N` to manage them. Each instance needs its own WebView2 profile, because WebView2 refuses two processes on one folder, so a non-default slot uses `app/webview-data-<slot>/` while the default keeps `app/webview-data/`.
+
+The window title names the checkout, so parallel windows are easy to tell apart. The main checkout stays `YTMusic`, a worktree shows its branch as `YTMusic - <branch>`, and a non-default instance appends `(slot N)`. `screenshot` still matches on the owning pid, and it accepts any title that starts with `YTMusic`.
 
 ## Check a change
 
@@ -167,7 +179,7 @@ Any other client, from the main checkout:
 
 That runs `git worktree add` to `..\yt-music-app-<branch-name>` on a new branch and runs the setup script there. `.cursor\` is gitignored, so the script copies `setup-worktree-windows.ps1` into the new checkout itself. Remove a finished worktree with `git worktree remove ..\yt-music-app-<branch-name>`.
 
-Setup installs the UI dependencies, copies `app/browser.json` when the new checkout has none, and writes `app/dev/.dev-python` and `app/dev/.dev-slot`. Run `pnpm dev` from that worktree's `ui`. Run `app\dev\watch.py` with the interpreter path stored in `app/dev/.dev-python` (the main checkout's venv). The window and the probe use that slot's ports.
+Setup installs the UI dependencies, copies `app/browser.json` when the new checkout has none, and writes `app/dev/.dev-python` and `app/dev/.dev-slot`. The slot comes from `app/dev/slots.py`, so it matches what any other starting checkout reserves. From that worktree, `tools\dev.py up` starts Vite and the watcher together against its slot. To start them by hand, run `pnpm dev` from the worktree's `ui`, and run `app\dev\watch.py` with the interpreter path stored in `app/dev/.dev-python` (the main checkout's venv). The window and the probe use that slot's ports.
 
 One `app\dev\watch.py` per worktree. Two agents in the same folder still share one app. The restart log names the files behind the current process.
 
