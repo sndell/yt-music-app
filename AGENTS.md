@@ -193,6 +193,8 @@ Any other client, from the main checkout:
 
 That runs `git worktree add` to `..\yt-music-app-<branch-name>` on a new branch and runs the setup script there. `.cursor\` is gitignored, so the script copies `setup-worktree-windows.ps1` into the new checkout itself. Remove a finished worktree with `git worktree remove ..\yt-music-app-<branch-name>`.
 
+Deleting a worktree fails while a Vite for the same pnpm store is still running. `ui/node_modules/.pnpm` holds hardlinks into the store, Vite keeps the native ones mapped, and both `git worktree remove` and `rmdir` stop with `Access is denied` on the `@rolldown/binding`, `@tailwindcss/oxide`, and `lightningcss` binaries. Stop the `node.exe` that serves the repo, then delete. Deregistration and deletion are separate, so a path still on disk after `git worktree remove` means the files were locked; the opencode `worktree_remove` tool reports "Unable to remove worktree" for the same reason after it has already deregistered the entry, so check disk, not `git worktree list`.
+
 Setup installs the UI dependencies, copies `app/browser.json` when the new checkout has none, and writes `app/dev/.dev-python` and `app/dev/.dev-slot`. The slot comes from `app/dev/slots.py`, so it matches what any other starting checkout reserves. From that worktree, `tools\dev.py up` starts Vite and the watcher together against its slot. To start them by hand, run `pnpm dev` from the worktree's `ui`, and run `app\dev\watch.py` with the interpreter path stored in `app/dev/.dev-python` (the main checkout's venv). The window and the probe use that slot's ports.
 
 One `app\dev\watch.py` per worktree. Two agents in the same folder still share one app. The restart log names the files behind the current process.
