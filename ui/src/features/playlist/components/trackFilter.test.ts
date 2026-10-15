@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Track } from "@/lib/api";
-import { duplicateVideoIds, visibleTracks } from "./trackFilter";
+import { duplicateVideoIds, formatAddedAt, sortTracks, visibleTracks } from "./trackFilter";
 
 const track = (videoId: string, overrides: Partial<Track> = {}): Track => ({
   videoId,
@@ -93,5 +93,51 @@ describe("visibleTracks", () => {
       "a",
       "b",
     ]);
+  });
+});
+
+describe("sortTracks", () => {
+  const list = [track("a", { addedAt: 300 }), track("b", { addedAt: 100 }), track("c", { addedAt: 200 })];
+
+  it("keeps the playlist's own order untouched", () => {
+    expect(sortTracks(list, "playlist").map((t) => t.videoId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("orders the newest add first", () => {
+    expect(sortTracks(list, "added-desc").map((t) => t.videoId)).toEqual(["a", "c", "b"]);
+  });
+
+  it("orders the oldest add first", () => {
+    expect(sortTracks(list, "added-asc").map((t) => t.videoId)).toEqual(["b", "c", "a"]);
+  });
+
+  it("keeps songs without a time at the end, in playlist order", () => {
+    const mixed = [track("x"), track("a", { addedAt: 300 }), track("y"), track("b", { addedAt: 100 })];
+    expect(sortTracks(mixed, "added-desc").map((t) => t.videoId)).toEqual(["a", "b", "x", "y"]);
+    expect(sortTracks(mixed, "added-asc").map((t) => t.videoId)).toEqual(["b", "a", "x", "y"]);
+  });
+
+  it("keeps equal times in the order they appear", () => {
+    const copies = [track("a", { addedAt: 100 }), track("b", { addedAt: 100 }), track("a", { addedAt: 100 })];
+    expect(sortTracks(copies, "added-asc").map((t) => t.videoId)).toEqual(["a", "b", "a"]);
+  });
+
+  it("leaves the given list alone", () => {
+    const before = list.map((t) => t.videoId);
+    sortTracks(list, "added-asc");
+    expect(list.map((t) => t.videoId)).toEqual(before);
+  });
+});
+
+describe("formatAddedAt", () => {
+  it("is null without a time", () => {
+    expect(formatAddedAt(null)).toBeNull();
+    expect(formatAddedAt(undefined)).toBeNull();
+  });
+
+  it("formats the day and year", () => {
+    const formatted = formatAddedAt(1613573891);
+    expect(formatted).toMatch(/2021/);
+    expect(formatted).not.toMatch(/^Added/);
   });
 });

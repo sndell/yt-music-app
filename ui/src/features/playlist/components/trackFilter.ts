@@ -45,3 +45,30 @@ export const visibleTracks = (
     })
     .map(({ track }) => track);
 };
+
+/** How a collection list orders its rows. `playlist` keeps YouTube Music's own order. */
+export type TrackSort = "playlist" | "added-desc" | "added-asc";
+
+/**
+ * Order the rows a collection list shows. Songs with an add time sort by it;
+ * songs without one stay at the end in playlist order, in either direction.
+ * `Array.prototype.sort` is stable, so equal keys keep their relative order.
+ */
+export const sortTracks = (tracks: readonly Track[], sort: TrackSort): Track[] => {
+  if (sort === "playlist") return [...tracks];
+  const direction = sort === "added-asc" ? 1 : -1;
+  return [...tracks].sort((a, b) => {
+    if (a.addedAt == null && b.addedAt == null) return 0;
+    if (a.addedAt == null) return 1;
+    if (b.addedAt == null) return -1;
+    return (a.addedAt - b.addedAt) * direction;
+  });
+};
+
+/** "19 Feb 2025" for a Unix-seconds add time, or null when it is unknown. */
+export const formatAddedAt = (addedAt: number | null | undefined): string | null => {
+  if (addedAt == null) return null;
+  const date = new Date(addedAt * 1000);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+};
