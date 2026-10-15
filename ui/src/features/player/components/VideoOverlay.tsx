@@ -10,22 +10,19 @@ const MAX_DRIFT_SECONDS = 0.4;
 const PLAYER_VARS = {
   autoplay: 1,
   mute: 1,
-  controls: 0,
   rel: 0,
   modestbranding: 1,
   playsinline: 1,
-  disablekb: 1,
-  fs: 0,
-  iv_load_policy: 3,
   origin: window.location.origin,
 };
 
 const currentAudio = () => document.querySelector("audio");
 
 /**
- * The muted YouTube embed. It has no sound of its own; it follows the app's
- * `<audio>` for play, pause, and seek, and the poll pulls it back when the two
- * streams drift apart.
+ * The YouTube embed. It is muted, so the app's `<audio>` stays the sound, but
+ * it is otherwise a normal player: the user can press play or pause, seek, or
+ * open the video on YouTube. Those presses reach the app too, and the app's
+ * own controls reach the embed.
  */
 const YouTubeVideo = ({ videoId }: { videoId: string }) => {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -50,31 +47,29 @@ const YouTubeVideo = ({ videoId }: { videoId: string }) => {
         events: {
           onReady: () => {
             readyRef.current = true;
-            if (player) player.getIframe().style.pointerEvents = "none";
             player?.mute();
             const audio = currentAudio();
             if (!audio || audio.paused) player?.pauseVideo();
             else player?.playVideo();
             seekToAudio();
-            // The capture events can be missed when the overlay mounts
-            // mid-song, so the poll is the source of truth: it starts the video
-            // whenever the audio plays, stops it when the audio pauses, and
-            // seeks only when the two are out of step.
+            // Keep the picture on the audio while both play. A mismatch means
+            // the user paused the embed, which already paused the audio, so
+            // leave it be.
             poll = window.setInterval(() => {
               const node = currentAudio();
-              if (!readyRef.current || !player || !node) return;
-              if (node.paused) {
-                player.pauseVideo();
-                return;
-              }
-              const current = player.getCurrentTime();
-              const duration = player.getDuration();
-              if (duration > 0 && current >= duration - 0.5) return;
-              player.playVideo();
-              if (Math.abs(current - node.currentTime) > MAX_DRIFT_SECONDS) {
+              if (!readyRef.current || !player || !node || node.paused) return;
+              if (player.getPlayerState() !== 1) return;
+              if (Math.abs(player.getCurrentTime() - node.currentTime) > MAX_DRIFT_SECONDS) {
                 player.seekTo(node.currentTime, true);
               }
             }, SYNC_POLL_MS);
+          },
+          onStateChange: (event) => {
+            const node = currentAudio();
+            if (!node) return;
+            // The user pressed play or pause on the embed; move the app with it.
+            if (event.data === 2 && !node.paused) node.pause();
+            else if (event.data === 1 && node.paused) void node.play().catch(() => {});
           },
         },
       });
