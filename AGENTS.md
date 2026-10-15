@@ -117,6 +117,8 @@ The full workflow — which surface can see `window.pywebview.api`, how to read 
 
 Run the checks with `.\tools\test.ps1` (tsc + vitest + pytest); add `-Lint` for eslint.
 
+Match the check to the change. A one-line or cosmetic edit needs a look, not a suite: `state`, `screenshot`, or the thing in the window. Run the narrow suite for a logic change (`pnpm exec vitest run <file>`, `pytest app/tests/test_x.py`). Save `.\tools\test.ps1` for changes that cross modules, touch shared behaviour, or are about to be shared. `dev.py watch` runs the suites only when you pass `--tests`.
+
 Writing JS or JSON on the command line is the biggest time sink here: PowerShell eats `|`, `||`, `>` and nested quotes. Put anything beyond a trivial expression in a file and use `tools\dev.py eval --file <path>`, and use `tools\dev.py call` instead of hand-writing a `python -c` one-liner.
 
 Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v2:<playlistId>` with a 7 day expiry. The payload's `id` field is `None` — the id is only in the key. `app/dev/` also keeps the probe, the screenshot capture, and `app/dev/.dev-artifacts/`.

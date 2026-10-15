@@ -588,18 +588,26 @@ def _run_suite(name: str, command: list[str], cwd: Path) -> int:
 def _run_suites(changed: list[str], args: argparse.Namespace) -> int:
     """Run the unit suites the change touches, folded into the verdict.
 
+    Opt-in with ``--tests``. Most edits do not need a suite, and a one-line or
+    cosmetic change that a look already proved is not worth the seconds. Run the
+    suite when the change is behavioural, cross-module, or about to be shared.
+
     A change to ``app/`` Python (but not ``app/tests/``) runs pytest from the
     repo root; a change under ``ui/src`` runs vitest from ``ui``. A suite that
     cannot start (pytest not installed, pnpm absent) is UNKNOWN, not a pass.
     """
-    if args.no_tests:
-        return EXIT_OK
-
-    codes: list[int] = []
     app_python = any(
         path.endswith(".py") and _under(path, APP_DIR) and not _under(path, APP_DIR / "tests")
         for path in changed
     )
+    touched_ui = any(_under(path, UI_SRC) for path in changed)
+
+    if not args.tests:
+        if app_python or touched_ui:
+            print("  tests  skipped (pass --tests to run pytest/vitest)", flush=True)
+        return EXIT_OK
+
+    codes: list[int] = []
     if app_python:
         if importlib.util.find_spec("pytest") is None:
             print("  tests  pytest UNKNOWN (pytest is not installed for this interpreter)", flush=True)
@@ -607,7 +615,7 @@ def _run_suites(changed: list[str], args: argparse.Namespace) -> int:
         else:
             codes.append(_run_suite("pytest", [sys.executable, "-m", "pytest", "-q"], REPO))
 
-    if any(_under(path, UI_SRC) for path in changed):
+    if touched_ui:
         if shutil.which("pnpm") is None:
             print("  tests  vitest UNKNOWN (pnpm is not on PATH)", flush=True)
             codes.append(EXIT_INFRA)
@@ -741,7 +749,7 @@ def build_parser() -> argparse.ArgumentParser:
     watch = sub.add_parser("watch", help="live loop: change -> settle -> capture -> verdict")
     watch.add_argument("--check", default=None, help="JS expression that must be truthy")
     watch.add_argument("--verify", default=None, help="CDP verify script to run (tools/verify/*.mjs)")
-    watch.add_argument("--no-tests", action="store_true", help="skip the pytest/vitest suites")
+    watch.add_argument("--tests", action="store_true", help="also run the pytest/vitest suite for the changed area")
     watch.add_argument("--once", action="store_true", help="stop after the first change")
     watch.add_argument("--keep-going", action="store_true", help="do not exit on the first FAIL")
     watch.add_argument("--timeout", type=float, default=45.0, help="seconds to wait for a restart")
