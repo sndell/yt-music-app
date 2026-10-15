@@ -187,6 +187,12 @@ Draggable rows keep the normal pointer cursor. Songs, sidebar playlists, queue e
 
 Add-to-playlist writes: the picker sends every add and remove through one queue in `usePlaylist` (`enqueue`, a promise chain), so several quick picks finish one at a time instead of racing the session. YouTube rejects an add whose songs are already in the playlist, because `add_playlist_items` sends no dedupe option. Python returns that as `duplicate: true`, and the toast offers "Add anyway" to send the same edit again with `duplicates=True`. Clicking an added row calls `remove_playlist_videos`, which removes one row per song, using the `setVideoId`s it was given or looking them up in the playlist.
 
+## Music video overlay
+
+The player bar's video button toggles a video overlay when the playing song has a music video. `currentVideoId` in `PlayerContext` decides this with `musicVideoId`: the row's own id when its `videoType` is `MUSIC_VIDEO_TYPE_OMV`, or the watch playlist's `counterpart` id when the counterpart is an OMV. Library songs are all `MUSIC_VIDEO_TYPE_ATV`, so the counterpart is the usual path.
+
+`VideoOverlay` draws over the sidebar and the routed content on black. `main.tsx` wraps the sidebar and the content pane in a `relative` box and puts the overlay in it, so the black cover reaches the left bar while the queue and the player bar stay put. The overlay is inset and rounded like the other panels. It uses the YouTube IFrame Player API (`lib/youtube.ts` loads `iframe_api` once) because sync needs `getCurrentTime`. Play, pause, and seek follow the app's `<audio>` through capture-phase `play`, `pause`, and `seeked` events, and a one-second poll starts or stops the video to match the audio and calls `seekTo` when the two drift past 0.4s. Measured drift stays around 0.3s. The iframe keeps `controls=0`, `disablekb=1`, `fs=0`, `iv_load_policy=3`, `pointer-events: none`, and `tabIndex={-1}`, so no control bar draws and the embed cannot be operated. The player bar's video button uses the `dense` icon scale, because the film-frame glyph fills its box and looks larger than the shuffle and repeat icons at the same scale.
+
 ## Whose error
 
 Before you edit, read `/health` and remember `generation` and `restarted_files`.

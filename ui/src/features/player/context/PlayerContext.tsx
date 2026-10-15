@@ -1,5 +1,6 @@
 import { PyBridge, type LikeStatus, type Track, type WatchTrack, type WatchTunerChip } from "@/lib/api";
 import { moveItem } from "@/lib/orderMap";
+import { musicVideoId } from "../lib/musicVideo";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 type PlayerContextType = {
@@ -43,6 +44,11 @@ type PlayerContextType = {
   queueRevision: number;
   /** Bumps only when reaching the end appends more tracks. */
   queueFill: number;
+  /** Music video id for the current song, or null when it has none. */
+  currentVideoId: string | null;
+  /** Video overlay drawn over the routed content. */
+  videoOpen: boolean;
+  toggleVideo: () => void;
 };
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -156,6 +162,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [queueIndex, setQueueIndex] = useState(-1);
   const [queueRevision, setQueueRevision] = useState(0);
   const [queueFill, setQueueFill] = useState(0);
+  const [videoOpen, setVideoOpen] = useState(false);
   const [shuffleOn, setShuffleOn] = useState(false);
   const [ratingPending, setRatingPending] = useState(false);
   const [trackRatings, setTrackRatings] = useState<Record<string, LikeStatus>>({});
@@ -191,6 +198,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         : -1;
   const hasNext = currentQueueIndex >= 0 && currentQueueIndex < queue.length - 1;
   const hasPrevious = currentQueueIndex > 0;
+  const currentVideoId = musicVideoId(currentQueueIndex >= 0 ? queue[currentQueueIndex] : null);
 
   queueRef.current = queue;
   queueOpenRef.current = queueOpen;
@@ -200,6 +208,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
   const toggleQueue = useCallback(() => {
     setQueueOpen((open) => !open);
+  }, []);
+
+  const toggleVideo = useCallback(() => {
+    setVideoOpen((open) => !open);
   }, []);
 
   const loadWatchPlaylist = useCallback(
@@ -922,6 +934,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         currentQueueIndex,
         queueRevision,
         queueFill,
+        currentVideoId,
+        videoOpen,
+        toggleVideo,
       }}
     >
       {children}
