@@ -22,6 +22,7 @@ export const PlaylistMenu = ({
   onStartMix,
   onPlayNext,
   onAddToQueue,
+  onEdit,
 }: {
   x: number;
   y: number;
@@ -32,6 +33,8 @@ export const PlaylistMenu = ({
   onStartMix: () => void;
   onPlayNext: () => void;
   onAddToQueue: () => void;
+  /** Opens the edit dialog. Omitted for playlists the user cannot change. */
+  onEdit?: () => void;
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -171,6 +174,22 @@ export const PlaylistMenu = ({
           <span className={`${iconClass} icon-[solar--list-arrow-down-minimalistic-bold-duotone]`} />
           Add to queue
         </button>
+
+        {onEdit && (
+          <>
+            <div className="mx-2.5 my-1 border-t border-white/10" />
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              onClick={() => choose(onEdit)}
+              onPointerEnter={closeFlyouts}
+            >
+              <span className={`${iconClass} icon-[solar--pen-2-linear]`} />
+              Edit playlist
+            </button>
+          </>
+        )}
       </div>
 
       {shuffleAnchor && onTrueShuffle && (

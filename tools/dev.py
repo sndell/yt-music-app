@@ -348,14 +348,31 @@ def cmd_up(args: argparse.Namespace) -> int:
     ui_log = (ARTIFACTS / "vite.log").open("ab")
     py_log = (ARTIFACTS / "app.log").open("ab")
 
+    # pnpm pipes its child's output and buffers it when stdout is not a terminal,
+    # which leaves vite.log empty. Run vite directly so its output reaches the file.
+    node = shutil.which("node")
+    vite_bin = UI_DIR / "node_modules" / "vite" / "bin" / "vite.js"
+    if node and vite_bin.exists():
+        vite_command = [node, str(vite_bin)]
+    else:
+        vite_command = ["cmd", "/c", "pnpm", "dev"]
+
     vite = subprocess.Popen(
-        ["cmd", "/c", "pnpm", "dev"],
+        vite_command,
         cwd=UI_DIR,
         env=env,
         stdout=ui_log,
         stderr=ui_log,
         creationflags=flags,
     )
+
+    # The window must not load before Vite can serve its module graph: a page
+    # fetched during Vite's cold start ends up blank, and no reload happens on
+    # its own. Wait for Vite, then start the window.
+    vite_ready = wait_for_http(f"http://localhost:{p['ui']}/", timeout=60.0)
+    if not vite_ready:
+        print(f"warning: vite did not answer on http://localhost:{p['ui']}/ within 60s")
+
     watcher = subprocess.Popen(
         [interpreter, "-u", str(APP_DIR / "dev" / "watch.py")],
         cwd=REPO,
@@ -369,7 +386,18 @@ def cmd_up(args: argparse.Namespace) -> int:
     print(f"watcher  pid={watcher.pid}  probe http://127.0.0.1:{p['probe']}   log={ARTIFACTS / 'app.log'}")
     if args.devtools:
         print(f"devtools cdp http://127.0.0.1:{p['cdp']}")
-    print("Wait for '[dev] restarted' in app.log, then run: tools/dev.py health")
+
+    # Belt and braces: once the probe answers, reload the window so it cannot be
+    # stuck on a blank page from any earlier race.
+    if wait_for_http(f"http://127.0.0.1:{p['probe']}/health", timeout=90.0):
+        try:
+            probe("POST", "/reload", {}, slot=slot)
+            print("window   reloaded after startup")
+        except ToolError:
+            pass
+        print("Ready. Check it with: tools/dev.py state")
+    else:
+        print("Probe did not answer within 90s; check app.log")
     return EXIT_OK
 
 
@@ -401,6 +429,18 @@ def short(path: str) -> str:
         return str(Path(path).relative_to(REPO)).replace("\\", "/")
     except ValueError:
         return path
+
+
+def wait_for_http(url: str, timeout: float = 60.0) -> bool:
+    """True once ``url`` answers. Used to start Vite before the window loads."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            request("GET", url, timeout=3.0)
+            return True
+        except ToolError:
+            time.sleep(0.4)
+    return False
 
 
 def wait_for_restart(slot: int, previous_generation: int | None, timeout: float) -> int | None:
