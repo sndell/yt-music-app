@@ -137,6 +137,10 @@ For UI changes, run `pnpm exec tsc --noEmit` from `ui` for types.
 
 The full workflow — which surface can see `window.pywebview.api`, how to read a verdict, and the safety rules for anything that writes to the account — is in `.agents/skills/debug-ytmusic/`. Read it before a change you cannot prove from the terminal. Written artifacts land in `app/dev/.dev-artifacts/`.
 
+A presentational component can be rendered on its own, without the window or any account data. Vite serves any extra `.html` file at the `ui` root, so a throwaway entry that mounts that component with literal props gets the real styles. Start Vite with `$env:DEV_UI_SLOT="1"` to take port 5174 without writing `app/dev/.dev-slot`, then shoot it with `msedge --headless=new --screenshot=out.png --window-size=480,620 http://localhost:5174/<entry>.html`. Add `--force-device-scale-factor=2` when the detail is a few pixels wide, such as a focus ring. The opencode browser tab is a worse fit here because `browser.screenshot` fails with "Screenshot needs a visible tab" whenever the desktop window is not in front, while `browser.evaluate` keeps working.
+
+What that catches: a scroll container clips its children at its padding box, so a focus ring drawn outside a full-width child gets sliced off at the left and right edges. `overflow-y-auto` does this even when the content does not overflow, because the other axis then computes to `auto` too. `EditPlaylistDialog` gives the scrolling form `-m-1 p-1`, and the negative margin cancels the padding so the resting layout does not move.
+
 Run the checks with `.\tools\test.ps1` (tsc + vitest + pytest); add `-Lint` for eslint.
 
 Check the cheapest way first and escalate only when it is not enough; speed is the point.
