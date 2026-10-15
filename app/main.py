@@ -30,6 +30,7 @@ import webview
 from features.music_api import MusicApi
 from util.discord_presence import discord_presence
 from util.media_controls import media_controls, prepare_webview
+from util.preferences import preferences
 from util.ui_server import serve_ui
 from util.webview_controller import WebViewController
 
@@ -64,6 +65,14 @@ class Api(MusicApi):
     ) -> None:
         """Show the current song on Discord, or clear it when nothing is playing."""
         discord_presence.update(title, artist, album, playing, elapsed, duration, artwork, video_id)
+
+    def get_volume(self) -> int:
+        """Saved player volume, 0-100 on the slider scale."""
+        return preferences.volume()
+
+    def set_volume(self, volume: int) -> int:
+        """Save the player volume and return the stored value."""
+        return preferences.set_volume(volume)
 
 
 def resource_path(*relative_parts: str) -> Path:

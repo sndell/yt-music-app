@@ -104,6 +104,8 @@ export const PyBridge = {
   clearAllCache: () => callPython("clear_all_cache"),
   updateMediaControls: (title: string, artist: string, playing: boolean, hasNext: boolean, artwork: string) =>
     callPython("update_media_controls", title, artist, playing, hasNext, artwork),
+  getVolume: () => callPython("get_volume"),
+  setVolume: (volume: number) => callPython("set_volume", volume),
   getDiscordPresence: () => callPython("get_discord_presence"),
   setDiscordPresence: (enabled: boolean) => callPython("set_discord_presence", enabled),
   updateDiscordPresence: (

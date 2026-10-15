@@ -14,6 +14,8 @@ const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate
 
 const RESTART_THRESHOLD_SECONDS = 3;
 const PRESENCE_SEEK_SECONDS = 3;
+/** Wait for the slider to settle before writing the volume to disk. */
+const VOLUME_SAVE_DELAY_MS = 400;
 
 const largestThumbnail = (thumbnails: Thumbnail[] | undefined) => {
   let best = "";
@@ -185,6 +187,26 @@ export const Player = () => {
     audio.volume = level;
     audio.muted = level === 0;
   }, [gain]);
+
+  // Volume is saved by Python: the packaged page's localhost port changes per launch, so localStorage would not stick.
+  const volumeLoadedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    void PyBridge.getVolume().then((result) => {
+      if (cancelled) return;
+      if (result.success && typeof result.data === "number") setVolume(result.data);
+      volumeLoadedRef.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!volumeLoadedRef.current) return;
+    const timer = window.setTimeout(() => void PyBridge.setVolume(volume), VOLUME_SAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [volume]);
 
   useEffect(() => {
     const audio = playerRef.current;
