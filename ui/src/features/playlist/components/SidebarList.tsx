@@ -1,15 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import type { PlaylistSummary } from "@/lib/api";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 import { PlaylistMenu } from "@/components/ui/PlaylistMenu";
+import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { usePlayer } from "@/features/player";
-import { moveItem, useOrderMap } from "@/lib/orderMap";
+import { moveItem, pinFirst, useOrderMap } from "@/lib/orderMap";
 import { cn } from "@/util/cn";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
-import { RenamePlaylistDialog } from "./RenamePlaylistDialog";
 
 const SIDEBAR_SCOPE = "sidebar:playlists";
 
@@ -28,10 +28,22 @@ type PreviewState = {
 };
 
 export const SidebarList = () => {
-  const { playlists, isLoading, error, fetchPlaylists, renamePlaylist, setPlaylistPrivacy } = usePlaylist();
+  const { playlists, isLoading, error, fetchPlaylists, createPlaylist } = usePlaylist();
   const orderMap = useOrderMap();
-  const ordered = orderMap.apply(playlists, (playlist) => playlist.playlistId, SIDEBAR_SCOPE);
-  const { playPlaylist, queuePlaylist } = usePlayer();
+  const applyOrderMap = orderMap.apply;
+  // Liked Music is pinned to the panel's first row: keep it there even if a
+  // saved order from before this rule lists another playlist ahead of it.
+  // Memoized so `ordered` keeps its identity unless the list or order changes.
+  const ordered = useMemo(
+    () =>
+      pinFirst(
+        applyOrderMap(playlists, (playlist) => playlist.playlistId, SIDEBAR_SCOPE),
+        (playlist) => playlist.playlistId,
+        PINNED_PLAYLIST_ID,
+      ),
+    [applyOrderMap, playlists],
+  );
+  const { playPlaylist, queuePlaylist, trueShufflePlaylist } = usePlayer();
   const [, navigate] = useLocation();
   const listRef = useRef<HTMLDivElement>(null);
   const pointer = useRef({ x: 0, y: 0 });
@@ -43,7 +55,7 @@ export const SidebarList = () => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
   const [menu, setMenu] = useState<{ playlistId: string; x: number; y: number } | null>(null);
-  const [renaming, setRenaming] = useState<{ playlistId: string; title: string } | null>(null);
+  const [creating, setCreating] = useState(false);
   playlistsRef.current = ordered;
   menuOpenRef.current = menu != null;
 
@@ -115,6 +127,29 @@ export const SidebarList = () => {
     window.addEventListener("ytmusic-auth-changed", onAuthChanged);
     return () => window.removeEventListener("ytmusic-auth-changed", onAuthChanged);
   }, [fetchPlaylists]);
+
+  // A freshly created playlist should land near the top of the panel. The saved
+  // order map pins ids, so unknown ones get written ahead of the rest once.
+  // Liked Music stays pinned above it: the panel's first row, always.
+  const seenIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = ordered.map((playlist) => playlist.playlistId);
+    if (ids.length === 0) return;
+    if (seenIdsRef.current == null) {
+      seenIdsRef.current = new Set(ids);
+      return;
+    }
+    const isPinned = (id: string) => id === PINNED_PLAYLIST_ID;
+    const fresh = ids.filter((id) => !isPinned(id) && !seenIdsRef.current?.has(id));
+    ids.forEach((id) => seenIdsRef.current?.add(id));
+    if (fresh.length === 0) return;
+    const rest = ids.filter((id) => !isPinned(id) && !fresh.includes(id));
+    orderMap.commit(SIDEBAR_SCOPE, [
+      ...ids.filter(isPinned),
+      ...fresh,
+      ...rest,
+    ]);
+  }, [ordered, orderMap]);
 
   useEffect(() => {
     const list = listRef.current;
@@ -191,11 +226,6 @@ export const SidebarList = () => {
     hideFromTarget(event.target, event.relatedTarget);
   };
 
-  const menuPlaylist = menu ? ordered.find((playlist) => playlist.playlistId === menu.playlistId) : undefined;
-  const menuEditable = Boolean(
-    menuPlaylist && menuPlaylist.owned !== false && menuPlaylist.playlistId !== PINNED_PLAYLIST_ID,
-  );
-
   return (
     <>
     <div
@@ -206,6 +236,20 @@ export const SidebarList = () => {
       onBlur={onBlur}
       className="flex h-full flex-col gap-2 overflow-y-auto p-1.5 scrollbar-thin"
     >
+      <div className="flex h-9 items-center justify-between pl-2.5 pr-1.5 max-lg:justify-center max-lg:pl-0 max-lg:pr-0">
+        <span className="truncate text-xs font-medium uppercase tracking-wide text-primary-dark max-lg:hidden">
+          Playlists
+        </span>
+        <button
+          type="button"
+          title="New playlist"
+          aria-label="New playlist"
+          onClick={() => setCreating(true)}
+          className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-full text-base text-primary-dark transition-colors hover:bg-primary-light hover:text-primary max-lg:size-9"
+        >
+          <span className="icon-[solar--add-linear]" />
+        </button>
+      </div>
       <div className="flex flex-1 flex-col gap-1">
         {error && (
           <div className="px-2 text-sm text-red-400 max-lg:grid max-lg:place-items-center max-lg:px-0">
@@ -223,7 +267,7 @@ export const SidebarList = () => {
           </div>
         )}
 
-        {isLoading && (
+        {isLoading && playlists.length === 0 && (
           <div className="grid flex-1 place-items-center py-8">
             <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
           </div>
@@ -298,19 +342,23 @@ export const SidebarList = () => {
             setMenu(null);
           }}
           onShuffle={() => void playPlaylist(menu.playlistId, "shuffle")}
+          onTrueShuffle={() => void trueShufflePlaylist(menu.playlistId)}
           onStartMix={() => void playPlaylist(menu.playlistId, "mix")}
           onPlayNext={() => void queuePlaylist(menu.playlistId, "next")}
           onAddToQueue={() => void queuePlaylist(menu.playlistId, "end")}
-          canEdit={menuEditable}
-          onRename={() => setRenaming({ playlistId: menu.playlistId, title: menuPlaylist?.title ?? "" })}
-          onSetPrivacy={(privacy) => void setPlaylistPrivacy(menu.playlistId, privacy)}
         />
       )}
-      {renaming && (
-        <RenamePlaylistDialog
-          initialTitle={renaming.title}
-          onCancel={() => setRenaming(null)}
-          onSubmit={(title) => renamePlaylist(renaming.playlistId, title)}
+      {creating && (
+        <CreatePlaylistDialog
+          onCancel={() => setCreating(false)}
+          onSubmit={async (title, description, privacy) => {
+            const playlistId = await createPlaylist(title, description, privacy, []);
+            if (playlistId) {
+              setCreating(false);
+              navigate(`/playlist/${playlistId}`);
+            }
+            return playlistId;
+          }}
         />
       )}
       {phase !== "closed" && preview && (

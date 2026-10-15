@@ -30,6 +30,7 @@ import webview
 from features.music_api import MusicApi
 from util.discord_presence import discord_presence
 from util.media_controls import media_controls, prepare_webview
+from util.preferences import preferences
 from util.ui_server import serve_ui
 from util.webview_controller import WebViewController
 
@@ -65,6 +66,14 @@ class Api(MusicApi):
         """Show the current song on Discord, or clear it when nothing is playing."""
         discord_presence.update(title, artist, album, playing, elapsed, duration, artwork, video_id)
 
+    def get_volume(self) -> int:
+        """Saved player volume, 0-100 on the slider scale."""
+        return preferences.volume()
+
+    def set_volume(self, volume: int) -> int:
+        """Save the player volume and return the stored value."""
+        return preferences.set_volume(volume)
+
 
 def resource_path(*relative_parts: str) -> Path:
     """Get absolute path to resource, works for dev and PyInstaller builds."""
@@ -97,6 +106,14 @@ def _disable_browser_context_menu(window: webview.Window) -> None:
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
+    if _DEBUG:
+        # Dev-only: keep Python logs in memory for the probe's /logs, and let the
+        # page forward its console through the JS API. This runs before the
+        # window is created so `dev_report` is part of the exposed API.
+        from dev import observability
+
+        observability.install_python_ring()
+        observability.attach_renderer_sink(api)
     # Slot 0 stays on port 5173. A worktree's slot moves the Vite URL with it.
     if ENV == "dev":
         from dev.identity import debug_port, ui_origin

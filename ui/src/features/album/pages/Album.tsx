@@ -120,7 +120,7 @@ const PageFallback = ({ error, onReload }: { error: string | null; onReload: () 
 
 export const Album = () => {
   const { id } = useParams();
-  const { playPlaylist, trackRatings } = usePlayer();
+  const { playPlaylist, trackRatings, trueShuffle } = usePlayer();
   const [album, setAlbum] = useState<AlbumDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadedId, setLoadedId] = useState(id);
@@ -214,8 +214,13 @@ export const Album = () => {
     />
   );
 
+  const shuffleMenu =
+    audioPlaylistId && rated.tracks.length > 0
+      ? { onShuffle: () => play("shuffle"), onTrueShuffle: () => void trueShuffle(rated.tracks) }
+      : undefined;
+
   const playback = audioPlaylistId ? (
-    <PlaybackButtons onPlay={() => play("play")} onShuffle={() => play("shuffle")} />
+    <PlaybackButtons onPlay={() => play("play")} shuffleMenu={shuffleMenu} />
   ) : null;
 
   return (
@@ -228,7 +233,7 @@ export const Album = () => {
         coverFallback
         meta={meta("text-sm leading-5")}
         onPlay={audioPlaylistId ? () => play("play") : undefined}
-        onShuffle={audioPlaylistId ? () => play("shuffle") : undefined}
+        shuffleMenu={shuffleMenu}
         columnHeaders
       />
 

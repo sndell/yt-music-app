@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "wouter";
+import { PyBridge } from "@/lib/api";
 import type { Thumbnail } from "@/lib/api/types";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
@@ -19,15 +20,40 @@ export const BrowseCard = ({
   explicit?: boolean;
   thumbnails: Thumbnail[];
 }) => {
-  const [failed, setFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [inlined, setInlined] = useState<{ from: string; url: string } | null>(null);
   const thumbnailUrl = thumbnails?.[0]?.url;
+  const inlinedUrl = inlined?.from === thumbnailUrl ? inlined.url : null;
+  const coverSrc = inlinedUrl ?? thumbnailUrl;
+  const showCover = Boolean(thumbnailUrl) && failedUrl !== thumbnailUrl;
   const detail = subtitle?.trim();
+
+  const handleCoverError = () => {
+    if (!thumbnailUrl) return;
+    if (inlined?.from === thumbnailUrl) {
+      setFailedUrl(thumbnailUrl);
+      return;
+    }
+    void PyBridge.inlineThumbnail(thumbnailUrl).then((result) => {
+      if (result.success && typeof result.data === "string" && result.data.startsWith("data:")) {
+        setInlined({ from: thumbnailUrl, url: result.data });
+      } else {
+        setFailedUrl(thumbnailUrl);
+      }
+    });
+  };
 
   return (
     <Link href={href} aria-label={`Open ${title}`} className="group w-36 shrink-0 sm:w-40">
       <div className="relative aspect-square overflow-hidden rounded-md bg-secondary">
-        {thumbnailUrl && !failed ? (
-          <img src={thumbnailUrl} alt="" draggable={false} onError={() => setFailed(true)} className="h-full w-full object-cover" />
+        {showCover && coverSrc ? (
+          <img
+            src={coverSrc}
+            alt=""
+            draggable={false}
+            onError={handleCoverError}
+            className="h-full w-full object-cover"
+          />
         ) : (
           <span className="grid h-full w-full place-items-center">
             <span className="icon-[solar--music-note-linear] text-2xl text-primary-dark" />

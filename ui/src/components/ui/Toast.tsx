@@ -4,16 +4,24 @@ import { cn } from "@/util/cn";
 
 export type ToastTone = "success" | "error";
 
-type ToastMessage = { id: number; message: string; tone: ToastTone };
+export type ToastAction = {
+  /** Short verb shown on the right of the message, e.g. "Undo". */
+  label: string;
+  /** Runs when the toast action is pressed; the toast closes right after. */
+  onClick: () => void;
+};
+
+type ToastMessage = { id: number; message: string; tone: ToastTone; action?: ToastAction };
 
 type ToastContextValue = {
   /** Show a short message above the player. */
-  showToast: (message: string, tone?: ToastTone) => void;
+  showToast: (message: string, tone?: ToastTone, action?: ToastAction) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-const DISMISS_MS = 3200;
+const TOAST_MS = 3200;
+const TOAST_ACTION_MS = 5600;
 const MAX_VISIBLE = 3;
 
 export const ToastProvider = ({ children }: { children: ReactNode }) => {
@@ -29,13 +37,11 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const showToast = useCallback(
-    (message: string, tone: ToastTone = "success") => {
+    (message: string, tone: ToastTone = "success", action?: ToastAction) => {
       const id = ++nextIdRef.current;
-      setToasts((current) => [...current.slice(-(MAX_VISIBLE - 1)), { id, message, tone }]);
-      timersRef.current.set(
-        id,
-        window.setTimeout(() => dismiss(id), DISMISS_MS),
-      );
+      setToasts((current) => [...current.slice(-(MAX_VISIBLE - 1)), { id, message, tone, action }]);
+      // Undo offers benefit from staying a little longer than a plain toast.
+      timersRef.current.set(id, window.setTimeout(() => dismiss(id), action ? TOAST_ACTION_MS : TOAST_MS));
     },
     [dismiss],
   );
@@ -66,6 +72,7 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
                 )}
               />
               <span className="min-w-0 truncate">{toast.message}</span>
+              {toast.action ? <ToastActionButton action={toast.action} onDismiss={() => dismiss(toast.id)} /> : null}
             </div>
           ))}
         </div>,
@@ -74,6 +81,20 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
     </ToastContext.Provider>
   );
 };
+
+const ToastActionButton = ({ action, onDismiss }: { action: ToastAction; onDismiss: () => void }) => (
+  <button
+    type="button"
+    onClick={(event) => {
+      event.stopPropagation();
+      onDismiss();
+      action.onClick();
+    }}
+    className="shrink-0 cursor-pointer font-semibold text-accent uppercase hover:brightness-110"
+  >
+    {action.label}
+  </button>
+);
 
 export const useToast = () => {
   const value = useContext(ToastContext);

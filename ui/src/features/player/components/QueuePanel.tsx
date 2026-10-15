@@ -1,11 +1,13 @@
 import type { WatchTrack, WatchTunerChip } from "@/lib/api";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { TrackMenu } from "@/components/ui/TrackMenu";
+import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { cn } from "@/util/cn";
 import { applyEdgeMask } from "@/components/ui/useEdgeFade";
 import { hexToRgba } from "@/util/hex_to_rgba";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ReorderItem, ReorderList, consumeDragClick, stableDragId } from "@/components/ui/reorder";
 import { usePlayer } from "../context/PlayerContext";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
@@ -277,7 +279,8 @@ const CoverWash = ({ url, sampleUrl, color }: { url?: string; sampleUrl?: string
   }, [sampleUrl, shownUrl]);
 
   const tone = color ? readableAccent(color) : null;
-  const soften = coverIsDark || Boolean(color && tone && tone.toLowerCase() !== color.toLowerCase());
+  // A dark cover can carry more colour; a bright one needs a heavier scrim.
+  const dark = coverIsDark;
 
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -285,15 +288,19 @@ const CoverWash = ({ url, sampleUrl, color }: { url?: string; sampleUrl?: string
         className="absolute inset-0"
         style={{ maskImage: waveMask, WebkitMaskImage: waveMask }}
       >
-        {tone && !soften && (
+        {tone && (
           <>
             <div
-              className="absolute -top-16 left-1/2 h-72 w-[150%] -translate-x-1/2 rounded-full blur-3xl"
-              style={{ background: hexToRgba(tone, 0.34) }}
+              className="absolute -top-20 left-1/2 h-72 w-[150%] -translate-x-1/2 rounded-full blur-3xl"
+              style={{ background: hexToRgba(tone, dark ? 0.5 : 0.4) }}
             />
             <div
-              className="absolute top-[30%] left-[18%] h-60 w-60 rounded-full blur-3xl"
-              style={{ background: hexToRgba(tone, 0.26) }}
+              className="absolute top-[26%] left-[14%] h-64 w-64 rounded-full blur-3xl"
+              style={{ background: hexToRgba(tone, dark ? 0.34 : 0.26) }}
+            />
+            <div
+              className="absolute top-[60%] right-[-18%] h-64 w-64 rounded-full blur-3xl"
+              style={{ background: hexToRgba(tone, dark ? 0.24 : 0.16) }}
             />
           </>
         )}
@@ -303,41 +310,48 @@ const CoverWash = ({ url, sampleUrl, color }: { url?: string; sampleUrl?: string
               src={shownUrl}
               alt=""
               className={cn(
-                "absolute top-[-18%] left-1/2 h-80 w-[180%] max-w-none object-cover blur-3xl saturate-150 animate-queue-wash",
+                "absolute top-[-18%] left-1/2 h-80 w-[180%] max-w-none object-cover blur-3xl saturate-200 animate-queue-wash",
                 "transition-opacity duration-500",
-                visible ? (soften ? "opacity-35" : "opacity-80") : "opacity-0"
+                visible ? (dark ? "opacity-55" : "opacity-38") : "opacity-0"
               )}
             />
             <img
               src={shownUrl}
               alt=""
               className={cn(
-                "absolute top-[22%] left-1/2 h-[28rem] w-[210%] max-w-none object-cover blur-3xl saturate-150 animate-queue-wash-low",
+                "absolute top-[22%] left-1/2 h-[28rem] w-[210%] max-w-none object-cover blur-3xl saturate-200 animate-queue-wash-low",
                 "transition-opacity duration-500",
-                visible ? (soften ? "opacity-22" : "opacity-55") : "opacity-0"
+                visible ? (dark ? "opacity-35" : "opacity-22") : "opacity-0"
               )}
             />
           </>
         )}
-        {tone && soften && (
-          <>
-            <div
-              className="absolute -top-16 left-1/2 h-72 w-[150%] -translate-x-1/2 rounded-full blur-3xl"
-              style={{ background: hexToRgba(tone, 0.5) }}
-            />
-            <div
-              className="absolute top-[30%] left-[18%] h-60 w-60 rounded-full blur-3xl"
-              style={{ background: hexToRgba(tone, 0.34) }}
-            />
-          </>
-        )}
       </div>
-      <div className="absolute inset-0 bg-linear-to-b from-transparent from-30% via-primary/45 via-78% to-primary" />
+
+      {/*
+        Always-on scrim. The wash gives the panel its colour, but every queue
+        row sits on top of it, so the panel stays dark enough to read.
+      */}
+      <div className={cn("absolute inset-0", dark ? "bg-primary/30" : "bg-primary/55")} />
+      <div
+        className={cn(
+          "absolute inset-0 bg-linear-to-b to-primary",
+          dark ? "from-primary/30 via-primary/10" : "from-primary/45 via-primary/15"
+        )}
+      />
     </div>
   );
 };
 
 const QUEUE_EASE = "ease-[cubic-bezier(0.22,1,0.36,1)]";
+/** Fixed virtual row heights, so a large queue only renders what is on screen. */
+const QUEUE_ROW_HEIGHT = 52;
+const QUEUE_LABEL_HEIGHT = 28;
+
+type QueueEntry =
+  | { kind: "label"; key: string; text: string }
+  | { kind: "loading"; key: string }
+  | { kind: "track"; key: string; track: WatchTrack; index: number };
 
 export const QueuePanel = () => {
   const {
@@ -357,8 +371,9 @@ export const QueuePanel = () => {
     addTrackToQueue,
     startMix,
   } = usePlayer();
-  const { addToPlaylist, playlists } = usePlaylist();
+  const { addToPlaylist, playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
   const [menu, setMenu] = useState<{ track: WatchTrack; x: number; y: number } | null>(null);
+  const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
   const [tunerAnchor, setTunerAnchor] = useState<HTMLButtonElement | null>(null);
   const [tunerOpen, setTunerOpen] = useState(false);
   const tunerCloseRef = useRef(0);
@@ -377,11 +392,43 @@ export const QueuePanel = () => {
 
   useEffect(() => () => window.clearTimeout(tunerCloseRef.current), []);
   const currentTrack = currentQueueIndex >= 0 ? queue[currentQueueIndex] : null;
-  const upcoming = currentTrack ? queue.slice(currentQueueIndex + 1) : queue;
-  const dragIds = queue.map((track) => stableDragId(track));
+  const dragIds = useMemo(() => queue.map((track) => stableDragId(track)), [queue]);
   const listRef = useRef<HTMLDivElement>(null);
-  const nowPlayingRef = useRef<HTMLParagraphElement>(null);
   const coverUrl = largestCover(currentTrack);
+
+  // Flat list of labels + tracks so the queue can be virtualized.
+  const entries = useMemo<QueueEntry[]>(() => {
+    const list: QueueEntry[] = [];
+    queue.forEach((track, index) => {
+      if (currentTrack && index === 0 && currentQueueIndex > 0) {
+        list.push({ kind: "label", key: `prev-${index}`, text: "Previous" });
+      }
+      if (currentTrack && index === currentQueueIndex) {
+        list.push({ kind: "label", key: `now-${index}`, text: "Now playing" });
+      }
+      if (currentTrack && index === currentQueueIndex + 1) {
+        list.push({ kind: "label", key: `next-${index}`, text: "Next" });
+      }
+      list.push({ kind: "track", key: dragIds[index], track, index });
+      if (currentTrack && queueLoading && index === currentQueueIndex && index === queue.length - 1) {
+        list.push({ kind: "loading", key: `loading-${index}` });
+      }
+    });
+    return list;
+  }, [queue, dragIds, currentTrack, currentQueueIndex, queueLoading]);
+
+  const nowPlayingIndex = entries.findIndex((entry) => entry.kind === "label" && entry.text === "Now playing");
+
+  const virtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: (index) => (entries[index].kind === "label" ? QUEUE_LABEL_HEIGHT : QUEUE_ROW_HEIGHT),
+    overscan: 10,
+    getItemKey: (index) => entries[index].key,
+  });
+
+  const nowPlayingOffset =
+    nowPlayingIndex >= 0 ? (virtualizer.getOffsetForIndex(nowPlayingIndex, "start")?.[0] ?? null) : null;
   const sampleUrl = currentTrack?.thumbnail?.find((thumb) => thumb.url?.startsWith("data:"))?.url;
   const coverColor = useVibrantCover(coverUrl, currentTrack?.videoId, sampleUrl);
 
@@ -390,19 +437,18 @@ export const QueuePanel = () => {
   // and add-to-queue move the index without either of those.
   useEffect(() => {
     const list = listRef.current;
-    const heading = nowPlayingRef.current;
-    if (!list || !heading) return;
+    if (!list || nowPlayingOffset == null) return;
+    const target = nowPlayingOffset;
 
     let frame = 0;
     let cancelled = false;
 
     frame = requestAnimationFrame(() => {
       if (cancelled) return;
-      const top = heading.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
       const start = list.scrollTop;
-      const distance = top - start;
+      const distance = target - start;
       if (Math.abs(distance) < 2) {
-        list.scrollTop = top;
+        list.scrollTop = target;
         return;
       }
 
@@ -411,7 +457,7 @@ export const QueuePanel = () => {
       const step = (now: number) => {
         if (cancelled) return;
         const t = Math.min(1, (now - startTime) / duration);
-        list.scrollTop = t === 1 ? top : start + distance * (1 - (1 - t) ** 3);
+        list.scrollTop = t === 1 ? target : start + distance * (1 - (1 - t) ** 3);
         if (t < 1) frame = requestAnimationFrame(step);
       };
       frame = requestAnimationFrame(step);
@@ -421,7 +467,7 @@ export const QueuePanel = () => {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [currentSong?.videoId, queueRevision, queueFill]);
+  }, [currentSong?.videoId, queueRevision, queueFill, nowPlayingOffset]);
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -429,9 +475,7 @@ export const QueuePanel = () => {
 
     const update = () => {
       const max = Math.max(0, list.scrollHeight - list.clientHeight);
-      const heading = nowPlayingRef.current;
-      const pinned =
-        heading != null && Math.abs(heading.getBoundingClientRect().top - list.getBoundingClientRect().top) <= 2;
+      const pinned = nowPlayingOffset != null && Math.abs(nowPlayingOffset - list.scrollTop) <= 2;
       applyEdgeMask(list, list.scrollTop > 1 && !pinned, max - list.scrollTop > 1);
     };
 
@@ -443,7 +487,7 @@ export const QueuePanel = () => {
       resize.disconnect();
       list.removeEventListener("scroll", update);
     };
-  }, [queue.length, queueLoading, currentQueueIndex]);
+  }, [queue.length, queueLoading, currentQueueIndex, nowPlayingOffset]);
 
   return (
     <div
@@ -456,14 +500,17 @@ export const QueuePanel = () => {
     >
       <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden rounded-xl bg-primary">
         <CoverWash url={coverUrl} sampleUrl={sampleUrl} color={coverColor} />
-        <div className="relative z-10 flex gap-1 items-center px-2 py-2">
+        <div className="relative z-10 flex gap-1 items-center px-2 py-2 [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]">
           <div className="flex flex-1 gap-2 justify-center items-center min-w-0">
             <h2 className="font-semibold">Queue</h2>
             {queue.length > 0 && <span className="text-sm text-primary-dark">{queue.length}</span>}
           </div>
         </div>
         <ReorderList ids={dragIds} axis="y" onMove={reorderQueue}>
-          <div ref={listRef} className="relative z-10 overflow-y-auto flex-1 px-1.5 pb-2 min-h-0 scrollbar-thin [overflow-anchor:none]">
+          <div
+            ref={listRef}
+            className="relative z-10 overflow-y-auto flex-1 px-1.5 pb-2 min-h-0 scrollbar-thin [overflow-anchor:none] [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]"
+          >
             {queueLoading && queue.length === 0 && (
               <div className="grid place-items-center py-8">
                 <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
@@ -472,43 +519,63 @@ export const QueuePanel = () => {
             {!queueLoading && queue.length === 0 && (
               <p className="px-2 py-8 text-sm text-center text-primary-dark">Play a song to fill the queue.</p>
             )}
-            {queue.map((track, index) => {
-              const isCurrent = currentTrack != null && index === currentQueueIndex;
-              return (
-                <ReorderItem key={dragIds[index]} id={dragIds[index]}>
-                  {currentTrack && index === 0 && currentQueueIndex > 0 && (
-                    <p className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark">Previous</p>
-                  )}
-                  {isCurrent && (
+            <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+              {virtualizer.getVirtualItems().map((virtualItem) => {
+                const entry = entries[virtualItem.index];
+                if (entry.kind === "label") {
+                  return (
                     <p
-                      ref={nowPlayingRef}
-                      className={cn(
-                        "px-1.5 pb-1 text-xs font-semibold text-primary-dark",
-                        currentQueueIndex > 0 ? "pt-3" : "pt-0.5",
-                      )}
+                      key={entry.key}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: QUEUE_LABEL_HEIGHT,
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                      className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark"
                     >
-                      Now playing
+                      {entry.text}
                     </p>
-                  )}
-                  {currentTrack && index === currentQueueIndex + 1 && (
-                    <p className="px-1.5 pt-3 pb-1 text-xs font-semibold text-primary-dark">Next</p>
-                  )}
-                  <QueueItem
-                    track={track}
-                    isCurrent={isCurrent}
-                    accent={isCurrent ? coverColor : undefined}
-                    menuOpen={menu?.track === track}
-                    onPlay={() => playFromQueue(track, index)}
-                    onOpenMenu={(x, y) => setMenu({ track, x, y })}
-                  />
-                  {isCurrent && queueLoading && upcoming.length === 0 && (
-                    <div className="grid place-items-center py-6" role="status" aria-label="Loading next tracks">
+                  );
+                }
+                if (entry.kind === "loading") {
+                  return (
+                    <div
+                      key={entry.key}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: QUEUE_ROW_HEIGHT,
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                      className="grid place-items-center"
+                      role="status"
+                      aria-label="Loading next tracks"
+                    >
                       <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
                     </div>
-                  )}
-                </ReorderItem>
-              );
-            })}
+                  );
+                }
+                const { track, index } = entry;
+                const isCurrent = currentTrack != null && index === currentQueueIndex;
+                return (
+                  <ReorderItem key={entry.key} id={entry.key} offsetY={virtualItem.start} height={QUEUE_ROW_HEIGHT}>
+                    <QueueItem
+                      track={track}
+                      isCurrent={isCurrent}
+                      accent={isCurrent ? coverColor : undefined}
+                      menuOpen={menu?.track === track}
+                      onPlay={() => playFromQueue(track, index)}
+                      onOpenMenu={(x, y) => setMenu({ track, x, y })}
+                    />
+                  </ReorderItem>
+                );
+              })}
+            </div>
           </div>
         </ReorderList>
         {queueChips.length > 1 && (
@@ -555,8 +622,25 @@ export const QueuePanel = () => {
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
-          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, menu.track.videoId)}
+          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, [menu.track.videoId])}
           playlists={playlists}
+          recommendedPlaylists={recommendedPlaylists}
+          recommendedPending={recommendedPending}
+          onLoadRecommendations={() => void fetchRecommendedPlaylists()}
+          onNewPlaylist={() => {
+            setNewPlaylistFor([menu.track.videoId]);
+            setMenu(null);
+          }}
+        />
+      )}
+      {newPlaylistFor && (
+        <CreatePlaylistDialog
+          onCancel={() => setNewPlaylistFor(null)}
+          onSubmit={async (title, description, privacy) => {
+            const playlistId = await createPlaylist(title, description, privacy, newPlaylistFor);
+            if (playlistId) setNewPlaylistFor(null);
+            return playlistId;
+          }}
         />
       )}
       {tunerAnchor && (
