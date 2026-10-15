@@ -163,9 +163,13 @@ Stop as soon as the evidence covers the change, and never re-run something you a
 
 Writing JS or JSON on the command line is the biggest time sink here: PowerShell eats `|`, `||`, `>` and nested quotes. Put anything beyond a trivial expression in a file and use `tools\dev.py eval --file <path>`, and use `tools\dev.py call` instead of hand-writing a `python -c` one-liner.
 
+A track row's context menu has no visible button; it opens on `contextmenu`. To raise it from the probe, find the row with `button[aria-label^="Play "]`, then dispatch `new MouseEvent("contextmenu", { bubbles: true, clientX, clientY })` on the button's parent. The menu's `Add to playlist` item opens the picker whose rows are easy to compare side by side.
+
 Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v2:<playlistId>` with a 7 day expiry. The payload's `id` field is `None` — the id is only in the key. `app/dev/` also keeps the probe, the screenshot capture, and `app/dev/.dev-artifacts/`.
 
 The UI accent lives in `ui/src/styles/globals.css` as three literals: `--color-accent`, `--text-color-accent`, and `--background-color-accent`. Change all three together. It colors the playing ring, the player progress and volume bars, and the search library toggle. A separate `--color-success` group (also `--text-color-success` and `--background-color-success`) greens the added-to-playlist checkmarks and the toast success icon and action label. Red stays for errors, destructive actions, and the duplicate badge.
+
+Icons are Iconify classes on spans (`icon-[solar--play-bold]`, `icon-[lucide--dices]`) sized by font-size, not width or height. `@iconify/tailwind4` renders them as 1em inline-blocks and sets no vertical-align, so an icon inside an inline wrapper rides the text baseline and sits about 2px above the label beside it. A base rule in `globals.css` sets `vertical-align: -0.125em` to line them up. Icons that are direct flex or grid children ignore vertical-align and centre through `items-center` and `place-items-center`.
 
 `StickyCollectionBar` (Playlist, Album, Artist) is z-30, above the track rows' z-10 wrappers. The collection pages clear the scroll container's edge-fade mask (`useEdgeFade`) at the very bottom, which drops the container's stacking context, so a z-10 bar ties with the rows and loses to DOM order and the songs paint over it. Only scrolling fully to the bottom shows this.
 
