@@ -125,9 +125,12 @@ export const CreatePlaylistDialog = ({
           <button
             type="submit"
             disabled={!canSubmit}
-            className="cursor-pointer rounded-full bg-white px-4 py-1.5 text-sm font-medium text-black transition-colors hover:bg-white/85 disabled:opacity-40"
+            className="flex cursor-pointer items-center gap-1.5 rounded-full bg-white px-4 py-1.5 text-sm font-medium text-black transition-colors hover:bg-white/85 disabled:opacity-40"
           >
-            Create
+            {pending && (
+              <span aria-hidden="true" className="icon-[solar--loader-linear] animate-spin text-base" />
+            )}
+            {pending ? "Creating" : "Create"}
           </button>
         </div>
       </form>
