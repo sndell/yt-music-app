@@ -113,12 +113,25 @@ async function nudge(ctx: any, sessionID: string | undefined): Promise<void> {
   }
 }
 
+function refExists(sourceDirectory: string, ref: string): boolean {
+  const result = spawnSync("git", ["-C", sourceDirectory, "show-ref", "--verify", "--quiet", `refs/heads/${ref}`])
+  return result.status === 0
+}
+
 const gitWorktrees = {
   id: ID,
   async create(input: { sourceDirectory: string; directory: string; branch?: string }) {
+    // opencode passes the source branch as the start ref, not a new branch
+    // name. The built-in strategy leaves a detached HEAD at that ref's tip, so
+    // do the same. A ref that does not exist yet becomes a branch.
     const args = ["-C", input.sourceDirectory, "worktree", "add"]
-    if (input.branch) args.push("-b", input.branch)
-    args.push(input.directory)
+    if (input.branch && !refExists(input.sourceDirectory, input.branch)) {
+      args.push("-b", input.branch, input.directory)
+    } else if (input.branch) {
+      args.push("--detach", input.directory, input.branch)
+    } else {
+      args.push("--detach", input.directory)
+    }
     run("git", args, input.sourceDirectory)
 
     const python = mainPython(input.sourceDirectory)
