@@ -119,7 +119,7 @@ export const Search = () => {
   const query = useMemo(() => (new URLSearchParams(rawSearch).get("q") ?? "").trim(), [rawSearch]);
   const [, navigate] = useLocation();
   const { playTracks, startMix, playTrackNext, addTrackToQueue } = usePlayer();
-  const { addToPlaylist, playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
+  const { playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
   const { add: addRecent } = useRecentSearches();
   const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
 
@@ -312,7 +312,7 @@ export const Search = () => {
           onStartMix={() => startMix(menuTrack)}
           onPlayNext={() => playTrackNext(menuTrack)}
           onAddToQueue={() => addTrackToQueue(menuTrack)}
-          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, [menuTrack.videoId])}
+          addToPlaylistVideoIds={[menuTrack.videoId]}
           playlists={playlists}
           recommendedPlaylists={recommendedPlaylists}
           recommendedPending={recommendedPending}

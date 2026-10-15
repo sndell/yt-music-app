@@ -366,12 +366,22 @@ export interface ApiMethods {
     response: { status: string };
   };
   add_playlist_items: {
-    params: [playlistId: string, videoIds: string[]];
-    response: { status: string; /** New setVideoId per added video, for position-restoring undo. */ setVideoIds: Record<string, string> };
+    params: [playlistId: string, videoIds: string[], duplicates?: boolean];
+    response: {
+      status: string;
+      /** New setVideoId per added video, for position-restoring undo. */
+      setVideoIds: Record<string, string>;
+      /** True when YouTube rejected the edit because the songs were already there. */
+      duplicate?: boolean;
+    };
   };
   remove_playlist_items: {
     params: [playlistId: string, items: PlaylistItemRef[]];
     response: { status: string };
+  };
+  remove_playlist_videos: {
+    params: [playlistId: string, videoIds: string[], setVideoIds?: Record<string, string>];
+    response: { status: string; removed: number };
   };
   edit_playlist: {
     params: [playlistId: string, patch: PlaylistPatch];

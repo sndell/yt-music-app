@@ -25,7 +25,7 @@ export const TrackMenu = ({
   onStartMix,
   onPlayNext,
   onAddToQueue,
-  onAddToPlaylist,
+  addToPlaylistVideoIds,
   playlists = [],
   recommendedPlaylists = null,
   recommendedPending = false,
@@ -42,8 +42,8 @@ export const TrackMenu = ({
   onStartMix: () => void;
   onPlayNext: () => void;
   onAddToQueue: () => void;
-  /** When set, the menu offers an "Add to playlist" flyout of `playlists`. */
-  onAddToPlaylist?: (playlistId: string) => void;
+  /** When set, the menu offers an "Add to playlist" flyout for these songs. */
+  addToPlaylistVideoIds?: string[];
   /** Options for the "Add to playlist" flyout. */
   playlists?: PlaylistSummary[];
   /** Recency-scored playlists for the flyout's top row. */
@@ -62,10 +62,8 @@ export const TrackMenu = ({
   const [listAnchor, setListAnchor] = useState<DOMRect | null>(null);
   const [shuffleAnchor, setShuffleAnchor] = useState<DOMRect | null>(null);
   const [menuId] = useState(() => nextMenuId());
-  /** Picks stay marked while the menu is open, like YouTube Music's picker. */
-  const [addedIds, setAddedIds] = useState<string[]>([]);
   const recommendationsAskedRef = useRef(false);
-  const addedSet = new Set(addedIds);
+  const canAddToPlaylist = Boolean(addToPlaylistVideoIds?.length);
 
   const options = playlists.filter((playlist) => playlist.owned !== false && playlist.playlistId !== "LM");
 
@@ -216,10 +214,10 @@ export const TrackMenu = ({
           Add to queue
         </button>
 
-        {(onAddToPlaylist || onRemoveFromPlaylist) && (
+        {(canAddToPlaylist || onRemoveFromPlaylist) && (
           <>
             <MenuSeparator />
-            {onAddToPlaylist && (
+            {canAddToPlaylist && (
               <button
                 type="button"
                 role="menuitem"
@@ -254,7 +252,7 @@ export const TrackMenu = ({
         )}
       </div>
 
-      {onAddToPlaylist && listAnchor && (
+      {canAddToPlaylist && listAnchor && (
         <MenuFlyout
           anchor={listAnchor}
           width={panelWidth}
@@ -262,15 +260,10 @@ export const TrackMenu = ({
           onPointerLeave={scheduleClose}
         >
           <AddToPlaylistPanel
+            videoIds={addToPlaylistVideoIds ?? []}
             playlists={options}
             recommended={recommendedPlaylists}
             recommendedPending={recommendedPending}
-            addedIds={addedSet}
-            onPick={(playlist) => {
-              if (addedSet.has(playlist.playlistId)) return;
-              setAddedIds((current) => [...current, playlist.playlistId]);
-              onAddToPlaylist(playlist.playlistId);
-            }}
             onNewPlaylist={onNewPlaylist}
             className="max-h-[70vh]"
           />

@@ -99,10 +99,12 @@ export const PyBridge = {
     callPython("get_playlist_items", playlistId, forceRefresh),
   movePlaylistItem: (playlistId: string, setVideoId: string, beforeSetVideoId = "") =>
     callPython("move_playlist_item", playlistId, setVideoId, beforeSetVideoId),
-  addPlaylistItems: (playlistId: string, videoIds: string[]) =>
-    callPython("add_playlist_items", playlistId, videoIds),
+  addPlaylistItems: (playlistId: string, videoIds: string[], duplicates = false) =>
+    callPython("add_playlist_items", playlistId, videoIds, duplicates),
   removePlaylistItems: (playlistId: string, items: PlaylistItemRef[]) =>
     callPython("remove_playlist_items", playlistId, items),
+  removePlaylistVideos: (playlistId: string, videoIds: string[], setVideoIds: Record<string, string> = {}) =>
+    callPython("remove_playlist_videos", playlistId, videoIds, setVideoIds),
   editPlaylist: (playlistId: string, patch: PlaylistPatch) => callPython("edit_playlist", playlistId, patch),
   deletePlaylist: (playlistId: string) => callPython("delete_playlist", playlistId),
   createPlaylist: (title: string, description = "", privacy: PlaylistPrivacy = "PRIVATE", videoIds: string[] = []) =>

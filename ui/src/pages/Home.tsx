@@ -64,7 +64,7 @@ export const Home = () => {
   const requestIdRef = useRef(0);
   const [, navigate] = useLocation();
   const { currentSong, startMix, playTracks, playTrackNext, addTrackToQueue, playPlaylist, queuePlaylist, trueShufflePlaylist } = usePlayer();
-  const { addToPlaylist, playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
+  const { playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
   const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
 
   const load = useCallback((options?: { clear?: boolean; force?: boolean }) => {
@@ -216,7 +216,7 @@ export const Home = () => {
           onStartMix={() => startMix(menu.track)}
           onPlayNext={() => playTrackNext(menu.track)}
           onAddToQueue={() => addTrackToQueue(menu.track)}
-          onAddToPlaylist={(playlistId) => void addToPlaylist(playlistId, [menu.track.videoId])}
+          addToPlaylistVideoIds={[menu.track.videoId]}
           playlists={playlists}
           recommendedPlaylists={recommendedPlaylists}
           recommendedPending={recommendedPending}

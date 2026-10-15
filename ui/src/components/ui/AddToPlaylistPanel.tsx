@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlaylistSummary } from "@/lib/api/types";
+import { useAddToPlaylist } from "@/features/playlist/hooks/useAddToPlaylist";
 import { cn } from "@/util/cn";
 import { useMenuPosition } from "./useMenuPosition";
 
@@ -18,32 +19,31 @@ const songCount = (count?: string) => {
 /**
  * The "Save to playlist" picker from YouTube Music: a row of recommended
  * playlists on top, then every owned playlist behind a search field. The
- * panel stays open when you let a playlist go so a song can go to several
- * at once, and picked playlists keep a checkmark.
+ * panel stays open when you let a playlist go so a song can go to several at
+ * once. A pick adds the songs, a second pick removes them, and a row shows a
+ * spinner while its request is queued or running.
  */
 export const AddToPlaylistPanel = ({
+  videoIds,
   playlists,
   recommended,
   recommendedPending,
-  addedIds,
-  onPick,
   onNewPlaylist,
   className,
 }: {
+  /** The songs this picker adds or removes. */
+  videoIds: string[];
   /** All owned playlists; already filtered by the caller. */
   playlists: PlaylistSummary[];
   /** Recency-scored subset, or null while still loading. */
   recommended: PlaylistSummary[] | null;
   /** True while the recommended ids are being fetched. */
   recommendedPending?: boolean;
-  /** Playlist ids that already received this song; they show a checkmark. */
-  addedIds: ReadonlySet<string>;
-  /** Called per picked playlist; the panel deliberately stays open. */
-  onPick: (playlist: PlaylistSummary) => void;
   /** Opens the create-playlist dialog; omitted when creation is unavailable. */
   onNewPlaylist?: () => void;
   className?: string;
 }) => {
+  const { addedIds, pendingIds, toggle } = useAddToPlaylist(videoIds);
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
   const filtered = useMemo(
@@ -65,7 +65,8 @@ export const AddToPlaylistPanel = ({
                 key={playlist.playlistId}
                 playlist={playlist}
                 added={addedIds.has(playlist.playlistId)}
-                onPick={onPick}
+                pending={pendingIds.has(playlist.playlistId)}
+                onToggle={() => toggle(playlist.playlistId)}
               />
             ))}
           </div>
@@ -118,7 +119,8 @@ export const AddToPlaylistPanel = ({
               key={playlist.playlistId}
               playlist={playlist}
               added={addedIds.has(playlist.playlistId)}
-              onPick={onPick}
+              pending={pendingIds.has(playlist.playlistId)}
+              onToggle={() => toggle(playlist.playlistId)}
             />
           ))
         )}
@@ -130,11 +132,13 @@ export const AddToPlaylistPanel = ({
 const RecommendedChip = ({
   playlist,
   added,
-  onPick,
+  pending,
+  onToggle,
 }: {
   playlist: PlaylistSummary;
   added: boolean;
-  onPick: (playlist: PlaylistSummary) => void;
+  pending: boolean;
+  onToggle: () => void;
 }) => {
   const [failed, setFailed] = useState(false);
   const thumbnailUrl = playlist.thumbnails?.[0]?.url;
@@ -143,8 +147,9 @@ const RecommendedChip = ({
     <button
       type="button"
       title={playlist.title}
-      onClick={() => onPick(playlist)}
-      className="group w-[3.9rem] shrink-0 cursor-pointer text-center"
+      disabled={pending}
+      onClick={onToggle}
+      className="group w-[3.9rem] shrink-0 cursor-pointer text-center disabled:cursor-default"
     >
       <span className="relative block aspect-square overflow-hidden rounded-md bg-primary-light">
         {thumbnailUrl && !failed ? (
@@ -162,13 +167,17 @@ const RecommendedChip = ({
             </span>
           </span>
         )}
-        {added && (
+        {pending ? (
+          <span className="absolute inset-0 grid place-items-center rounded-md bg-black/60">
+            <span aria-hidden="true" className="icon-[solar--loader-linear] animate-spin text-xl text-primary" />
+          </span>
+        ) : added ? (
           <span className="absolute inset-0 grid place-items-center rounded-md bg-black/60">
             <span aria-hidden="true" className="text-2xl text-accent">
               <span className="icon-[solar--check-circle-bold]" />
             </span>
           </span>
-        )}
+        ) : null}
       </span>
       <span className="mt-1 block truncate text-xs text-primary-dark group-hover:text-primary">{playlist.title}</span>
     </button>
@@ -178,11 +187,13 @@ const RecommendedChip = ({
 const PlaylistPickRow = ({
   playlist,
   added,
-  onPick,
+  pending,
+  onToggle,
 }: {
   playlist: PlaylistSummary;
   added: boolean;
-  onPick: (playlist: PlaylistSummary) => void;
+  pending: boolean;
+  onToggle: () => void;
 }) => {
   const [failed, setFailed] = useState(false);
   const thumbnailUrl = playlist.thumbnails?.[0]?.url;
@@ -191,8 +202,9 @@ const PlaylistPickRow = ({
   return (
     <button
       type="button"
-      onClick={() => onPick(playlist)}
-      className="group flex w-full cursor-pointer items-center gap-2.5 rounded-xl p-1.5 pr-2.5 text-left transition-colors duration-150 hover:bg-white/10"
+      disabled={pending}
+      onClick={onToggle}
+      className="group flex w-full cursor-pointer items-center gap-2.5 rounded-xl p-1.5 pr-2.5 text-left transition-colors duration-150 hover:bg-white/10 disabled:cursor-default"
     >
       {thumbnailUrl && !failed ? (
         <img
@@ -213,15 +225,22 @@ const PlaylistPickRow = ({
         <span className="block truncate text-sm text-primary">{playlist.title}</span>
         {count && <span className="block truncate text-xs text-primary-dark">{count}</span>}
       </span>
-      <span
-        aria-hidden="true"
-        className={cn(
-          "shrink-0 text-lg transition-opacity duration-150",
-          added ? "text-accent opacity-100" : "text-primary-dark opacity-0 group-hover:opacity-100",
-        )}
-      >
-        <span className={added ? "icon-[solar--check-circle-bold]" : "icon-[solar--add-linear]"} />
-      </span>
+      {pending ? (
+        <span
+          aria-hidden="true"
+          className="icon-[solar--loader-linear] shrink-0 animate-spin text-lg text-primary-dark"
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "shrink-0 text-lg transition-opacity duration-150",
+            added ? "text-accent opacity-100" : "text-primary-dark opacity-0 group-hover:opacity-100",
+          )}
+        >
+          <span className={added ? "icon-[solar--check-circle-bold]" : "icon-[solar--add-linear]"} />
+        </span>
+      )}
     </button>
   );
 };

@@ -151,6 +151,22 @@ def _edit_status(result: Any, fallback: str) -> str:
     return text
 
 
+def _playlist_contains_videos(playlist: Any, video_ids: list[str]) -> bool | None:
+    """Whether a ``get_playlist`` payload lists every given id as a track.
+
+    Returns ``None`` when the payload cannot answer (missing, or not shaped
+    like a playlist), so the caller can fetch a fresh copy rather than trust a
+    stale one. An empty ``video_ids`` is trivially contained.
+    """
+    if not isinstance(playlist, dict):
+        return None
+    tracks = playlist.get("tracks")
+    if not isinstance(tracks, list):
+        return None
+    present = {track.get("videoId") for track in tracks if isinstance(track, dict)}
+    return all(video_id in present for video_id in video_ids)
+
+
 def _delete_status(result: Any) -> str:
     """Decide the outcome of a ``delete_playlist`` call.
 
@@ -2508,7 +2524,12 @@ class MusicApi:
         cached["tracks"] = tracks
         cache.set(cache_key, cached, expire=CACHE_DURATION)
 
-    def add_playlist_items(self, playlist_id: str, video_ids: list[str]) -> dict[str, Any]:
+    def add_playlist_items(
+        self,
+        playlist_id: str,
+        video_ids: list[str],
+        duplicates: bool = False,
+    ) -> dict[str, Any]:
         """Add songs to one of the user's playlists.
 
         Adding changes the cached track list, so the entry is dropped and the
@@ -2516,6 +2537,12 @@ class MusicApi:
 
         Returns the ``setVideoId`` YouTube Music assigned to each added video,
         so "Undo" on a later removal can move the row back to its position.
+
+        By default YouTube Music rejects an edit whose songs are already in the
+        playlist. That rejection is not a failure: it comes back as
+        ``duplicate`` so the picker can confirm the songs are already there
+        instead of showing an error. Pass ``duplicates=True`` to add the songs
+        again anyway, which the picker offers after that confirmation.
         """
         if not isinstance(playlist_id, str) or not playlist_id:
             raise ValueError("playlist id is required")
@@ -2525,8 +2552,14 @@ class MusicApi:
         if not ids:
             raise ValueError("at least one video id is required")
         ytmusic = self._get_ytmusic()
-        result = ytmusic.add_playlist_items(playlist_id, videoIds=ids)
-        status = _edit_status(result, "Could not add to the playlist")
+        result = ytmusic.add_playlist_items(playlist_id, videoIds=ids, duplicates=bool(duplicates))
+        try:
+            status = _edit_status(result, "Could not add to the playlist")
+        except RuntimeError:
+            if not duplicates and self._playlist_contains(playlist_id, ids):
+                logger.info("Playlist %s already has %s", playlist_id, ids)
+                return {"status": "DUPLICATE", "setVideoIds": {}, "duplicate": True}
+            raise
         cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
         _record_playlist_stat(playlist_id, "add")
         results: dict[str, str] = {}
@@ -2538,7 +2571,23 @@ class MusicApi:
                 set_video_id = entry.get("setVideoId")
                 if isinstance(video_id, str) and isinstance(set_video_id, str):
                     results[video_id] = set_video_id
-        return {"status": status, "setVideoIds": results}
+        return {"status": status, "setVideoIds": results, "duplicate": False}
+
+    def _playlist_contains(self, playlist_id: str, video_ids: list[str]) -> bool:
+        """Whether every id already sits in the playlist.
+
+        The cached track list answers for free when it can; otherwise the
+        playlist is fetched fresh rather than trusting a stale miss.
+        """
+        cached = cache.get(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        if _playlist_contains_videos(cached, video_ids) is True:
+            return True
+        try:
+            fresh = self.get_playlist_items(playlist_id, force_refresh=True)
+        except Exception:
+            logger.warning("Could not check whether %s is in %s", video_ids, playlist_id, exc_info=True)
+            return False
+        return _playlist_contains_videos(fresh, video_ids) is True
 
     def remove_playlist_items(self, playlist_id: str, items: list[dict[str, str]]) -> dict[str, str]:
         """Remove rows from one of the user's playlists.
@@ -2566,6 +2615,52 @@ class MusicApi:
         status = _edit_status(result, "Could not remove from the playlist")
         cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
         return {"status": status}
+
+    def remove_playlist_videos(
+        self,
+        playlist_id: str,
+        video_ids: list[str],
+        set_video_ids: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Remove one row per video id, for the picker's add/remove toggle.
+
+        ``set_video_ids`` are the ids YouTube Music returned when this session
+        added the songs; any the caller does not know are looked up in the
+        playlist first. Removing one row per id keeps the toggle from wiping
+        out duplicate copies the user meant to keep.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if not isinstance(video_ids, list):
+            raise ValueError("video ids are required")
+        ids = [video_id for video_id in video_ids if isinstance(video_id, str) and video_id]
+        if not ids:
+            raise ValueError("at least one video id is required")
+        known = {
+            video_id: set_video_id
+            for video_id, set_video_id in (set_video_ids or {}).items()
+            if isinstance(video_id, str) and isinstance(set_video_id, str) and set_video_id
+        }
+        missing = [video_id for video_id in ids if video_id not in known]
+        if missing:
+            details = self.get_playlist_items(playlist_id)
+            tracks = details.get("tracks", []) if isinstance(details, dict) else []
+            for video_id in missing:
+                matches = [
+                    track.get("setVideoId")
+                    for track in tracks
+                    if isinstance(track, dict)
+                    and track.get("videoId") == video_id
+                    and isinstance(track.get("setVideoId"), str)
+                ]
+                if matches:
+                    # The last copy is the most recently added one.
+                    known[video_id] = matches[-1]
+        items = [{"videoId": video_id, "setVideoId": known[video_id]} for video_id in ids if video_id in known]
+        if not items:
+            raise ValueError("That song is not in the playlist")
+        result = self.remove_playlist_items(playlist_id, items)
+        return {"status": result.get("status", "SUCCEEDED"), "removed": len(items)}
 
     def rename_playlist(self, playlist_id: str, title: str) -> dict[str, str]:
         """Rename one of the user's playlists."""
