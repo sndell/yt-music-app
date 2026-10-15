@@ -76,15 +76,17 @@ Exit codes: `0` pass, `1` fail, `2` infra/unknown. A `2` means the harness could
 
 ## Understand the verdict
 
-`watch` polls `ui/src` and `app` for edits. A `.py` edit waits for the restart generation to advance and health to be `ok`; a UI edit waits for Vite HMR to settle. It then captures state and a screenshot, runs the matching unit suite (pytest for an `app/` `.py` change, vitest for a `ui/src` change), and judges:
+`watch` polls `ui/src` and `app` for edits. A `.py` edit waits for the restart generation to advance and health to be `ok`; a UI edit waits for Vite HMR to settle. It then captures state and a screenshot and judges:
 
 - `PASS` — nothing broke.
 - `FAIL renderer error` — the page logged an error (or threw); the line shows it.
 - `FAIL check` — the `--check` expression was falsy.
-- `FAIL tests` — the changed side's unit suite failed; its tail prints above the verdict.
-- `UNKNOWN <infra>` — the probe is unreachable, or a suite could not start (pytest not installed, pnpm absent). Not a code failure.
+- `FAIL tests` — only with `--tests`; the changed side's unit suite failed and its tail prints above the verdict.
+- `UNKNOWN <infra>` — the probe is unreachable, or a suite could not start. Not a code failure.
 
-`watch` exits `1` on the first FAIL so a background run notifies you. Use `--keep-going` to keep watching, `--once` for a single change, `--no-tests` to skip the suites.
+`watch` exits `1` on the first FAIL so a background run notifies you. Use `--keep-going` to keep watching, `--once` for a single change.
+
+It does **not** run the test suites unless you pass `--tests`, which prints `tests skipped` otherwise. Most edits do not need one; add it when the change is behavioural or cross-module. A cosmetic or one-line edit is proven by the capture alone.
 
 ## Whose error
 
@@ -118,4 +120,13 @@ The signed-in account is the user's data. Treat it as read-only.
 .\tools\test.ps1 -Lint    # also eslint (the repo's lint baseline is currently red)
 ```
 
-Fast and offline: the unit tests never touch the window or the account.
+Match the check to the change. Pick by what the edit touches:
+
+| Change | Check |
+| --- | --- |
+| cosmetic, one line, copy | look at it: `state`, `screenshot`, or the feature itself |
+| one module's logic | that suite only: `pnpm exec vitest run <file>` or `pytest app/tests/test_x.py` |
+| Python under `app/` | `pytest -q` |
+| crosses modules, shared behaviour, or going into a PR | `.\tools\test.ps1` |
+
+Running the whole suite for a colour or a comment wastes more time than it saves. The tests are fast and offline — they never touch the window or the account — but they are not free.
