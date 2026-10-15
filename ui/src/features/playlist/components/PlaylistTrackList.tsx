@@ -10,9 +10,11 @@ import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { ScrollingText } from "@/components/ui/ScrollingText";
 import { AddToPlaylistMenu } from "@/components/ui/AddToPlaylistPanel";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
+import { SongListMenu } from "@/components/ui/SongListMenu";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
+import { visibleTracks } from "./trackFilter";
 
 const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate: (to: string) => void) => {
   event.preventDefault();
@@ -35,7 +37,6 @@ export const PlaylistTrackList = ({
   tunable,
   removable,
   onRemoveTracks,
-  duplicateCounts,
   filterable,
 }: {
   tracks: Track[];
@@ -57,8 +58,6 @@ export const PlaylistTrackList = ({
   removable?: boolean;
   /** Called with the rows the user chose to remove; the page confirms and applies. */
   onRemoveTracks?: (tracks: Track[]) => void;
-  /** videoId -> appearances; rows show a badge when it repeats. */
-  duplicateCounts?: Map<string, number>;
   /** Shows a filter field above the tracks; searches title, artist and album. */
   filterable?: boolean;
 }) => {
@@ -66,6 +65,10 @@ export const PlaylistTrackList = ({
   const [menu, setMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const [filter, setFilter] = useState("");
+  /** Kebab menu beside the search field. */
+  const [listMenu, setListMenu] = useState<{ x: number; y: number; trigger: HTMLButtonElement } | null>(null);
+  /** Narrows the list to songs that appear more than once. Set from the kebab. */
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   /** Row indexes the user picked with ctrl/shift-click, into `displayTracks`. */
   const [selected, setSelected] = useState<number[]>([]);
   const selectionAnchorRef = useRef<number | null>(null);
@@ -77,18 +80,10 @@ export const PlaylistTrackList = ({
     usePlaylist();
 
   const filterActive = Boolean(filterable && filter.trim());
-  const displayTracks = useMemo(() => {
-    if (!filterable || !filter.trim()) return tracks;
-    // The filter matches the song, its artists and the album, like the
-    // in-playlist search on YouTube Music.
-    const needle = filter.trim().toLowerCase();
-    return tracks.filter(
-      (track) =>
-        track.title.toLowerCase().includes(needle) ||
-        track.artists.some((artist) => artist.name.toLowerCase().includes(needle)) ||
-        (track.album?.name.toLowerCase().includes(needle) ?? false),
-    );
-  }, [tracks, filterable, filter]);
+  const displayTracks = useMemo(
+    () => visibleTracks(tracks, { search: filter, duplicatesOnly }),
+    [tracks, filter, duplicatesOnly],
+  );
 
   // A selection pointing past the (filtered) list would bulk-act on wrong rows.
   useEffect(() => {
@@ -127,9 +122,11 @@ export const PlaylistTrackList = ({
 
   const popular = variant === "popular";
   const pad = popular ? "px-6" : "px-3 sm:px-4";
+  // Either narrowing control hides rows; the count line replaces the column heads.
+  const narrowing = filterActive || duplicatesOnly;
   // Moving rows while a filter hides some of them, or while some are picked,
   // would shift indexes the caller does not know about.
-  const reorderLocked = filterActive || selected.length > 0;
+  const reorderLocked = narrowing || selected.length > 0;
 
   const handleRowSelect = (index: number, event: MouseEvent) => {
     event.preventDefault();
@@ -183,33 +180,46 @@ export const PlaylistTrackList = ({
         <div className={cn("relative flex flex-wrap items-center gap-3", pad)}>
           {actions}
           {filterable && (
-            <label className="ms-auto flex w-full max-w-xs items-center gap-1.5 rounded-full bg-primary-light/80 px-3 py-1.5 text-sm transition-[box-shadow] focus-within:ring-2 focus-within:ring-white/15 sm:w-64">
-              <span aria-hidden="true" className="shrink-0 text-base text-primary-dark">
-                <span className="icon-[solar--magnifer-linear]" />
-              </span>
-              <input
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-                placeholder="Search songs, artists, albums"
-                className="w-full bg-transparent text-primary outline-none placeholder:text-primary-dark/70"
+            <>
+              <label className="ms-auto flex w-full max-w-xs items-center gap-1.5 rounded-full bg-primary-light/80 px-3 py-1.5 text-sm transition-[box-shadow] focus-within:ring-2 focus-within:ring-white/15 sm:w-64">
+                <span aria-hidden="true" className="shrink-0 text-base text-primary-dark">
+                  <span className="icon-[solar--magnifer-linear]" />
+                </span>
+                <input
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value)}
+                  placeholder="Search songs, artists, albums"
+                  className="w-full bg-transparent text-primary outline-none placeholder:text-primary-dark/70"
+                />
+                {filter && (
+                  <button
+                    type="button"
+                    aria-label="Clear filter"
+                    onClick={() => setFilter("")}
+                    className="shrink-0 cursor-pointer text-base text-primary-dark hover:text-primary"
+                  >
+                    <span className="icon-[solar--close-circle-linear]" />
+                  </button>
+                )}
+              </label>
+              <IconButton
+                iconClass="icon-[solar--menu-dots-bold] rotate-90"
+                label="Song list options"
+                size="sm"
+                tone="ghost"
+                onClick={(event) => {
+                  const trigger = event.currentTarget;
+                  const rect = trigger.getBoundingClientRect();
+                  setListMenu((current) => (current ? null : { x: rect.left, y: rect.bottom + 4, trigger }));
+                }}
               />
-              {filter && (
-                <button
-                  type="button"
-                  aria-label="Clear filter"
-                  onClick={() => setFilter("")}
-                  className="shrink-0 cursor-pointer text-base text-primary-dark hover:text-primary"
-                >
-                  <span className="icon-[solar--close-circle-linear]" />
-                </button>
-              )}
-            </label>
+            </>
           )}
         </div>
       )}
       {!popular && (
         <div className={cn("relative", pad)}>
-          {filterActive ? (
+          {narrowing ? (
             <p className="pb-1.5 text-sm text-primary-dark border-b border-primary" role="status">
               {displayTracks.length === tracks.length
                 ? `${tracks.length} songs`
@@ -223,6 +233,11 @@ export const PlaylistTrackList = ({
             </div>
           )}
         </div>
+      )}
+      {narrowing && displayTracks.length === 0 && (
+        <p className={cn("relative text-sm text-primary-dark", pad)} role="status">
+          {duplicatesOnly ? "No duplicate songs in this playlist" : "No songs match your search"}
+        </p>
       )}
       <ReorderList ids={dragIds} axis="y" onMove={(from, to) => onReorder?.(from, to)}>
         <div ref={rowsRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
@@ -245,7 +260,6 @@ export const PlaylistTrackList = ({
                   showAlbum={!popular}
                   menuOpen={menu?.track === track}
                   selected={selected.includes(virtualItem.index)}
-                  duplicateCount={duplicateCounts?.get(track.videoId) ?? undefined}
                   onOpenMenu={openMenu}
                   onSelect={(event) => handleRowSelect(virtualItem.index, event)}
                   onShiftSelect={() => handleRowShiftSelect(virtualItem.index)}
@@ -256,6 +270,16 @@ export const PlaylistTrackList = ({
         </div>
       </ReorderList>
       {footer}
+      {listMenu && (
+        <SongListMenu
+          x={listMenu.x}
+          y={listMenu.y}
+          trigger={listMenu.trigger}
+          duplicatesOnly={duplicatesOnly}
+          onToggleDuplicates={() => setDuplicatesOnly((current) => !current)}
+          onClose={() => setListMenu(null)}
+        />
+      )}
       {menu && (
         <TrackMenu
           x={menu.x}
@@ -366,7 +390,6 @@ const PlaylistTrackItem = memo(({
   showAlbum,
   menuOpen = false,
   selected = false,
-  duplicateCount,
   onSelect,
   onShiftSelect,
 }: {
@@ -382,8 +405,6 @@ const PlaylistTrackItem = memo(({
   menuOpen?: boolean;
   /** Part of a ctrl/shift-click selection over the list. */
   selected?: boolean;
-  /** Times this song already sits in the playlist; shown as a badge when it repeats. */
-  duplicateCount?: number;
   /** Ctrl+click toggles this row in the selection. */
   onSelect: (event: MouseEvent) => void;
   /** Shift+click extends the selection from the last clicked row. */
@@ -494,12 +515,10 @@ const PlaylistTrackItem = memo(({
             <span className="flex w-full min-w-0 items-center gap-1">
               <ScrollingText className="font-medium">{track.title}</ScrollingText>
               {!showAlbum && track.isExplicit && <ExplicitBadge />}
-              {!showAlbum && duplicateCount != null && duplicateCount > 1 && <DuplicateBadge count={duplicateCount} />}
             </span>
             {showAlbum && (
               <span className="flex w-full min-w-0 items-center gap-1 text-sm text-primary-dark">
                 {track.isExplicit && <ExplicitBadge />}
-                {duplicateCount != null && duplicateCount > 1 && <DuplicateBadge count={duplicateCount} />}
                 <ScrollingText>
                   {track.artists.map((artist, artistIndex) => (
                     <span key={`${artist.id}-${artist.name}-${artistIndex}`}>
@@ -577,12 +596,3 @@ const PlaylistTrackItem = memo(({
     </div>
   );
 });
-
-const DuplicateBadge = ({ count }: { count: number }) => (
-  <span
-    title={`This song appears ${count} times in the playlist`}
-    className="shrink-0 rounded-full border border-red-400/50 px-1.5 text-[0.65rem] font-medium leading-4 text-red-400/90"
-  >
-    {count}×
-  </span>
-);
