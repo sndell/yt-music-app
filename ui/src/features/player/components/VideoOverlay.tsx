@@ -10,6 +10,7 @@ const MAX_DRIFT_SECONDS = 0.4;
 const PLAYER_VARS = {
   autoplay: 1,
   mute: 1,
+  controls: 0,
   rel: 0,
   modestbranding: 1,
   playsinline: 1,
@@ -19,10 +20,10 @@ const PLAYER_VARS = {
 const currentAudio = () => document.querySelector("audio");
 
 /**
- * The YouTube embed. It is muted, so the app's `<audio>` stays the sound, but
- * it is otherwise a normal player: the user can press play or pause, seek, or
- * open the video on YouTube. Those presses reach the app too, and the app's
- * own controls reach the embed.
+ * The YouTube embed. It is muted, so the app's `<audio>` stays the sound. It is
+ * clickable, so the YouTube title and link work, but the control bar is off
+ * (`controls=0`): volume, progress, and settings are gone with it. Play and
+ * pause come from the app's player bar, and both are mirrored either way.
  */
 const YouTubeVideo = ({ videoId }: { videoId: string }) => {
   const hostRef = useRef<HTMLDivElement>(null);
