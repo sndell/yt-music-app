@@ -34,13 +34,16 @@ export const MenuFlyout = ({
     if (!panel) return;
 
     const place = () => {
-      const rect = panel.getBoundingClientRect();
-      const onRight = anchor.right + sideOffset + rect.width <= window.innerWidth - 8;
+      // Layout box, not the entrance animation's scaled rect (see useMenuPosition).
+      const measured = panel.getBoundingClientRect();
+      const width = panel.offsetWidth || measured.width;
+      const height = panel.offsetHeight || measured.height;
+      const onRight = anchor.right + sideOffset + width <= window.innerWidth - 8;
       const left = onRight
         ? anchor.right + sideOffset
-        : Math.max(8, anchor.left - sideOffset - rect.width);
+        : Math.max(8, anchor.left - sideOffset - width);
       let top = anchor.top - 6;
-      if (top + rect.height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - rect.height);
+      if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
       if (top < 8) top = 8;
       panel.style.left = `${left}px`;
       panel.style.top = `${top}px`;
