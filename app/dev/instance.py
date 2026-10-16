@@ -9,6 +9,10 @@ same worktree without sharing a WebView2 profile or a discovery file.
 keeps the old layout, meaning `app/` itself and `app/dev/.dev.json`, so a plain
 `start.ps1` behaves exactly as it did before instances existed.
 
+An unset id in a linked worktree is that worktree's directory name, so an agent
+working in its own checkout gets a distinct instance without naming one. Only
+the checkout that owns `.git` is `default`.
+
 Dev only. Nothing here runs in a frozen build.
 """
 
@@ -21,6 +25,7 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -43,14 +48,75 @@ def _slug(value: str) -> str:
     return cleaned.strip("-.")
 
 
+def _git_common_root() -> Path | None:
+    """The checkout that owns the git common dir, or None when git cannot say."""
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(REPO_DIR),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = result.stdout.strip()
+    if result.returncode != 0 or not value:
+        return None
+    return Path(value).parent
+
+
+def is_main_checkout() -> bool:
+    """True for the checkout that owns `.git`.
+
+    A linked worktree, which is what every parallel agent works in, lives
+    somewhere else and shares the main checkout's `.git`. Git being unavailable
+    reads as the main checkout, keeping the pre-instance behavior.
+    """
+    root = _git_common_root()
+    if root is None:
+        return True
+    return os.path.normcase(str(root)) == os.path.normcase(str(REPO_DIR))
+
+
+@lru_cache(maxsize=1)
+def derived_instance_id() -> str:
+    """The id to use when `YTM_INSTANCE` is unset.
+
+    A worktree is named after its own directory, so an agent gets a stable name
+    for free and two agents in one repo never share a WebView2 profile. Cached:
+    this runs a git subprocess, and `instance_id()` is called per control-server
+    request.
+    """
+    if is_main_checkout():
+        return DEFAULT_ID
+    return _slug(REPO_DIR.name) or DEFAULT_ID
+
+
 def instance_id() -> str:
-    """This process's instance id, ``default`` when unset."""
-    return _slug(os.environ.get("YTM_INSTANCE", "").strip()) or DEFAULT_ID
+    """This process's instance id, derived from the checkout when unset."""
+    return _slug(os.environ.get("YTM_INSTANCE", "").strip()) or derived_instance_id()
 
 
 def label() -> str:
-    """Free text naming the instance, for window titles and listings."""
-    return os.environ.get("YTM_INSTANCE_LABEL", "").strip()
+    """Free text naming the instance, for window titles and listings.
+
+    A derived instance falls back to its branch, so a window for an unnamed
+    agent still says which piece of work it belongs to.
+    """
+    explicit = os.environ.get("YTM_INSTANCE_LABEL", "").strip()
+    if explicit or is_default():
+        return explicit
+    # A detached worktree reports `HEAD`, which names nothing.
+    name = branch()
+    return "" if name in (None, "HEAD") else name
 
 
 def branch() -> str | None:
@@ -120,7 +186,8 @@ def apply_env() -> None:
     ``data_dir()`` and ``cache_dir()`` at import time. Safe to call twice, and
     an explicit variable already in the environment always wins.
 
-    Nothing is set for ``default``, so a plain ``start.ps1`` changes no env.
+    Nothing is set for ``default``, so ``start.ps1`` in the main checkout
+    changes no env, while a worktree gets its own name and data dir.
     """
     ident = instance_id()
     os.environ["YTM_INSTANCE"] = ident
