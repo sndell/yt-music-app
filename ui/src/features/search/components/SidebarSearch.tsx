@@ -53,10 +53,20 @@ const SearchFlyout = ({ anchor, children }: { anchor: DOMRect; children: ReactNo
 /**
  * The sidebar's search field. Clicking the Search nav item swaps that section
  * for this field; a flyout opens to its right with recent terms and live
- * results. Enter opens the dedicated search page.
+ * results. Enter opens the dedicated search page. The field stays open with the
+ * term in it while the results are on screen, and the term lives in the parent
+ * so it is also there the next time the field opens. Escape or a click outside
+ * collapses it back to the nav item.
  */
-export const SidebarSearch = ({ onClose }: { onClose: () => void }) => {
-  const [query, setQuery] = useState("");
+export const SidebarSearch = ({
+  query,
+  onQueryChange,
+  onClose,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  onClose: () => void;
+}) => {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
@@ -127,9 +137,8 @@ export const SidebarSearch = ({ onClose }: { onClose: () => void }) => {
       if (!text) return;
       add(text);
       navigate(`/search?q=${encodeURIComponent(text)}`);
-      onClose();
     },
-    [add, navigate, onClose],
+    [add, navigate],
   );
 
   const openResult = (result: SearchResult) => {
@@ -141,14 +150,10 @@ export const SidebarSearch = ({ onClose }: { onClose: () => void }) => {
         .map(searchResultToTrack)
         .filter((item) => item.videoId !== track.videoId);
       playTracks([track, ...rest]);
-      onClose();
       return;
     }
     const href = searchHref(result);
-    if (href) {
-      navigate(href);
-      onClose();
-    }
+    if (href) navigate(href);
   };
 
   const text = query.trim();
@@ -161,11 +166,11 @@ export const SidebarSearch = ({ onClose }: { onClose: () => void }) => {
         <input
           ref={inputRef}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") submit(query);
             else if (event.key === "Escape") {
-              if (query) setQuery("");
+              if (query) onQueryChange("");
               else onClose();
             }
           }}
@@ -174,13 +179,16 @@ export const SidebarSearch = ({ onClose }: { onClose: () => void }) => {
           spellCheck={false}
           className="min-w-0 flex-1 bg-transparent text-sm text-primary outline-none placeholder:text-primary-dark"
         />
+        {/* With a term in the box the X clears it, the same as Escape; with an
+            empty box it closes search, so both ways out stay reachable. */}
         <button
           type="button"
-          onClick={onClose}
-          aria-label="Close search"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => (query ? onQueryChange("") : onClose())}
+          aria-label={query ? "Clear search" : "Close search"}
           className="shrink-0 cursor-pointer text-primary-dark transition-colors hover:text-primary"
         >
-          <span className="icon-[solar--close-circle-linear] text-lg" />
+          <span className="icon-[solar--close-linear] text-lg" />
         </button>
       </div>
 
@@ -248,7 +256,7 @@ export const SidebarSearch = ({ onClose }: { onClose: () => void }) => {
                         aria-label={`Remove ${term}`}
                         className="shrink-0 cursor-pointer rounded-full p-1 text-primary-dark opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary"
                       >
-                        <span className="icon-[solar--close-circle-linear] text-lg" />
+                        <span className="icon-[solar--close-linear] text-lg" />
                       </button>
                     </div>
                   ))}
