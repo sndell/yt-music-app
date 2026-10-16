@@ -130,21 +130,16 @@ export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
 
   useEffect(() => () => window.clearTimeout(menuCloseRef.current), []);
 
-  // The line above the lyrics carries what to the right of it: where the words
-  // are from, and what translation is showing. That keeps the menu opener from
-  // reading as a lone button in the corner.
+  // The source of the words can sit left of the translate button, which
+  // already shows the language a translation is in.
   const shownLanguage = translated ? (languageName(translated.target) ?? translated.target) : null;
 
   return (
     <div className="relative z-10 flex flex-1 flex-col min-h-0">
       <div className="flex shrink-0 items-center justify-end gap-2 px-4 pt-2 [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]">
-        {(shownLanguage || shown.source) && (
+        {shown.source && (
           <span className="mr-auto flex min-w-0 items-center gap-2 text-xs text-primary-dark">
-            {shown.source && <span className="truncate">{shown.source}</span>}
-            {shown.source && shownLanguage && <span className="shrink-0">·</span>}
-            {shownLanguage && (
-              <span className={cn("truncate", shown.source && "shrink-0")}>Translated to {shownLanguage}</span>
-            )}
+            <span className="truncate">{shown.source}</span>
           </span>
         )}
         <button
