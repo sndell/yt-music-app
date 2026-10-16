@@ -204,17 +204,12 @@ export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
                 className={cn(
                   // White and bold against dimmed lines: the two panel text tokens
                   // are only 0.15 lightness apart, which the highlight cannot carry.
-                  "group relative text-[15px] leading-7 transition-[color,opacity,font-weight] duration-300",
+                  "text-[15px] leading-7 transition-[color,opacity,font-weight] duration-300",
                   index === active
                     ? "font-semibold text-white"
                     : "text-primary-dark opacity-50 hover:opacity-100 hover:text-primary"
                 )}
               >
-                {/* A line click seeks the song here; the glyph marks every line as a play position. */}
-                <span
-                  aria-hidden="true"
-                  className="absolute top-1/2 -left-3.5 -translate-y-1/2 text-[11px] text-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100 icon-[solar--play-bold]"
-                />
                 {line.text}
               </p>
             ))}
