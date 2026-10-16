@@ -101,7 +101,8 @@ python app\dev\cli.py stop
 - Discovery is per checkout. The client refuses to talk to an instance whose `checkout` is not this one, so a file found elsewhere fails loudly instead of driving the wrong window.
 - `stop` closes the window, which stops Vite and removes the discovery file. Use it (or `.\start.ps1 -Restart`) rather than killing a process.
 - `call` runs any public API method. A read is safe; a write changes the signed-in account, so treat it like the app's own buttons. Pass plain string arguments, or `--json` or `--json-file` for a typed list.
-- `eval` runs JavaScript in the page. Use single quotes inside the expression, because PowerShell strips double quotes on the way to a native command.
+- `eval` runs JavaScript in the page. Use single quotes inside the expression, because PowerShell strips double quotes on the way to a native command. JS that needs a double-quoted string cannot be passed at all, so write such a selector unquoted (`input[aria-label=Search]`).
+- `eval` does not wait on an async expression. Return a promise and the call gives `{}` while its body keeps running in the page, so run a sequence as separate calls with `Start-Sleep` between them.
 - `logs` merges three streams: `python`, `renderer` (console output and uncaught errors forwarded from the page), and `vite` (the Vite console, tee'd to `app/dev/.dev-artifacts/vite.log` while its own console stays visible).
 - `screenshot` writes the window to a PNG and returns its path, which renders in the review pane.
 
