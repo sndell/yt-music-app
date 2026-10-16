@@ -24,7 +24,10 @@ from PIL import Image
 
 import diskcache
 import ytmusicapi
+from ytmusicapi.continuations import CONTINUATION_ITEMS, get_continuation_token
 from ytmusicapi.helpers import initialize_headers, sapisid_from_cookie
+from ytmusicapi.navigation import nav
+from ytmusicapi.parsers.playlists import parse_playlist_items
 
 from util.app_paths import cache_dir, data_dir
 from util.audio_stream import audio_stream
@@ -43,7 +46,7 @@ cache = diskcache.Cache(str(_CACHE_DIR))
 CACHE_DURATION = 7 * 24 * 60 * 60  # 7 days
 
 # Cache key prefixes
-CACHE_KEY_PLAYLIST_PREFIX = "playlist:v3:"
+CACHE_KEY_PLAYLIST_PREFIX = "playlist:v4:"
 CACHE_KEY_ALBUM_PREFIX = "album:"
 CACHE_KEY_ARTIST_PREFIX = "artist:"
 CACHE_KEY_HOME = "home:shelves:v4"
@@ -67,9 +70,11 @@ TUNER_CACHE_SECONDS = 60 * 60 * 12
 # left with remote URLs and the frontend inlines failures on demand.
 MAX_INLINE_ITEMS = 150
 
-# The size of the first playlist page, and the most of a generated mix that is
-# ever read. YouTube's mixes report no track count and never run out.
-_PLAYLIST_PAGE_LIMIT = 100
+# Playlist tracks arrive a page at a time. The first page comes with the
+# header, and every later page comes from the continuation token the previous
+# response carried, so the view paints the top while the rest loads and caches.
+# A generated mix reports no track count and never runs out, so it is left with
+# one page and no token.
 
 # Search is not cached: results move, and library scope depends on the session.
 _SEARCH_FILTERS = (
@@ -199,13 +204,39 @@ def _walk_playlist_item_data(response: Any):
             yield from _walk_playlist_item_data(value)
 
 
+def _find_playlist_shelf(response: Any) -> dict[str, Any] | None:
+    """The first ``musicPlaylistShelfRenderer`` in a browse response.
+
+    A playlist page keeps its first tracks and its continuation token here. The
+    wrapper that holds it moves between app versions, so walk the response
+    rather than hard-code the path.
+    """
+    stack: list[Any] = [response]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            shelf = node.get("musicPlaylistShelfRenderer")
+            if isinstance(shelf, dict):
+                return shelf
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return None
+
+
 # Sinks the recorder writes into, one per thread and stack-shaped. A list at
 # the top means "a playlist fetch is running on this thread, collect its items".
+# A second stack collects the continuation token the first page carried.
 _date_sinks = threading.local()
 
 
 def _date_sink() -> list[dict[str, Any]] | None:
     stack = getattr(_date_sinks, "stack", None)
+    return stack[-1] if stack else None
+
+
+def _token_sink() -> list[str] | None:
+    stack = getattr(_date_sinks, "tokens", None)
     return stack[-1] if stack else None
 
 
@@ -225,6 +256,14 @@ def _install_date_recorder(ytmusic: Any) -> None:
         sink = _date_sink()
         if sink is not None:
             sink.extend(_walk_playlist_item_data(response))
+        tokens = _token_sink()
+        if tokens is not None and not tokens:
+            shelf = _find_playlist_shelf(response)
+            contents = shelf.get("contents") if isinstance(shelf, dict) else None
+            if isinstance(contents, list) and contents:
+                token = get_continuation_token(contents)
+                if token:
+                    tokens.append(token)
         return response
 
     ytmusic._send_request = send
@@ -232,30 +271,43 @@ def _install_date_recorder(ytmusic: Any) -> None:
 
 
 class _PlaylistDateCapture:
-    """Collects each item's add time while a single playlist is fetched.
+    """Collects add times and the next-page token while a playlist is fetched.
 
     The playlist browse response carries ``playlistItemData.voteSortValue``,
     the Unix second a track was added, which is the value YouTube Music's own
     "Date added" sort orders by. ytmusicapi parses that same response but drops
     the field, so recording it while ``get_playlist`` runs keeps the timestamps
-    without a second request.
+    without a second request. The response also carries the continuation token
+    for the page after the first, which ytmusicapi drops too.
     """
 
     def __init__(self, ytmusic: Any) -> None:
         _install_date_recorder(ytmusic)
         self.items: list[dict[str, Any]] = []
+        self.tokens: list[str] = []
+
+    @property
+    def next_token(self) -> str | None:
+        return self.tokens[0] if self.tokens else None
 
     def __enter__(self) -> "_PlaylistDateCapture":
         stack = getattr(_date_sinks, "stack", None)
         if stack is None:
             stack = _date_sinks.stack = []
         stack.append(self.items)
+        tokens = getattr(_date_sinks, "tokens", None)
+        if tokens is None:
+            tokens = _date_sinks.tokens = []
+        tokens.append(self.tokens)
         return self
 
     def __exit__(self, *_exc: Any) -> None:
         stack = getattr(_date_sinks, "stack", None)
         if stack:
             stack.pop()
+        tokens = getattr(_date_sinks, "tokens", None)
+        if tokens:
+            tokens.pop()
 
 
 def _apply_added_dates(tracks: Any, items: list[dict[str, Any]]) -> int:
@@ -300,22 +352,61 @@ def _apply_added_dates(tracks: Any, items: list[dict[str, Any]]) -> int:
     return stamped
 
 
-def _fetch_playlist(ytmusic: Any, playlist_id: str) -> dict[str, Any]:
-    """Read one playlist, stopping at one page when YouTube says it has no end.
+def _playlist_first_page(ytmusic: Any, playlist_id: str) -> tuple[dict[str, Any], str | None]:
+    """Read a playlist header and its first page of tracks, plus the next token.
 
-    A generated mix (``RDTMAK…``, ``RDAMPL…``) carries no track count and never
-    runs out: ``limit=None`` follows its continuations forever, so the playlist
-    view sits on its loader and never paints. One page is all such a list has,
-    so keep it and report the length that loaded. Every other playlist knows its
-    size, so it is read whole as before.
+    ``limit=0`` stops ytmusicapi from following continuations, so one request
+    returns the header, about a hundred tracks, and the token for the page
+    after them. That token is not in the parsed result, so the recorder picks
+    it out of the same response.
     """
-    first = ytmusic.get_playlist(playlist_id, limit=_PLAYLIST_PAGE_LIMIT)
-    if first.get("trackCount") is not None:
-        return ytmusic.get_playlist(playlist_id, limit=None)
-    tracks = first.get("tracks")
-    if isinstance(tracks, list):
-        first["trackCount"] = len(tracks)
-    return first
+    with _PlaylistDateCapture(ytmusic) as capture:
+        playlist = ytmusic.get_playlist(playlist_id, limit=0)
+    if not isinstance(playlist, dict):
+        return {}, None
+    _apply_added_dates(playlist.get("tracks"), capture.items)
+    return playlist, capture.next_token
+
+
+def _playlist_track_page(
+    ytmusic: Any, page_token: str, is_collaborative: bool
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Read one page of playlist tracks from a continuation token.
+
+    Returns the page and the token after it, or ``None`` when this was the last
+    page. The response carries the page's playlist item data, so the caller can
+    stamp add times from the same request.
+    """
+    response = ytmusic._send_request("browse", {"continuation": page_token})
+    items = nav(response, CONTINUATION_ITEMS, True)
+    if not isinstance(items, list) or not items:
+        return [], None
+    return parse_playlist_items(items, is_collaborative=is_collaborative), get_continuation_token(items)
+
+
+def _fetch_all_playlist_tracks(ytmusic: Any, playlist_id: str) -> list[dict[str, Any]]:
+    """Every track of a playlist, in one call.
+
+    Used by the callers that cannot work from a page: the duplicate check on an
+    add, a row lookup on a removal, queueing, and true shuffle. A list whose
+    header reports no size is a generated mix that never ends, so it is left at
+    its first page, the same guard `get_playlist_items` uses.
+    """
+    playlist, token = _playlist_first_page(ytmusic, playlist_id)
+    tracks = list(playlist.get("tracks") or [])
+    if playlist.get("trackCount") is None:
+        return tracks
+    is_collaborative = bool(playlist.get("collaborators"))
+    seen: set[str] = set()
+    while token and token not in seen:
+        seen.add(token)
+        with _PlaylistDateCapture(ytmusic) as capture:
+            page, token = _playlist_track_page(ytmusic, token, is_collaborative)
+        if not page:
+            break
+        _apply_added_dates(page, capture.items)
+        tracks.extend(page)
+    return tracks
 
 
 def _cache_created_playlist(playlist_id: str, title: str, description: str, privacy: str) -> None:
@@ -343,6 +434,7 @@ def _cache_created_playlist(playlist_id: str, title: str, description: str, priv
             "year": "",
             "durationSeconds": 0,
             "tracks": [],
+            "nextToken": None,
             "dominantColor": None,
         },
         expire=CACHE_DURATION,
@@ -2011,23 +2103,29 @@ class MusicApi:
         return ids
 
     def get_playlist_items(self, playlist_id: str, force_refresh: bool = False) -> dict[str, Any]:
-        """Fetch all items from a specific playlist.
-        
+        """Read a playlist's header and its first page of tracks.
+
+        The header carries the true track count, so the view can say how many
+        songs the playlist has while the rest loads. The payload's ``nextToken``
+        is the cursor for :meth:`get_playlist_page`, or ``None`` when every
+        track is already here. A generated mix never ends, so it gets one page
+        and no cursor.
+
         Args:
             playlist_id: The YouTube Music playlist ID
             force_refresh: If True, bypass cache and fetch fresh data.
-            
+
         Returns:
-            A dictionary containing playlist details and tracks,
+            A dictionary containing playlist details and the first tracks,
             or an empty dict on error.
         """
         cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
-        
+
         try:
             if not self._is_authenticated():
                 logger.warning("Not authenticated - cannot return playlist items")
                 return {}
-            
+
             if not force_refresh:
                 cached = _cached_hit(cache_key)
                 if cached is not None:
@@ -2037,19 +2135,25 @@ class MusicApi:
                         len(cached.get("tracks", []))
                     )
                     return cached
-            
+
             logger.info("Fetching playlist items from API for ID: %s", playlist_id)
             ytmusic = self._get_ytmusic()
-            with _PlaylistDateCapture(ytmusic) as item_dates:
-                playlist = _fetch_playlist(ytmusic, playlist_id)
-            added = _apply_added_dates(playlist.get("tracks"), item_dates.items)
+            playlist, next_token = _playlist_first_page(ytmusic, playlist_id)
+            if not playlist:
+                return {}
+            if playlist.get("trackCount") is None:
+                tracks = playlist.get("tracks")
+                playlist["trackCount"] = len(tracks) if isinstance(tracks, list) else 0
+                next_token = None
+            playlist["nextToken"] = next_token
+
             logger.info(
-                "Playlist '%s' fetched successfully (tracks: %d, dated: %d)",
+                "Playlist '%s' fetched successfully (tracks: %d, more: %s)",
                 playlist.get("title", "Unknown"),
                 len(playlist.get("tracks", [])),
-                added
+                bool(next_token),
             )
-            
+
             playlist["dominantColor"] = _dominant_color(playlist.get("thumbnails", []))
 
             # Only the playlist cover is inlined. Track covers stay as remote
@@ -2061,7 +2165,7 @@ class MusicApi:
             # Store in cache
             cache.set(cache_key, playlist, expire=CACHE_DURATION)
             logger.info("Playlist cached: %s", playlist_id)
-            
+
             return playlist
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
@@ -2073,6 +2177,76 @@ class MusicApi:
             if force_refresh:
                 raise
             return {}
+
+    def get_playlist_page(self, playlist_id: str, page_token: str) -> dict[str, Any]:
+        """Read the page of playlist tracks after the one already loaded.
+
+        ``page_token`` is the ``nextToken`` from the last response for this
+        playlist. The rows are appended to the cached playlist, so the next
+        open starts from everything loaded so far, and the returned
+        ``nextToken`` is the cursor after them, or ``None`` at the end.
+
+        Returns:
+            ``{"tracks": [...], "nextToken": str | None}``. A failure comes back
+            as an empty page with no cursor, so the caller stops.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        if not isinstance(page_token, str) or not page_token:
+            raise ValueError("page token is required")
+
+        result: dict[str, Any] = {"tracks": [], "nextToken": None}
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return playlist page")
+                return result
+
+            ytmusic = self._get_ytmusic()
+            cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
+            cached = cache.get(cache_key)
+            is_collaborative = bool(cached.get("collaborators")) if isinstance(cached, dict) else False
+
+            with _PlaylistDateCapture(ytmusic) as capture:
+                tracks, next_token = _playlist_track_page(ytmusic, page_token, is_collaborative)
+            _apply_added_dates(tracks, capture.items)
+            logger.info(
+                "Playlist '%s' page fetched (tracks: %d, more: %s)",
+                playlist_id,
+                len(tracks),
+                bool(next_token),
+            )
+
+            # Append only when this page still follows the cached one. A second
+            # loader replaying the same token would otherwise duplicate rows,
+            # and a cache that a refresh already replaced would be corrupted.
+            if isinstance(cached, dict) and cached.get("nextToken") == page_token:
+                cached["tracks"] = list(cached.get("tracks") or []) + tracks
+                cached["nextToken"] = next_token
+                cache.set(cache_key, cached, expire=CACHE_DURATION)
+
+            return {"tracks": tracks, "nextToken": next_token}
+        except Exception as e:
+            logger.exception("Failed to fetch playlist page: %s", e)
+            return result
+
+    def get_playlist_all_tracks(self, playlist_id: str) -> dict[str, Any]:
+        """Every track of a playlist, in order.
+
+        Queueing and true shuffle need the whole list, so those paths ask for
+        it explicitly instead of waiting on the pages the view happens to hold.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return playlist tracks")
+                return {"tracks": []}
+            tracks = _fetch_all_playlist_tracks(self._get_ytmusic(), playlist_id)
+            logger.info("Playlist '%s' read whole (tracks: %d)", playlist_id, len(tracks))
+            return {"tracks": tracks}
+        except Exception as e:
+            logger.exception("Failed to read playlist whole: %s", e)
+            return {"tracks": []}
 
     def get_album(self, browse_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch an album by browse id.
@@ -2839,7 +3013,9 @@ class MusicApi:
         if _playlist_contains_videos(cached, video_ids) is True:
             return True
         try:
-            fresh = self.get_playlist_items(playlist_id, force_refresh=True)
+            # The cache can hold only the pages that loaded, so a miss there is
+            # not an answer; read the whole list before deciding.
+            fresh = {"tracks": _fetch_all_playlist_tracks(self._get_ytmusic(), playlist_id)}
         except Exception:
             logger.warning("Could not check whether %s is in %s", video_ids, playlist_id, exc_info=True)
             return False
@@ -2899,8 +3075,12 @@ class MusicApi:
         }
         missing = [video_id for video_id in ids if video_id not in known]
         if missing:
-            details = self.get_playlist_items(playlist_id)
-            tracks = details.get("tracks", []) if isinstance(details, dict) else []
+            # The cache can hold only the pages that loaded, so read the whole
+            # playlist rather than miss a row that sits on a later page.
+            try:
+                tracks = _fetch_all_playlist_tracks(self._get_ytmusic(), playlist_id)
+            except Exception:
+                tracks = []
             for video_id in missing:
                 matches = [
                     track.get("setVideoId")

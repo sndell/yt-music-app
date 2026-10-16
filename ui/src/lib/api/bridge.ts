@@ -97,6 +97,9 @@ export const PyBridge = {
   shuffleTracks: (videoIds: string[]) => callPython("shuffle_tracks", videoIds),
   getPlaylistItems: (playlistId: string, forceRefresh = false) =>
     callPython("get_playlist_items", playlistId, forceRefresh),
+  getPlaylistPage: (playlistId: string, pageToken: string) =>
+    callPython("get_playlist_page", playlistId, pageToken),
+  getPlaylistAllTracks: (playlistId: string) => callPython("get_playlist_all_tracks", playlistId),
   movePlaylistItem: (playlistId: string, setVideoId: string, beforeSetVideoId = "") =>
     callPython("move_playlist_item", playlistId, setVideoId, beforeSetVideoId),
   addPlaylistItems: (playlistId: string, videoIds: string[], duplicates = false) =>

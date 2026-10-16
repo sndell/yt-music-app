@@ -697,7 +697,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
   const queuePlaylist = useCallback(async (playlistId: string, position: "next" | "end") => {
     if (!playlistId) return;
-    const result = await PyBridge.getPlaylistItems(playlistId);
+    // Queueing needs every track, so read the whole playlist instead of the
+    // pages the view happens to have loaded.
+    const result = await PyBridge.getPlaylistAllTracks(playlistId);
     if (!result.success || !Array.isArray(result.data?.tracks)) return;
     const tracks = result.data.tracks.filter((track) => track.videoId && track.isAvailable).map(trackToWatchTrack);
     if (tracks.length === 0) return;
@@ -792,7 +794,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const trueShufflePlaylist = useCallback(
     async (playlistId: string) => {
       if (!playlistId) return;
-      const result = await PyBridge.getPlaylistItems(playlistId);
+      // A true shuffle is over the whole list, so read it all, not one page.
+      const result = await PyBridge.getPlaylistAllTracks(playlistId);
       if (!result.success || !Array.isArray(result.data?.tracks)) return;
       await trueShuffle(result.data.tracks);
     },

@@ -11,6 +11,7 @@ export type {
   PlaylistPatch,
   PlaylistSummary,
   PlaylistDetails,
+  PlaylistPage,
   QuickPick,
   HomeItem,
   HomeShelf,
