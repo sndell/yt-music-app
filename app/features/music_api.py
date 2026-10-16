@@ -28,6 +28,7 @@ from ytmusicapi.continuations import CONTINUATION_ITEMS, get_continuation_token
 from ytmusicapi.helpers import initialize_headers, sapisid_from_cookie
 from ytmusicapi.navigation import nav
 from ytmusicapi.parsers.playlists import parse_playlist_items
+from ytmusicapi.parsers.songs import parse_song_runs
 
 from util.app_paths import cache_dir, data_dir
 from util.audio_stream import audio_stream
@@ -125,6 +126,32 @@ def _like_status_in_payload(payload: Any, video_id: str) -> str | None:
                 status = button.get("likeStatus")
                 if isinstance(target, dict) and target.get("videoId") == video_id and status in _LIKE_STATUSES:
                     return status
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return None
+
+
+def _year_in_payload(payload: Any, video_id: str) -> str | None:
+    """Read the release year YouTube Music shows for one video from a next response.
+
+    A song's panel entry carries the same byline the watch playlist shows
+    ("artist • album • year"), and the year is a bare four-digit run. Music
+    videos, uploads and mixes put views or likes there instead, so those have
+    no year to report.
+    """
+    stack: list[Any] = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            panel = node.get("playlistPanelVideoRenderer")
+            if isinstance(panel, dict) and panel.get("videoId") == video_id:
+                byline = panel.get("longBylineText")
+                runs = byline.get("runs") if isinstance(byline, dict) else None
+                if isinstance(runs, list):
+                    year = parse_song_runs(runs).get("year")
+                    if isinstance(year, str) and year:
+                        return year
             stack.extend(node.values())
         elif isinstance(node, list):
             stack.extend(node)
@@ -2500,14 +2527,19 @@ class MusicApi:
             raise RuntimeError("Sign in to play music.") from exc
         return audio_stream(ytmusic, video_id.strip(), refresh=bool(refresh))
 
-    def get_song_rating(self, video_id: str) -> dict[str, str]:
-        """Return the signed-in user's like status for a song.
+    def get_song_info(self, video_id: str) -> dict[str, Any]:
+        """Return the signed-in user's like status and the release year of a song.
+
+        Both come from the one ``next`` request the player already makes when a
+        song starts, so the year costs nothing extra.
 
         Args:
             video_id: YouTube video id of the song.
 
         Returns:
-            A dict with likeStatus set to LIKE, DISLIKE, or INDIFFERENT.
+            A dict with likeStatus set to LIKE, DISLIKE, or INDIFFERENT, and
+            year set to the year YouTube Music shows, or None when the song has
+            none to show.
         """
         if not video_id:
             raise ValueError("video id is required")
@@ -2524,8 +2556,8 @@ class MusicApi:
             # Music videos and other non-song videos do not expose a like status
             # in the next response. Report indifferent instead of failing.
             logger.debug("No like status returned for %s", video_id)
-            return {"likeStatus": "INDIFFERENT"}
-        return {"likeStatus": status}
+            status = "INDIFFERENT"
+        return {"likeStatus": status, "year": _year_in_payload(response, video_id)}
 
     def rate_song(self, video_id: str, rating: str) -> dict[str, str]:
         """Set the signed-in user's rating for a song.

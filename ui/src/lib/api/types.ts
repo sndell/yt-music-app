@@ -157,6 +157,12 @@ export interface Track {
    * tracks carry it; every other list leaves it off.
    */
   addedAt?: number | null;
+  /**
+   * Release year YouTube Music shows for the song. Only the player fills it, from
+   * the song-info request it makes when a song starts; list payloads leave it
+   * off, and songs YouTube has no year for stay without one.
+   */
+  year?: string | null;
 }
 
 export interface PlaylistDetails {
@@ -474,7 +480,7 @@ export interface ApiMethods {
   };
   get_queue_tuner: { params: [videoId: string]; response: WatchTunerChip[] };
   get_audio_stream: { params: [videoId: string, refresh?: boolean]; response: AudioStream };
-  get_song_rating: { params: [videoId: string]; response: { likeStatus: LikeStatus } };
+  get_song_info: { params: [videoId: string]; response: { likeStatus: LikeStatus; year: string | null } };
   rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };
   add_song_to_history: { params: [videoId: string]; response: { added: boolean } };
 }

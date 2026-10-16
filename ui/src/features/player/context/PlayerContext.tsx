@@ -552,6 +552,12 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
+  // The release year arrives with the song-info request rather than the song
+  // itself, so it lands a moment after playback starts.
+  const applyReleaseYear = useCallback((videoId: string, year: string) => {
+    setCurrentSong((song) => (song && song.videoId === videoId && song.year !== year ? { ...song, year } : song));
+  }, []);
+
   const rateSong = useCallback(
     async (rating: LikeStatus) => {
       const song = currentSongRef.current;
@@ -592,14 +598,16 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const request = ++ratingRequestRef.current;
     let cancelled = false;
     void (async () => {
-      const result = await PyBridge.getSongRating(videoId);
+      const result = await PyBridge.getSongInfo(videoId);
       if (cancelled || request !== ratingRequestRef.current) return;
-      if (result.success && result.data?.likeStatus) applyLikeStatus(videoId, result.data.likeStatus);
+      if (!result.success) return;
+      if (result.data?.likeStatus) applyLikeStatus(videoId, result.data.likeStatus);
+      if (result.data?.year) applyReleaseYear(videoId, result.data.year);
     })();
     return () => {
       cancelled = true;
     };
-  }, [applyLikeStatus, currentSong?.videoId]);
+  }, [applyLikeStatus, applyReleaseYear, currentSong?.videoId]);
 
   const enqueueTrack = useCallback((source: Track | WatchTrack, position: "next" | "end") => {
     if (isPlaylistTrack(source) && !source.isAvailable) return;
