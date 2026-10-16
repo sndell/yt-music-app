@@ -338,6 +338,9 @@ export const Player = () => {
         preload="auto"
         onPlay={() => {
           playingRef.current = true;
+          // The embed can resume the audio on its own, so follow it instead of
+          // trusting only the app's own play button.
+          setIsPlaying(true);
           if (currentSong) recordHistory(currentSong);
         }}
         onPause={() => {

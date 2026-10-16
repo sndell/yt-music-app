@@ -45,6 +45,8 @@ Do not parallelize steps that depend on each other, and never let two workers ed
 
 The repo is Windows-only (pywebview + WebView2, PowerShell build script). Run commands as PowerShell. Use `curl.exe`, not `curl` (an alias for `Invoke-WebRequest` in Windows PowerShell). For JSON POSTs to the probe, use the venv Python one-liners below so quoting survives.
 
+`.\tools\dev.py` is not runnable on its own in this shell: PowerShell reads the `.py` path as a document and stops with `Cannot run a document in the middle of a pipeline`. Call it through the interpreter, `.\app\.venv\Scripts\python.exe tools\dev.py ...` on the main checkout, or the path in `app/dev/.dev-python` in a worktree.
+
 ## Run
 
 One Python window per checkout. A second `app\dev\watch.py` or debugger session on the same slot fights for that probe port.
@@ -168,6 +170,8 @@ A track row's context menu has no visible button; it opens on `contextmenu`. To 
 An element that only shows on hover is absent from `screenshot`, since the pointer is never over it. Dispatch a bubbling `pointerover` from `/eval` on its wrapper to fire React's `onPointerEnter`. Nothing sends `pointerleave`, so the hover stays on and the next `screenshot` catches it.
 
 To drive a pointer-capture drag from `/eval`, first replace the element instance's `setPointerCapture`, `hasPointerCapture` and `releasePointerCapture` with no-ops, then dispatch `pointerdown`, `pointermove` and `pointerup` with a made-up `pointerId`. Capture rejects an id that is not an active pointer. `delete` the three overrides when the probe is done, because they stay on the live element until a reload and break the real drag.
+
+The music video overlay is a YouTube iframe, so `/eval` cannot click inside it. Send the IFrame API a command instead: `document.querySelector('iframe').contentWindow.postMessage(JSON.stringify({event:'command',func:'pauseVideo',args:[]}),'*')`, then `playVideo`. That drives the real `onStateChange` path, so use it to check the overlay's pause and resume reach the app. To read the app's play state, use the transport toggle, the button right after `Previous`; track rows carry the same `Play` label, so a plain `button[aria-label="Play"]` query finds those first.
 
 A write flow can be driven from `/eval` without touching the account. Replace the method on the bridge object, for example `window.pywebview.api.create_playlist = () => Promise.resolve({ playlistId: "PLfake" })`. `bridge.ts` calls that property, so Python never sees the call. Reload when the probe is done; the patch outlives it, and a later real write would go to the fake.
 
