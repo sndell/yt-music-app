@@ -11,6 +11,11 @@
 # processes on one profile, so the guard below scopes to a single instance id
 # rather than refusing every second window in the checkout.
 #
+# -Instance is optional. Unset, a linked worktree takes its own directory name as
+# the id, so an agent working in its own checkout runs this with no arguments. The
+# main checkout stays `default`, and -Instance is only needed for a second window
+# in one checkout.
+#
 # Always start a new one with this script. Do not look for an instance that is
 # already running, and do not probe ports.
 param(
@@ -38,7 +43,31 @@ function ConvertTo-InstanceId {
     return $cleaned
 }
 
-$Id = ConvertTo-InstanceId $Instance
+# instance.py derives an unset id the same way: a linked worktree is named after
+# its own directory, so an agent in a T3 checkout names nothing and still gets a
+# private instance. Only the checkout that owns `.git` is `default`. Keep the two
+# in step or the guard above watches a name main.py never writes.
+function Get-DerivedInstanceId {
+    try {
+        $common = & git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
+        if ($LASTEXITCODE -eq 0 -and $common) {
+            # Get-Item normalizes `/` to `\`, so the comparison is not fooled by
+            # git printing the path with forward slashes.
+            $mainRoot = (Get-Item -LiteralPath (Split-Path -Parent ($common.Trim()))).FullName
+            $here = (Get-Item -LiteralPath $Root).FullName
+            if ($mainRoot -ne $here) { return (Split-Path -Leaf $here) }
+        }
+    } catch {
+        # Not a git checkout; fall through to the default layout.
+    }
+    return "default"
+}
+
+if ($Instance -and $Instance.Trim()) {
+    $Id = ConvertTo-InstanceId $Instance
+} else {
+    $Id = ConvertTo-InstanceId (Get-DerivedInstanceId)
+}
 
 # Per instance. `default` also writes the legacy app\dev\.dev.json, so watch
 # that too when this instance is the default one, or a window started before

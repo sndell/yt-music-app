@@ -70,7 +70,7 @@ The window loads the UI, which calls Python methods through the bridge. Each met
 
 From the repo root, `.\start.ps1` runs `app/main.py` with `ENV=dev`. The Python process picks a free port, starts Vite on it in its own console window, and stops Vite when the window closes. There is no separate `pnpm dev` to run and no server left behind. Vite opens in a console of its own, so the webview and the Vite log are both visible.
 
-`start.ps1` starts one instance of this checkout. Many can run at once, in one checkout or across worktrees: `-Instance <id>` names one, `-Label <text>` tags it for the window title and listings, and `-Restart` stops only that id. A second start with the same id refuses with its pid and ports instead of fighting it for the WebView2 profile. Never hunt for a running instance or probe a port. See **Many agents at once**.
+`start.ps1` starts one instance of this checkout. Many can run at once, in one checkout or across worktrees: `-Instance <id>` names one, `-Label <text>` tags it for the window title and listings, and `-Restart` stops only that id. Leave `-Instance` off and a linked worktree is named after its own directory, so an agent in its own checkout runs the script bare and the main checkout stays `default`. A second start with the same id refuses with its pid and ports instead of fighting it for the WebView2 profile. Never hunt for a running instance or probe a port. See **Many agents at once**.
 
 The port is dynamic, so several checkouts can run at once without colliding. The Python terminal logs it (`Starting Vite on port ...`) and the window loads `http://localhost:<port>`. A frozen build serves the packaged `ui/dist` and starts no server.
 
@@ -91,7 +91,7 @@ An **instance** is one window plus its Vite plus its control server, with a priv
 .\start.ps1                                    # the `default` instance
 ```
 
-- `YTM_INSTANCE` names the instance; `app/dev/instance.py` derives the rest. `default` keeps the old layout (`app/` for data, `app/dev/.dev.json` for discovery), so a bare `start.ps1` changes nothing.
+- `YTM_INSTANCE` names the instance; `app/dev/instance.py` derives the rest. Unset, a linked worktree takes its own directory name (`t3-b5d79117`) and labels itself with its branch, so `-Instance` and `-Label` are only needed for a second window in one checkout. Only the checkout that owns `.git` is `default`, which keeps the old layout (`app/` for data, `app/dev/.dev.json` for discovery), so a bare `start.ps1` in the main checkout changes nothing. Keep `start.ps1`'s `Get-DerivedInstanceId` in step with the Python, or the guard watches a name main.py never writes.
 - A named instance gets `app/.instances/<id>/` for its profile, sign-in copy, preferences and stats, and `app/dev/.instances/<id>.json` for discovery. It never writes another instance's file.
 - The checkout's `app/browser.json` is copied in at start when that copy is missing or older, so a named instance is signed in straight away. The checkout's file is never modified and a token refresh lands in the instance copy. `-Reseed` forces the copy.
 - The diskcache stays shared per checkout (`app/.cache`), so instances read the same warm data instead of each re-fetching the library. `-IsolatedCache` gives one instance its own.

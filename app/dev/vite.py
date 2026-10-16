@@ -104,8 +104,15 @@ def _start_once(port: int, timeout: float) -> bool:
             # Tee keeps the console visible for a person and leaves a tail an
             # agent can read through the dev control server. Windows PowerShell
             # has no -Encoding on Tee-Object, so leave it off.
+            #
+            # cmd does the 2>&1 merge, not PowerShell. PowerShell turns a native
+            # command's stderr into NativeCommandError records, so pnpm's own
+            # `$ vite --config ...` echo prints a fake error box, and Tee writes
+            # that box into the log too. cmd merges the streams before PowerShell
+            # sees them, so the line arrives as plain text and the server starts
+            # with a clean console.
             command = (
-                f"pnpm dev --config vite.config.ts --port {port} --strictPort 2>&1 | "
+                f'cmd /c "pnpm dev --config vite.config.ts --port {port} --strictPort 2>&1" | '
                 f"Tee-Object -FilePath '{log}'"
             )
             args: list[str] = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
