@@ -2,6 +2,7 @@ import { useState } from "react";
 import { PyBridge, type Track } from "@/lib/api";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
+import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { cn } from "@/util/cn";
 
 /**
@@ -53,7 +54,12 @@ export const LibraryTrackRow = ({
         playing && "bg-primary-light",
       )}
     >
-      <span className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-secondary">
+      <span
+        className={cn(
+          "relative grid shrink-0 place-items-center overflow-hidden rounded-md bg-secondary",
+          isVideoMedia(track.videoType) ? "h-10 aspect-video" : "size-10",
+        )}
+      >
         {showCover && coverSrc ? (
           <img
             src={coverSrc}
