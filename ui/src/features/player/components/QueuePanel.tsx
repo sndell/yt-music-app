@@ -1,6 +1,5 @@
 import type { WatchTrack, WatchTunerChip } from "@/lib/api";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
-import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { cn } from "@/util/cn";
@@ -782,7 +781,6 @@ const QueueItem = ({
 }) => {
   const thumbnailUrl = track.thumbnail?.[0]?.url;
   const artists = (track.artists ?? []).map((artist) => artist.name).join(", ");
-  const video = isVideoMedia(track.videoType);
   const tone = accent ? readableAccent(accent) : null;
   const toneChannels = tone ? parseHex(tone) : null;
   // A silver or white accent at the usual 20% disappears into a light wash.
@@ -818,7 +816,7 @@ const QueueItem = ({
           : undefined
       }
     >
-      <span className={cn("relative shrink-0 overflow-hidden rounded-md", video ? "h-10 aspect-video" : "size-10")}>
+      <span className="relative size-10 shrink-0 overflow-hidden rounded-md">
         {thumbnailUrl ? (
           <img src={thumbnailUrl} alt="" draggable={false} className="h-full w-full object-cover" />
         ) : (

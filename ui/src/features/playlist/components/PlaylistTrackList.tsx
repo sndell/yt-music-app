@@ -7,7 +7,6 @@ import { usePlayer } from "@/features/player";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
-import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { ScrollingText } from "@/components/ui/ScrollingText";
 import { AddToPlaylistMenu } from "@/components/ui/AddToPlaylistPanel";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
@@ -470,7 +469,6 @@ const PlaylistTrackItem = memo(({
   const pad = showAlbum ? "px-3 sm:px-4" : "px-6";
 
   const available = track.isAvailable && Boolean(track.videoId);
-  const video = isVideoMedia(track.videoType);
 
   const handleClick = () => {
     if (!available) return;
@@ -545,12 +543,7 @@ const PlaylistTrackItem = memo(({
           {index != null && (
             <span className="w-5 shrink-0 text-right text-sm text-primary-dark tabular-nums">{index}</span>
           )}
-          <div
-            className={cn(
-              "relative flex shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light",
-              video ? "h-10 aspect-video" : "size-10",
-            )}
-          >
+          <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light">
             {showCover && coverSrc ? (
               <img
                 src={coverSrc}
