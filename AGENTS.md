@@ -157,6 +157,18 @@ The window serves `ui/dist` at `http://localhost:<port>/index.html`. It does not
 
 `ui/vite.config.js` is a committed compiled copy of `ui/vite.config.ts`, and Vite prefers `.js`, so it wins and edits to the `.ts` do nothing. `app/dev/vite.py` therefore launches Vite with `--config vite.config.ts`, which is the only reason the per-instance `cacheDir` takes effect in the app. A manual `pnpm dev` still loads the `.js`; add `--config vite.config.ts` there too if a config change matters to you.
 
+## Release
+
+Releases are GitHub releases on this repo, tagged `vX.Y.Z` (example: `v0.1.0`), each with a `YTMusic.exe` built by `build/build.ps1` and never marked a prerelease unless said.
+
+1. Build with `.\build\build.ps1`; the exe lands in `build\dist\<date>_<time>\`. Commit and push first, so the tag sits on the commit the exe came from. Don't pass `version=` to the spec's EXE: PyInstaller reads it as a path to a version-info file, not a string.
+2. `git tag vX.Y.Z; git push origin vX.Y.Z`, then
+   `gh release create vX.Y.Z build\dist\<stamp>\YTMusic.exe --title "YTMusic X.Y.Z" --notes-file <notes.md> --latest`.
+   Write the notes as "What's new since <last tag>" with PR links, like the Alpha 2 notes.
+3. To replace the exe in an already published release, upload again with `gh release upload vX.Y.Z <exe> --clobber`.
+
+The app's icon lives in `build/icon.ico` (multi-size, generated from `build/logo.png` with Pillow). The spec embeds it in the exe, so the frozen window gets it from the exe resource; a dev window has no embedded icon, so `main.py` passes the ico path to `webview.start(icon=...)` only when not frozen. `ui/public/logo.png` is the favicon. Moving a tag after a release exists is fine only before anyone has pulled it.
+
 ## Verify
 
 Verification is manual. There is no automated suite, so the proof is the diff, the typecheck, the running window, and the dev control surface.
