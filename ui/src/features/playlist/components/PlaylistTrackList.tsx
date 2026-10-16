@@ -39,6 +39,8 @@ export const PlaylistTrackList = ({
   removable,
   onRemoveTracks,
   filterable,
+  hasMore = false,
+  totalCount,
 }: {
   tracks: Track[];
   gradient: string;
@@ -61,6 +63,10 @@ export const PlaylistTrackList = ({
   onRemoveTracks?: (tracks: Track[]) => void;
   /** Shows a filter field above the tracks; searches title, artist and album. */
   filterable?: boolean;
+  /** True while the remaining pages are still loading. */
+  hasMore?: boolean;
+  /** The real total when `tracks` is only the loaded part, so counts stay honest. */
+  totalCount?: number;
 }) => {
   const rowsRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
@@ -125,6 +131,9 @@ export const PlaylistTrackList = ({
 
   const popular = variant === "popular";
   const pad = popular ? "px-6" : "px-3 sm:px-4";
+  // A playlist carries its real size in the header while only part of it has
+  // loaded, so the count line reports that size until the last page lands.
+  const knownTotal = hasMore && totalCount != null && totalCount > tracks.length ? totalCount : tracks.length;
   // Playlists carry an add time per track; albums and artist song lists do not,
   // so only the collection lists that have one grow an "Added" column.
   const showAdded = !popular && tracks.some((track) => track.addedAt != null);
@@ -133,11 +142,13 @@ export const PlaylistTrackList = ({
   // A date sort shows rows out of the playlist's own order, so dragging one to a
   // new slot could not map back to a real position.
   const sorted = sort !== "playlist";
-  // Moving rows while a filter hides some of them, while finding duplicates groups
-  // them, while a date sort reorders them, or while some are picked, would shift
-  // indexes the caller does not know about. Finding duplicates keeps dragging off
-  // entirely.
-  const reorderLocked = narrowing || sorted || selected.length > 0;
+  // Moving rows while a filter hides some of them, while finding duplicates
+  // groups them, while a date sort reorders them, while some are picked, or
+  // while the rest of a paged playlist is still loading would shift indexes the
+  // caller does not know about: the last loaded row is not the last row, so a
+  // drop at the bottom would move the song to the real end. Finding duplicates
+  // keeps dragging off entirely.
+  const reorderLocked = narrowing || sorted || selected.length > 0 || hasMore;
 
   const handleRowSelect = (index: number, event: MouseEvent) => {
     event.preventDefault();
@@ -234,9 +245,9 @@ export const PlaylistTrackList = ({
         <div className={cn("relative", pad)}>
           {narrowing ? (
             <p className="pb-1.5 text-sm text-primary-dark border-b border-primary" role="status">
-              {displayTracks.length === tracks.length
-                ? `${tracks.length} songs`
-                : `${displayTracks.length} of ${tracks.length} songs`}
+              {displayTracks.length === knownTotal
+                ? `${knownTotal} songs`
+                : `${displayTracks.length} of ${knownTotal} songs`}
             </p>
           ) : (
             <div
@@ -291,6 +302,12 @@ export const PlaylistTrackList = ({
           })}
         </div>
       </ReorderList>
+      {hasMore && (
+        <div className={cn("relative flex items-center justify-center gap-2 py-4 text-sm text-primary-dark", pad)} role="status">
+          <span className="icon-[solar--loader-linear] animate-spin text-base" aria-hidden="true" />
+          Loading songs
+        </div>
+      )}
       {footer}
       {listMenu && (
         <SongListMenu

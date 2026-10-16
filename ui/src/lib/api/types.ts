@@ -175,6 +175,17 @@ export interface PlaylistDetails {
   durationSeconds: number;
   dominantColor: string | null;
   fromCache?: boolean;
+  /**
+   * Cursor for the page of tracks after the loaded ones, or null when every
+   * track is here. Pass it to `getPlaylistPage` to load more.
+   */
+  nextToken: string | null;
+}
+
+/** One more page of a playlist's tracks, with the cursor after it. */
+export interface PlaylistPage {
+  tracks: Track[];
+  nextToken: string | null;
 }
 
 export interface AlbumVersion {
@@ -391,6 +402,10 @@ export interface ApiMethods {
   };
   shuffle_tracks: { params: [videoIds: string[]]; response: string[] };
   get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
+  /** The tracks after the loaded page. `pageToken` is a `PlaylistDetails.nextToken`. */
+  get_playlist_page: { params: [playlistId: string, pageToken: string]; response: PlaylistPage };
+  /** Every track of a playlist, for queueing and true shuffle. */
+  get_playlist_all_tracks: { params: [playlistId: string]; response: { tracks: Track[] } };
   move_playlist_item: {
     params: [playlistId: string, setVideoId: string, beforeSetVideoId: string];
     response: { status: string };

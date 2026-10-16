@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
-import { PyBridge, showCachedThenRefresh, type LikeStatus, type PlaylistDetails, type PlaylistItemRef, type PlaylistSummary } from "@/lib/api";
+import { PyBridge, type LikeStatus, type PlaylistDetails, type PlaylistItemRef, type PlaylistSummary } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
@@ -153,11 +153,15 @@ export const Playlist = () => {
   const [, navigate] = useLocation();
   const { playlists, fetchPlaylists, removeFromPlaylist, restorePlaylistItem, editPlaylist, deletePlaylist, ratePlaylist } =
     usePlaylist();
-  const { playPlaylist, trackRatings, trueShuffle } = usePlayer();
+  const { playPlaylist, trackRatings, trueShufflePlaylist } = usePlayer();
   const ratingsRef = useRef(trackRatings);
   ratingsRef.current = trackRatings;
   const [playlist, setPlaylist] = useState<PlaylistDetails | null>(null);
   const [loadedId, setLoadedId] = useState(id);
+  const [nextToken, setNextToken] = useState<string | null>(null);
+  // Bumped by every load so a newer one cancels an older one. Two loaders
+  // appending to the same list would duplicate rows.
+  const loadSeqRef = useRef(0);
   const [isScrolled, setIsScrolled] = useState(false);
   const [reorderError, setReorderError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Track[] | null>(null);
@@ -169,44 +173,114 @@ export const Playlist = () => {
   if (id !== loadedId) {
     setLoadedId(id);
     setPlaylist(null);
+    setNextToken(null);
     setIsScrolled(false);
   }
 
+  /**
+   * Read a playlist fresh from the first page to the last.
+   *
+   * Reports whether every page arrived, so a warm open can keep the cached
+   * list when the refresh fails instead of shrinking it.
+   */
+  const readWhole = useCallback(
+    async (
+      playlistId: string,
+      isCurrent: () => boolean,
+    ): Promise<{ data: PlaylistDetails; complete: boolean } | null> => {
+      const first = await PyBridge.getPlaylistItems(playlistId, true);
+      if (!isCurrent() || !first.success || !Array.isArray(first.data.tracks) || !first.data.title) return null;
+      let tracks = first.data.tracks;
+      let token = first.data.nextToken ?? null;
+      let complete = true;
+      // A token that comes back twice would loop forever, so each is spent once.
+      const seen = new Set<string>();
+      while (token && !seen.has(token)) {
+        seen.add(token);
+        const page = await PyBridge.getPlaylistPage(playlistId, token);
+        if (!isCurrent()) return null;
+        if (!page.success || page.data.tracks.length === 0) {
+          complete = false;
+          break;
+        }
+        tracks = [...tracks, ...page.data.tracks];
+        token = page.data.nextToken ?? null;
+      }
+      return { data: { ...first.data, tracks }, complete };
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!id) return;
-    let active = true;
-    void showCachedThenRefresh(
-      (forceRefresh) => PyBridge.getPlaylistItems(id, forceRefresh),
-      (data) => {
-        if (!data.title || !Array.isArray(data.tracks)) return;
-        setPlaylist(withRatings(data, ratingsRef.current));
-      },
-      () => active,
-    );
+    const seq = ++loadSeqRef.current;
+    const isCurrent = () => loadSeqRef.current === seq;
+
+    void (async () => {
+      const first = await PyBridge.getPlaylistItems(id, false);
+      if (!isCurrent() || !first.success || !Array.isArray(first.data.tracks) || !first.data.title) return;
+
+      if (first.data.fromCache) {
+        // Paint everything already cached, then swap in one fresh read. A
+        // refresh that did not finish keeps the cached paint, so the list
+        // never shrinks.
+        setPlaylist(withRatings(first.data, ratingsRef.current));
+        setNextToken(first.data.nextToken ?? null);
+        const fresh = await readWhole(id, isCurrent);
+        if (!isCurrent()) return;
+        if (fresh?.complete) setPlaylist(withRatings(fresh.data, ratingsRef.current));
+        setNextToken(null);
+        return;
+      }
+
+      // Nothing cached: paint the first page, then stream the rest in behind
+      // it, so a playlist is readable while its pages arrive.
+      setPlaylist(withRatings(first.data, ratingsRef.current));
+      setNextToken(first.data.nextToken ?? null);
+      let token = first.data.nextToken ?? null;
+      const seen = new Set<string>();
+      while (token && !seen.has(token)) {
+        seen.add(token);
+        const page = await PyBridge.getPlaylistPage(id, token);
+        if (!isCurrent()) return;
+        if (!page.success || page.data.tracks.length === 0) break;
+        setPlaylist((current) =>
+          current
+            ? withRatings({ ...current, tracks: [...current.tracks, ...page.data.tracks] }, ratingsRef.current)
+            : current,
+        );
+        setNextToken(page.data.nextToken ?? null);
+        token = page.data.nextToken ?? null;
+      }
+      setNextToken(null);
+    })();
+
     return () => {
-      active = false;
+      // A later load or a route change supersedes this one.
+      loadSeqRef.current += 1;
     };
-  }, [id]);
+  }, [id, readWhole]);
 
   // A rename, visibility change, or added song from the sidebar should refresh
   // the playlist view when it is showing that playlist.
   useEffect(() => {
     if (!id) return;
-    let active = true;
     const onChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ playlistId?: string }>).detail;
       if (!detail?.playlistId || detail.playlistId !== id) return;
-      void PyBridge.getPlaylistItems(id, true).then((result) => {
-        if (!active || !result.success || !result.data.title) return;
-        setPlaylist(withRatings(result.data, ratingsRef.current));
+      const seq = ++loadSeqRef.current;
+      const isCurrent = () => loadSeqRef.current === seq;
+      void readWhole(id, isCurrent).then((fresh) => {
+        if (!isCurrent()) return;
+        if (fresh?.complete) setPlaylist(withRatings(fresh.data, ratingsRef.current));
+        setNextToken(null);
       });
     };
     window.addEventListener("ytmusic-playlist-changed", onChanged);
     return () => {
-      active = false;
       window.removeEventListener("ytmusic-playlist-changed", onChanged);
     };
-  }, [id]);
+  }, [id, readWhole]);
 
   useEffect(() => {
     setPlaylist((current) => (current ? withRatings(current, trackRatings) : current));
@@ -258,7 +332,14 @@ export const Playlist = () => {
 
   const shuffleMenu =
     playlist.tracks.length > 0
-      ? { onShuffle: () => play("shuffle"), onTrueShuffle: () => void trueShuffle(playlist.tracks) }
+      ? {
+          onShuffle: () => play("shuffle"),
+          // The list can still be loading, so shuffle reads the whole playlist
+          // rather than only the rows that have arrived.
+          onTrueShuffle: () => {
+            if (id) void trueShufflePlaylist(id);
+          },
+        }
       : undefined;
 
   const reorderTrack = (from: number, to: number) => {
@@ -408,6 +489,8 @@ export const Playlist = () => {
           removable={removable}
           onRemoveTracks={(tracks) => setRemoving(tracks)}
           filterable
+          hasMore={Boolean(nextToken)}
+          totalCount={trackCount}
           actions={
             <PlaybackButtons onPlay={() => play("play")} shuffleMenu={shuffleMenu} extra={extraActions} />
           }

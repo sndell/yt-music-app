@@ -41,7 +41,7 @@ The most common defect here is a change that works on the one path you tried and
 
 - **A new API method.** It needs the Python method, an entry in `ApiMethods` in `ui/src/lib/api/types.ts`, and a wrapper in `PyBridge` in `ui/src/lib/api/bridge.ts`. Miss the contract and `tsc -b` fails; miss the bridge and the UI cannot call it.
 - **A Python to UI event.** It needs `WebViewController.dispatch_event` on the Python side and a `window.pythonEvent` handler on the UI side. Only the player listens today.
-- **Cached data.** Python caches payloads in `diskcache`. Change a payload's shape and raise the cache key version (`playlist:v3:` today), or the old shape is served from the cache.
+- **Cached data.** Python caches payloads in `diskcache`. Change a payload's shape and raise the cache key version (`playlist:v4:` today), or the old shape is served from the cache.
 - **The frozen build.** The packaged page runs without Vite and without `import.meta.env.DEV`. A change that only works under Vite is not finished.
 - **Reverse states.** Every way in needs a way out and a way to see it. Like needs unlike, add needs remove, open needs close.
 - **The account.** A read that is fine in dev is still a read of the user's real library. A write needs the conversation to have asked for it.
@@ -168,7 +168,7 @@ The same variable works for the Vite window. Set it in the shell before `app\mai
 
 ## App notes
 
-Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v3:<playlistId>` with a 7 day expiry. The payload's `id` field is `None`; the id is only in the key. Each track carries `addedAt`, the Unix second it was added, from `playlistItemData.voteSortValue` in the browse response `get_playlist_items` already fetches. ytmusicapi drops it, so `_PlaylistDateCapture` records it during that call and `_apply_added_dates` joins it by `setVideoId`, or by `videoId` order for a playlist owned by someone else. Albums have no add time.
+Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v4:<playlistId>` with a 7 day expiry. The payload's `id` field is `None` for a playlist the user does not own, such as `LM`; the id is only in the key. Each track carries `addedAt`, the Unix second it was added, from `playlistItemData.voteSortValue` in the browse response `get_playlist_items` already fetches. ytmusicapi drops it, so `_PlaylistDateCapture` records it during that call and `_apply_added_dates` joins it by `setVideoId`, or by `videoId` order for a playlist owned by someone else. Albums have no add time.
 
 A freshly created playlist cannot be read back at once. YouTube serves a stub browse page with no header section while it prepares the playlist, so `get_playlist` raises `KeyError: contents`, `get_playlist_items` returns `{}`, and the playlist view sits on its loader. Two playlists created on 2026-10-16 read back 15 seconds and 3.5 minutes after creation. `create_playlist` caches the header it already knows (title, privacy, empty track list) when no songs were requested, so the view renders straight away. A create that includes songs cannot describe the track list and is left to the fetch.
 
@@ -194,7 +194,11 @@ A `useCallback` that reads `ref.current` fails `react-hooks/preserve-manual-memo
 
 Home shows every shelf `get_home` returns, in feed order. Quick picks is the one vertical list and every other shelf is a row. The shelf set is not stable: the same account returned "Shows for you", then "Live performances", then "IVAN VALEEV" within minutes, so the app cannot decide what to show from a shelf title. A shelf is dropped when none of its items map to a song, album, artist or playlist. Podcast shows are the case that matters, since `get_playlist` raises `KeyError: contents` on a show id (`MPSPPL…`) and the playlist route cannot open one. The payload is cached under `home:shelves:v4`.
 
-Reading a generated mix needs a page limit. A mix (`RDTMAK…`, `RDAMPL…`) reports no `trackCount` and never runs out, so `get_playlist(playlistId, limit=None)` follows continuations forever and the playlist view spins with no way out. `_fetch_playlist` reads one page of `_PLAYLIST_PAGE_LIMIT` tracks, keeps it when `trackCount` is `None`, and only then reads a playlist whole when it reports a size. `_PlaylistDateCapture` runs across both requests, so owned playlists still get their `addedAt`.
+Playlists load a page at a time and cache as they go. `get_playlist(playlistId, limit=0)` returns the header plus the first page, about 99 tracks, and `get_playlist_items` returns that page with a `nextToken`. ytmusicapi drops the continuation token, so `_PlaylistDateCapture` reads it from the same browse response with `get_continuation_token`. `get_playlist_page` replays it as a `{"continuation": token}` browse request, takes the next token from `onResponseReceivedActions[0].appendContinuationItemsAction.continuationItems`, and appends the rows to the cached playlist. The view drives the rest itself: a cold open streams pages into the list as they arrive, and a warm open paints the whole cached list then swaps in a fresh read when it finishes, so the painted list never shrinks mid-refresh.
+
+ytmusicapi's `limit` counts continuation items only and pages run about 96 to 99, so `limit=100` returns around 294 tracks. The header's `trackCount` is YouTube's own count and runs ahead of the rows that parse, because `parse_playlist_items` drops deleted entries (a 1747-song playlist parsed 1731). A generated mix that reports no track count is left at one page and no token. `RDAMPL…` and `RDAMVM…` ids never reach that point: `get_playlist` raises `KeyError` while it parses the header, at any limit, so the playlist route cannot open one. `RDCLAK5uy_…` mixes do parse and report a count, so they read whole like a sized list.
+
+`get_playlist_all_tracks` reads every page, for the callers that cannot work from one: `queuePlaylist` and `trueShufflePlaylist` in the player, the duplicate check in `add_playlist_items`, and the row lookup in `remove_playlist_videos`.
 
 ## Music video overlay
 
