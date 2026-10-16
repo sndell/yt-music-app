@@ -451,6 +451,7 @@ const PlayerControls = ({
   const [, navigate] = useLocation();
   const albumName = currentSong.album?.name;
   const albumId = currentSong.album?.id;
+  const releaseYear = currentSong.year;
   const credits = (
     <>
       {currentSong.artists.map((artist, index) => (
@@ -483,6 +484,12 @@ const PlayerControls = ({
           ) : (
             albumName
           )}
+        </>
+      )}
+      {releaseYear && (
+        <>
+          {(currentSong.artists.length > 0 || albumName) && <span aria-hidden="true"> • </span>}
+          <span>{releaseYear}</span>
         </>
       )}
     </>
