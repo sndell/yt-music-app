@@ -151,6 +151,7 @@ Verification is manual. There is no automated suite, so the proof is the diff, t
 - Types, from `ui`: `pnpm exec tsc -b`. `tsconfig.json` there is a solution file with `files: []`, so `tsc --noEmit` compiles nothing and exits 0. `tsc -b` builds the referenced projects, the same check `build/build.ps1` runs first.
 - Python: `python -m py_compile app\main.py`, or import the module.
 - Then run `.\start.ps1` and drive the app through `app\dev\cli.py` (see **Dev control surface**): `wait`, then `call`, `eval`, `logs`, and `screenshot`. This replaces guessing from the screen. Vite edits refresh in place; a Python edit needs the window restarted.
+- The dev window can come up blank even though `/health` says loaded and the API methods run. The body is empty and the renderer log shows a `SidebarList` hook-order error with `useLocation` reading undefined. The React Compiler causes it. Comment out the `babel({ presets: [reactCompilerPreset()] })` plugin in `ui/vite.config.ts` for the run and the page renders, then restore it. Clearing the optimized dep cache (`app\.instances\<id>\vite`) does not help.
 - Do not launch a browser or drive the screen unless the user asked for it.
 - Stop as soon as the evidence covers the change, and never re-run a check you already ran.
 

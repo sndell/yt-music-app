@@ -6,6 +6,7 @@ import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
+import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { SnapRow } from "@/components/ui/SnapRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
@@ -329,7 +330,8 @@ const HomeCard = ({
     >
       <div
         className={cn(
-          "relative aspect-square overflow-hidden rounded-md bg-secondary",
+          "relative overflow-hidden rounded-md bg-secondary",
+          isVideoMedia(item.videoType) ? "aspect-video" : "aspect-square",
           playing && "ring-2 ring-accent"
         )}
       >
@@ -643,7 +645,12 @@ const QuickPickRow = ({
           playing && "bg-primary-light"
         )}
       >
-        <div className="relative size-11 shrink-0 overflow-hidden rounded-md bg-secondary">
+        <div
+          className={cn(
+            "relative shrink-0 overflow-hidden rounded-md bg-secondary",
+            isVideoMedia(item.videoType) ? "h-11 aspect-video" : "size-11",
+          )}
+        >
           {thumbnailUrl && !failed ? (
             <img src={thumbnailUrl} alt="" draggable={false} onError={() => setFailed(true)} className="h-full w-full object-cover" />
           ) : (
