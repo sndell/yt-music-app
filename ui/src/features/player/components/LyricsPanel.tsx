@@ -1,8 +1,11 @@
-import type { LyricLine } from "@/lib/api";
+import { PyBridge, type LyricLine } from "@/lib/api";
+import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/util/cn";
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { playhead } from "../lib/playhead";
 import type { SongLyrics } from "../context/PlayerContext";
+import { LanguageMenu } from "./LanguageMenu";
+import { languageName } from "../lib/languages";
 
 /** Index of the line playing at `seconds`, or -1 before the first one starts. */
 const lineAt = (lines: LyricLine[], seconds: number) => {
@@ -36,9 +39,30 @@ const useActiveLine = (lines: LyricLine[]) => {
  *
  * YouTube Music returns timings for some songs and a plain block for others, so
  * the timed view highlights the playing line and the plain view is shown as is.
+ * The translate button asks Python for an English copy, which carries the
+ * original's timings, and swaps it in until it is pressed again.
  */
 export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
-  const lines = lyrics.lines;
+  const [translation, setTranslation] = useState<SongLyrics & { target: string } | null>(null);
+  const [pending, setPending] = useState<{ videoId: string; target: string } | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLButtonElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuCloseRef = useRef(0);
+  const videoIdRef = useRef(lyrics.videoId);
+  const { showToast } = useToast();
+
+  // The panel is reused for the next song, so the click handler needs the id the
+  // player is on when its answer lands, not the one it started from.
+  useEffect(() => {
+    videoIdRef.current = lyrics.videoId;
+  }, [lyrics.videoId]);
+
+  // A translation belongs to the song it was asked for, so the panel shows the
+  // original again once the player has moved on.
+  const translated = translation?.videoId === lyrics.videoId ? translation : null;
+  const translating = pending?.videoId === lyrics.videoId;
+  const shown = (translated as SongLyrics | null) ?? lyrics;
+  const lines = shown.lines;
   const active = useActiveLine(lines);
   const listRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLParagraphElement>(null);
@@ -52,32 +76,144 @@ export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
     list.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
   }, [active]);
 
+  const translateTo = async (target: string) => {
+    if (translated?.target === target) return;
+    const videoId = lyrics.videoId;
+    setPending({ videoId, target });
+    const result = await PyBridge.translateLyrics(videoId, target);
+    setPending((current) => (current?.videoId === videoId ? null : current));
+    if (videoIdRef.current !== videoId) return;
+    const data = result.success ? result.data : null;
+    if (data?.translated && data.lyrics) {
+      setTranslation({
+        videoId,
+        target,
+        text: data.lyrics,
+        source: data.source ?? null,
+        lines: data.lines ?? [],
+      });
+      return;
+    }
+    // A song already in the target language comes back with the detected source
+    // language, which doubles as the "nothing to do" explanation.
+    const detectedName = languageName(data?.language);
+    if (detectedName) {
+      showToast(`These lyrics are already in ${detectedName}`);
+      return;
+    }
+    showToast("Could not translate these lyrics", "error");
+  };
+
+  const selectLanguage = (code: string | null) => {
+    if (code === null) {
+      setTranslation(null);
+      return;
+    }
+    void translateTo(code);
+  };
+
+  const openMenu = (element: HTMLButtonElement) => {
+    window.clearTimeout(menuCloseRef.current);
+    setMenuAnchor(element);
+    setMenuOpen(true);
+  };
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    window.clearTimeout(menuCloseRef.current);
+    // The anchor survives the close animation, then drops.
+    menuCloseRef.current = window.setTimeout(() => setMenuAnchor(null), 200);
+  };
+
+  useEffect(() => () => window.clearTimeout(menuCloseRef.current), []);
+
+  // The line above the lyrics carries what to the right of it: where the words
+  // are from, and what translation is showing. That keeps the menu opener from
+  // reading as a lone button in the corner.
+  const shownLanguage = translated ? (languageName(translated.target) ?? translated.target) : null;
+
   return (
-    <div
-      ref={listRef}
-      className="relative z-10 overflow-y-auto flex-1 min-h-0 px-4 py-3 scrollbar-thin [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]"
-    >
-      {lines.length > 0 ? (
-        <div className="pb-4">
-          {lines.map((line, index) => (
-            <p
-              key={index}
-              ref={index === active ? activeRef : undefined}
-              className={cn(
-                // White and bold against dimmed lines: the two panel text tokens
-                // are only 0.15 lightness apart, which the highlight cannot carry.
-                "text-[15px] leading-7 transition-[color,opacity,font-weight] duration-300",
-                index === active ? "font-semibold text-white" : "text-primary-dark opacity-50"
-              )}
-            >
-              {line.text}
-            </p>
-          ))}
-        </div>
-      ) : (
-        <p className="text-[15px] leading-7 whitespace-pre-line text-primary">{lyrics.text}</p>
+    <div className="relative z-10 flex flex-1 flex-col min-h-0">
+      <div className="flex shrink-0 items-center justify-end gap-2 px-4 pt-2 [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]">
+        {(shownLanguage || shown.source) && (
+          <span className="mr-auto flex min-w-0 items-center gap-2 text-xs text-primary-dark">
+            {shown.source && <span className="truncate">{shown.source}</span>}
+            {shown.source && shownLanguage && <span className="shrink-0">·</span>}
+            {shownLanguage && (
+              <span className={cn("truncate", shown.source && "shrink-0")}>Translated to {shownLanguage}</span>
+            )}
+          </span>
+        )}
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          disabled={translating}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            if (menuAnchor) closeMenu();
+            else openMenu(event.currentTarget);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            if (menuAnchor) closeMenu();
+            else openMenu(event.currentTarget);
+          }}
+          className={cn(
+            "flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition-colors duration-200 disabled:cursor-default",
+            translated ? "bg-white/10 text-primary" : "text-primary-dark hover:bg-white/5 hover:text-primary"
+          )}
+        >
+          <span
+            className={cn(
+              "text-sm",
+              translating ? "icon-[solar--loader-linear] animate-spin" : "icon-[solar--translation-linear]"
+            )}
+          />
+          {translating ? "Translating…" : (shownLanguage ?? "Translate")}
+          <span
+            className={cn(
+              "text-sm transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] icon-[solar--alt-arrow-down-linear]",
+              menuOpen && "rotate-180"
+            )}
+          />
+        </button>
+      </div>
+      {menuAnchor && (
+        <LanguageMenu
+          open={menuOpen}
+          trigger={menuAnchor}
+          activeCode={translated?.target ?? null}
+          onSelect={selectLanguage}
+          onClose={closeMenu}
+        />
       )}
-      {lyrics.source && <p className="mt-6 text-xs text-primary-dark">{lyrics.source}</p>}
+      <div
+        ref={listRef}
+        className="relative overflow-y-auto flex-1 min-h-0 px-4 py-3 scrollbar-thin [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]"
+      >
+        {lines.length > 0 ? (
+          <div className="pb-4">
+            {lines.map((line, index) => (
+              <p
+                key={index}
+                ref={index === active ? activeRef : undefined}
+                className={cn(
+                  // White and bold against dimmed lines: the two panel text tokens
+                  // are only 0.15 lightness apart, which the highlight cannot carry.
+                  "text-[15px] leading-7 transition-[color,opacity,font-weight] duration-300",
+                  index === active ? "font-semibold text-white" : "text-primary-dark opacity-50"
+                )}
+              >
+                {line.text}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[15px] leading-7 whitespace-pre-line text-primary">{shown.text}</p>
+        )}
+      </div>
     </div>
   );
 };

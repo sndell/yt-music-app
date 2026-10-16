@@ -13,11 +13,12 @@ import io
 import json
 import logging
 import random
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from PIL import Image
@@ -807,6 +808,156 @@ def _normalize_lyrics(result: Any) -> dict[str, Any]:
 
     payload["lyrics"] = raw if isinstance(raw, str) and raw.strip() else None
     return payload
+
+
+# Google's public translate endpoints take form fields and answer JSON. No key,
+# no client library, and nothing to install, which is the whole reason lyrics
+# translation does not need one. ``single`` reads a block, ``t`` reads one entry
+# per ``q`` field; the second one is the fallback the first one's split can need.
+_TRANSLATE_BLOCK_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
+_TRANSLATE_LINES_ENDPOINT = "https://translate.googleapis.com/translate_a/t"
+_TRANSLATE_TIMEOUT = 15
+# A block goes in as one request. Past this many characters it is split at a
+# line break, so a long lyric is a few requests rather than one oversized one.
+_TRANSLATE_BLOCK_CHARS = 4000
+# The per-line endpoint takes its lines as a query string, so its batches are
+# measured as encoded query text and not as characters of lyric.
+_TRANSLATE_QUERY_CHARS = 4000
+
+
+def _translate_request(url: str, fields: list[tuple[str, str]], post: bool = True) -> Any | None:
+    """Send ``fields`` and parse the JSON reply.
+
+    ``None`` means the request or the parse failed, which the caller reports as
+    a failed translation instead of caching one that never happened. ``post`` is
+    false for the endpoint that answers a POST with a redirect and then refuses
+    the GET it is followed by; the same fields as a query string are answered.
+    """
+    body = urlencode(fields)
+    request = (
+        Request(url, data=body.encode("utf-8"), headers={"User-Agent": "Mozilla/5.0"})
+        if post
+        else Request(f"{url}?{body}", headers={"User-Agent": "Mozilla/5.0"})
+    )
+    try:
+        with urlopen(request, timeout=_TRANSLATE_TIMEOUT) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception:
+        logger.warning("Lyrics translation request failed", exc_info=True)
+        return None
+
+
+def _translate_block(text: str, target: str) -> tuple[str, str, str | None] | None:
+    """Translate one block into ``target``.
+
+    Returns ``(translated, original, language)``. The original text comes back
+    echoed beside each translation, which is what lets the caller check that the
+    reply is still split at the same line breaks it sent.
+    """
+    data = _translate_request(
+        _TRANSLATE_BLOCK_ENDPOINT,
+        [("client", "gtx"), ("sl", "auto"), ("tl", target), ("dt", "t"), ("q", text)],
+    )
+    if not isinstance(data, list) or not isinstance(data[0], list):
+        return None
+    segments = [segment for segment in data[0] if isinstance(segment, list)]
+    translated = "".join(
+        segment[0] for segment in segments if segment and isinstance(segment[0], str)
+    )
+    original = "".join(
+        segment[1] for segment in segments if len(segment) > 1 and isinstance(segment[1], str)
+    )
+    language = data[2] if len(data) > 2 and isinstance(data[2], str) else None
+    return translated, original, language
+
+
+def _translate_lines_individually(lines: list[str], target: str) -> list[str] | None:
+    """Translate lines one at a time, which cannot fall out of step.
+
+    Each line is its own ``q`` field and the reply carries one entry per ``q``,
+    so the count always matches. A line read without its neighbours translates
+    blunter than the same line inside the block, which is why this is only the
+    fallback for a block that came back split differently.
+    """
+    translated: list[str] = []
+    for batch in _query_batches(lines):
+        data = _translate_request(
+            _TRANSLATE_LINES_ENDPOINT,
+            [("client", "gtx"), ("sl", "auto"), ("tl", target)] + [("q", line) for line in batch],
+            post=False,
+        )
+        if not isinstance(data, list) or len(data) != len(batch):
+            return None
+        for entry in data:
+            text = entry[0] if isinstance(entry, list) and entry and isinstance(entry[0], str) else None
+            translated.append(text if text is not None else "")
+    return translated
+
+
+def _split_blocks(lines: list[str]) -> list[list[str]]:
+    """Group lines into blocks that fit one translate request each."""
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    size = 0
+    for line in lines:
+        if current and size + len(line) + 1 > _TRANSLATE_BLOCK_CHARS:
+            blocks.append(current)
+            current, size = [], 0
+        current.append(line)
+        size += len(line) + 1
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def _query_batches(lines: list[str]) -> list[list[str]]:
+    """Group lines into batches whose encoded query stays a sane URL length.
+
+    A line of CJK encodes to nine times its own length, so the measure is the
+    encoded field rather than the lyric.
+    """
+    batches: list[list[str]] = []
+    current: list[str] = []
+    size = 0
+    for line in lines:
+        encoded = len(urlencode({"q": line}))
+        if current and size + encoded + 1 > _TRANSLATE_QUERY_CHARS:
+            batches.append(current)
+            current, size = [], 0
+        current.append(line)
+        size += encoded + 1
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _translate_lyric_lines(lines: list[str], target: str) -> tuple[list[str], str | None] | None:
+    """Translate lyric lines into ``target``, one translation per line.
+
+    Returns the translations and the detected source language, or ``None`` when
+    the request failed. Each block is sent joined at the line breaks it came
+    with, because Google splits its reply back at those breaks. The echoed
+    original is checked line for line, and a block that came back split
+    differently is translated a line at a time instead, so a timing highlight
+    cannot end up on the wrong words.
+    """
+    translated: list[str] = []
+    language: str | None = None
+    for block in _split_blocks(lines):
+        result = _translate_block("\n".join(block), target)
+        if result is None:
+            return None
+        text, original, detected = result
+        language = language or detected
+        split = text.split("\n")
+        if len(original.split("\n")) == len(block) == len(split):
+            translated.extend(split)
+            continue
+        fallback = _translate_lines_individually(block, target)
+        if fallback is None:
+            return None
+        translated.extend(fallback)
+    return translated, language
 
 
 def _inline_playlist_thumbnails(playlists: list[dict[str, Any]]) -> None:
@@ -2660,6 +2811,73 @@ class MusicApi:
             ident,
             "timed" if payload["hasTimestamps"] else "text" if payload["lyrics"] else "none",
         )
+        return payload
+
+    def translate_lyrics(self, video_id: str, language: str = "en") -> dict[str, Any]:
+        """Lyrics for a song in another language, split like the original.
+
+        Takes the playing song's video id and a target language code, English by
+        default. Reads the original from the lyrics cache and translates it
+        through Google's public endpoint, which needs no key and no client
+        library. Timed lyrics keep their lines, so the panel goes on
+        highlighting the playing line; a song already in the target language
+        comes back with ``translated`` false rather than a copy of itself.
+
+        Returns:
+            ``{"language", "translated", "lyrics", "source", "hasTimestamps",
+            "lines"}``. ``language`` is the detected source language.
+        """
+        if not isinstance(video_id, str) or not video_id.strip():
+            raise ValueError("video id is required")
+        ident = video_id.strip()
+        if not isinstance(language, str) or not re.fullmatch(r"[a-zA-Z]{2}(-[a-zA-Z]{2,4})?", language.strip()):
+            language = "en"
+        language = language.strip()
+        cache_key = f"lyrics:{language}:v1:{ident}"
+        cached = cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+
+        original = self.get_lyrics(ident)
+        payload: dict[str, Any] = {
+            "language": None,
+            "translated": False,
+            "lyrics": None,
+            "source": None,
+            "hasTimestamps": False,
+            "lines": [],
+        }
+        original_lines = [line for line in original.get("lines", []) if isinstance(line, dict)]
+        text = original.get("lyrics")
+        lines = (
+            [line.get("text", "") for line in original_lines]
+            if original_lines
+            else (text.split("\n") if isinstance(text, str) and text.strip() else [])
+        )
+        if lines:
+            result = _translate_lyric_lines(lines, language)
+            if result is not None:
+                translated, detected = result
+                payload["language"] = detected
+                payload["translated"] = detected != language
+                if payload["translated"]:
+                    payload["lyrics"] = "\n".join(translated).strip() or None
+                    payload["source"] = original.get("source")
+                    # The timings are the original's, and they only fit the
+                    # translation when it carries the same lines back.
+                    if original_lines and len(translated) == len(original_lines):
+                        payload["hasTimestamps"] = True
+                        payload["lines"] = [
+                            {**line, "text": line_text}
+                            for line, line_text in zip(original_lines, translated)
+                        ]
+
+        # A request that failed is not an answer, so it is left uncached and the
+        # next press can try again. A song already in the target language is an
+        # answer, and one that will not change.
+        if payload["translated"] or payload["language"]:
+            cache.set(cache_key, payload, expire=LYRICS_CACHE_SECONDS)
+        logger.info("Lyrics translation for %s: %s -> %s", ident, payload["language"], language)
         return payload
 
     def get_audio_stream(self, video_id: str, refresh: bool = False) -> dict[str, Any]:
