@@ -23,6 +23,16 @@ if is_frozen():
 else:
     logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT)
 
+if ENV == "dev":
+    # `YTM_INSTANCE` has to reach the environment before any app module is
+    # imported: `util.preferences`, `util/discord_presence`, `features.music_api`
+    # and `util.audio_stream` resolve `data_dir()`/`cache_dir()` at import time.
+    # `prepare()` also refuses here when another live instance owns this data dir.
+    from dev import instance
+
+    instance.apply_env()
+    instance.prepare()
+
 import webview
 
 from features.music_api import MusicApi
@@ -115,6 +125,7 @@ def _disable_browser_context_menu(window: webview.Window) -> None:
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
+    title = "YTMusic"
     # Dev loads Vite. This process starts it in its own console and stops it
     # when the window closes, so the server never outlives the window. It also
     # keeps Python logs in memory and opens the dev control server, so an agent
@@ -122,25 +133,33 @@ if __name__ == "__main__":
     if ENV == "dev":
         from dev import control, logs, vite
 
-        # One window per checkout. A second process would fight the first for
-        # the WebView2 profile, so refuse instead of half-starting.
+        # `instance.prepare()` already refused when another instance owns this
+        # data dir. What is left is this instance id already being up, which
+        # would put two windows on one profile and one discovery file.
         running = control.existing_instance()
         if running:
+            ident = instance.instance_id()
             logging.getLogger(__name__).error(
-                "A dev instance already runs for this checkout (pid %s, vite %s, control %s). "
-                "Stop it with `python app\\dev\\cli.py stop`, or restart with `.\\start.ps1 -Restart`.",
+                "Instance %r is already running (pid %s, vite %s, control %s). "
+                "Stop it with `python app\\dev\\cli.py -i %s stop`, or restart with "
+                "`.\\start.ps1 -Instance %s -Restart`.",
+                ident,
                 running.get("pid"),
                 running.get("vitePort"),
                 running.get("controlPort"),
+                ident,
+                ident,
             )
             raise SystemExit(1)
+        if not instance.is_default():
+            title = f"YTMusic · {instance.label() or instance.instance_id()}"
         logs.install_python_ring()
         vite.start_vite()
         url = vite.ui_origin()
     else:
         url = serve_ui(resource_path("ui"))
     window = webview.create_window(
-        "YTMusic",
+        title,
         url,
         js_api=api,
         resizable=True,

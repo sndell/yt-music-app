@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -87,6 +88,17 @@ def _seconds(value: object) -> float:
     if number != number or number < 0 or number == float("inf"):
         return 0.0
     return number
+
+
+def _disabled() -> bool:
+    """Whether this window may talk to Discord.
+
+    Discord's pipe is OS-wide, so only one window can hold the presence. A named
+    dev instance sets ``YTM_DISCORD=0`` to bow out. Only that exact value
+    disables; unset keeps today's behavior, which is also the frozen build.
+    Read at call time so an explicit variable in the environment always wins.
+    """
+    return os.environ.get("YTM_DISCORD") == "0"
 
 
 def cover_url(artwork: str, video_id: str) -> str | None:
@@ -199,7 +211,7 @@ class DiscordPresence:
         self._load()
         self._thread = threading.Thread(target=self._loop, name="discord-presence", daemon=True)
         self._thread.start()
-        if self._enabled:
+        if self._enabled and not _disabled():
             self._state = "connecting"
             self._message = "Connecting to Discord..."
             self._wake.set()
@@ -209,6 +221,10 @@ class DiscordPresence:
             return self._snapshot()
 
     def configure(self, enabled: object) -> dict[str, Any]:
+        # Disabled by the environment, so the switch cannot turn it back on and
+        # must not save a setting that would never take effect.
+        if _disabled():
+            return self.status()
         turned_on = _flag(enabled)
         with self._lock:
             self._enabled = turned_on
@@ -279,6 +295,15 @@ class DiscordPresence:
         self._thread.join(timeout=2)
 
     def _snapshot(self) -> dict[str, Any]:
+        # Report the env override instead of whatever the saved setting says, so
+        # Settings shows the switch off rather than a fake connecting state.
+        if _disabled():
+            return {
+                "enabled": False,
+                "connected": False,
+                "state": "off",
+                "message": "Discord rich presence is off for this instance.",
+            }
         return {
             "enabled": self._enabled,
             "connected": self._connected,
@@ -346,7 +371,7 @@ class DiscordPresence:
             desired = self._desired
             epoch = self._epoch
             rejected = self._rejected
-        if not enabled or not client_id:
+        if _disabled() or not enabled or not client_id:
             self._sent_key = None
             self._sent_epoch = -1
             self._drop(clear=True)
