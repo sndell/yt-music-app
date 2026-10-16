@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { announceMenuOpen, isInsideMenuFlyout, nextMenuId, onOtherMenuOpen } from "./menuDom";
+import { announceMenuOpen, isInsideMenuFlyout, isProgrammaticScroll, nextMenuId, onOtherMenuOpen } from "./menuDom";
 import { useMenuPosition } from "./useMenuPosition";
 
 const itemClass =
@@ -49,7 +49,7 @@ export const ShuffleMenu = ({
       if (event.key === "Escape") onClose();
     };
     const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node) || isInsideMenuFlyout(event.target)) return;
+      if (menuRef.current?.contains(event.target as Node) || isInsideMenuFlyout(event.target) || isProgrammaticScroll()) return;
       onClose();
     };
     document.addEventListener("pointerdown", onPointerDown);

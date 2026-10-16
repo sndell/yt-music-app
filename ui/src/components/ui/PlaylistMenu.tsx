@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { cn } from "@/util/cn";
 import { MenuFlyout } from "./MenuFlyout";
 import { MenuSeparator } from "./MenuSeparator";
-import { announceMenuOpen, isInsideMenuFlyout, nextMenuId, onOtherMenuOpen } from "./menuDom";
+import { announceMenuOpen, isInsideMenuFlyout, isProgrammaticScroll, nextMenuId, onOtherMenuOpen } from "./menuDom";
 import { useMenuPosition } from "./useMenuPosition";
 
 const itemClass =
@@ -87,7 +87,7 @@ export const PlaylistMenu = ({
       if (event.key === "Escape") onClose();
     };
     const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node) || isInsideMenuFlyout(event.target)) return;
+      if (menuRef.current?.contains(event.target as Node) || isInsideMenuFlyout(event.target) || isProgrammaticScroll()) return;
       onClose();
     };
     document.addEventListener("pointerdown", onPointerDown);

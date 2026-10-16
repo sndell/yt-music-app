@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/util/cn";
+import { isProgrammaticScroll } from "@/components/ui/menuDom";
 import { LANGUAGES, searchableText } from "../lib/languages";
 
 export const LanguageMenu = ({
@@ -55,7 +56,7 @@ export const LanguageMenu = ({
     // Scrolling the menu itself must not dismiss it; scrolling the panel behind
     // it should.
     const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
+      if (menuRef.current?.contains(event.target as Node) || isProgrammaticScroll()) return;
       onClose();
     };
     document.addEventListener("pointerdown", onPointerDown);

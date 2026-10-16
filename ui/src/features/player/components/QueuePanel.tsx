@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ReorderItem, ReorderList, consumeDragClick, stableDragId } from "@/components/ui/reorder";
+import { isProgrammaticScroll, suppressScrollDismiss } from "@/components/ui/menuDom";
 import { usePlayer } from "../context/PlayerContext";
 import { LyricsPanel } from "./LyricsPanel";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
@@ -477,6 +478,8 @@ export const QueuePanel = () => {
 
     frame = requestAnimationFrame(() => {
       if (cancelled) return;
+      // The pin is the app scrolling itself; open menus must survive it.
+      suppressScrollDismiss(400);
       const start = list.scrollTop;
       const distance = target - start;
       if (Math.abs(distance) < 2) {
@@ -768,7 +771,7 @@ const TunerMenu = ({
     // Scrolling the menu itself must not dismiss it; scrolling the queue behind
     // it should.
     const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
+      if (menuRef.current?.contains(event.target as Node) || isProgrammaticScroll()) return;
       onClose();
     };
     document.addEventListener("pointerdown", onPointerDown);

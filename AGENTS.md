@@ -238,6 +238,8 @@ Lyrics translation (`translate_lyrics`) goes through Google's public translate e
 
 True random on a playlist starts before the list is read. `trueShufflePlaylist` reads the first page, plays a random song from it, reads the rest behind the queue, then swaps in the shuffled order with a spinner on the Queue tab. That first read comes from the cache, which still carries a `nextToken` until every page has streamed, so a partly loaded playlist falls back to the full read.
 
+Every menu component (TrackMenu, SongListMenu, PlaylistMenu, ShuffleMenu, AddToPlaylistPanel, the tuner and language menus) dismisses itself on a global-capture `scroll` event outside its own panel, so a scroll anywhere in the app closes any open menu. That reads app-initiated scrolls as user scrolls: the lyrics picture window follows the playing line, and the queue pins now-playing, and both closed every open menu while they ran — the reported "context menus close when lyrics switch". Their scroll paths call `suppressScrollDismiss(ms)` first and the menu guards skip those (`isProgrammaticScroll()` in `components/ui/menuDom.ts`). A scroll the user makes still closes the menus.
+
 ## Music video overlay
 
 The player bar's video button toggles a video overlay when the playing song has a music video. `currentVideoId` in `PlayerContext` decides this with `musicVideoId`: the row's own id when its `videoType` is `MUSIC_VIDEO_TYPE_OMV`, or the watch playlist's `counterpart` id when the counterpart is an OMV. Library songs are all `MUSIC_VIDEO_TYPE_ATV`, so the counterpart is the usual path.

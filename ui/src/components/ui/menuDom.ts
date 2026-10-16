@@ -8,6 +8,18 @@ export const MENU_FLYOUT_ATTR = "data-menu-flyout";
 export const isInsideMenuFlyout = (target: EventTarget | null) =>
   target instanceof Element && Boolean(target.closest(`[${MENU_FLYOUT_ATTR}]`));
 
+// A scroll the page causes itself, such as the lyrics panel following the
+// playing line, must not read as the user moving what a menu is anchored to.
+let programmaticUntil = 0;
+
+/** Keeps scroll-dismiss menus open for the next `ms`, while the app scrolls. */
+export const suppressScrollDismiss = (ms: number) => {
+  programmaticUntil = Math.max(programmaticUntil, Date.now() + ms);
+};
+
+/** True inside a window opened by `suppressScrollDismiss`. */
+export const isProgrammaticScroll = () => Date.now() < programmaticUntil;
+
 // Only one context menu should be open at a time. Every menu announces itself
 // when it opens; the others close. Without this, right-clicking a song while a
 // sidebar playlist menu is open leaves both on screen.

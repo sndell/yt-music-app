@@ -1,4 +1,5 @@
 import { PyBridge, type LyricLine } from "@/lib/api";
+import { suppressScrollDismiss } from "@/components/ui/menuDom";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/util/cn";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -69,13 +70,15 @@ export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
   const activeRef = useRef<HTMLParagraphElement>(null);
 
   // Keep the playing line in the middle of the panel as playback moves. The
-  // language menu listens for scrolls to dismiss itself, so while it is open
-  // the follow pauses; otherwise one programmatic scroll shut it again.
+  // menu components treat any scroll outside themselves as a dismissal, so the
+  // follow marks its scrolls as the app's own; a scroll the user makes still
+  // closes them.
   useEffect(() => {
     const list = listRef.current;
     const line = activeRef.current;
     if (active < 0 || menuOpen || !list || !line) return;
     const target = line.offsetTop - list.clientHeight / 2 + line.clientHeight / 2;
+    suppressScrollDismiss(800);
     list.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
   }, [active, menuOpen]);
 

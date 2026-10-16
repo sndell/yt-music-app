@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { PlaylistSummary } from "@/lib/api/types";
 import { useAddToPlaylist } from "@/features/playlist/hooks/useAddToPlaylist";
 import { cn } from "@/util/cn";
+import { isProgrammaticScroll } from "./menuDom";
 import { useMenuPosition } from "./useMenuPosition";
 
 export const panelWidth = 320;
@@ -271,7 +272,7 @@ export const AddToPlaylistMenu = ({
       if (event.key === "Escape") onCloseRef.current();
     };
     const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
+      if (menuRef.current?.contains(event.target as Node) || isProgrammaticScroll()) return;
       onCloseRef.current();
     };
     const onResize = () => onCloseRef.current();
