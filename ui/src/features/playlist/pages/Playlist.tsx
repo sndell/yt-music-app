@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
-import { PyBridge, type LikeStatus, type PlaylistDetails, type PlaylistItemRef, type PlaylistSummary } from "@/lib/api";
+import { PyBridge, type LikeStatus, type PlaylistDetails, type PlaylistItemRef, type PlaylistPatch, type PlaylistSummary } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/Toast";
 import type { PlaybackExtraAction } from "@/components/ui/PlaybackButtons";
 import { moveItem } from "@/lib/orderMap";
 import { collectionCoverClass, collectionHeaderClass, collectionTitleClass, collectionWash } from "@/components/ui/collectionChrome";
-import { usePlaylist } from "../hooks/usePlaylist.tsx";
+import { usePlaylist, type PlaylistChangedDetail, type PlaylistRestore } from "../hooks/usePlaylist.tsx";
 import { PlaylistDescription } from "../components/PlaylistDescription";
 import { PlaylistTrackList } from "../components/PlaylistTrackList";
 import type { Track } from "@/lib/api";
@@ -28,6 +28,14 @@ const withRatings = (playlist: PlaylistDetails, ratings: Record<string, LikeStat
   });
   return changed ? { ...playlist, tracks } : playlist;
 };
+
+/** Apply header fields an edit already made, so the view does not re-read them. */
+const withPatch = (playlist: PlaylistDetails, patch: PlaylistPatch): PlaylistDetails => ({
+  ...playlist,
+  ...(patch.title != null ? { title: patch.title } : {}),
+  ...(patch.description != null ? { description: patch.description } : {}),
+  ...(patch.privacy != null ? { privacy: patch.privacy } : {}),
+});
 
 const PlaylistMeta = ({
   author,
@@ -151,7 +159,7 @@ const PlaylistTracksLoading = ({ summary }: { summary: PlaylistSummary }) => {
 export const Playlist = () => {
   const { id } = useParams();
   const [, navigate] = useLocation();
-  const { playlists, fetchPlaylists, removeFromPlaylist, restorePlaylistItem, editPlaylist, deletePlaylist, ratePlaylist } =
+  const { playlists, fetchPlaylists, removeFromPlaylist, restorePlaylistItems, displayCount, editPlaylist, deletePlaylist, ratePlaylist } =
     usePlaylist();
   const { playPlaylist, trackRatings, trueShufflePlaylist } = usePlayer();
   const ratingsRef = useRef(trackRatings);
@@ -262,12 +270,18 @@ export const Playlist = () => {
   }, [id, readWhole]);
 
   // A rename, visibility change, or added song from the sidebar should refresh
-  // the playlist view when it is showing that playlist.
+  // the playlist view when it is showing that playlist. Header-only edits land
+  // straight away; only a change to the songs is worth reading again.
   useEffect(() => {
     if (!id) return;
     const onChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ playlistId?: string }>).detail;
+      const detail = (event as CustomEvent<PlaylistChangedDetail>).detail;
       if (!detail?.playlistId || detail.playlistId !== id) return;
+      const patch = detail.patch;
+      if (patch) {
+        setPlaylist((current) => (current && current.id === id ? withPatch(current, patch) : current));
+      }
+      if (!detail.tracksChanged) return;
       const seq = ++loadSeqRef.current;
       const isCurrent = () => loadSeqRef.current === seq;
       void readWhole(id, isCurrent).then((fresh) => {
@@ -318,7 +332,11 @@ export const Playlist = () => {
     );
   }
 
-  const { title, description, thumbnails, author, year, trackCount, privacy, dominantColor } = playlist;
+  const { title, description, thumbnails, author, year, trackCount: serverTrackCount, privacy, dominantColor } = playlist;
+  // The header count is what YouTube reported when the list was read. This
+  // session's own edits are newer than that, so they hold the number until a
+  // later read of the library confirms it.
+  const trackCount = displayCount(id, serverTrackCount);
   const thumbnailUrl = thumbnails?.[0]?.url;
 
   const wash = collectionWash(dominantColor);
@@ -378,14 +396,23 @@ export const Playlist = () => {
       (a, b) => snapshot.findIndex((track) => track.setVideoId === a.setVideoId) - snapshot.findIndex((track) => track.setVideoId === b.setVideoId),
     );
     const undo = async () => {
-      // One row can go back to its exact spot: re-add, then move it before its
-      // old successor. Several rows go back to the end, keeping their order.
-      for (const item of sorted) {
-        if (id == null) return;
+      if (id == null) return;
+      // Each row goes back behind the first row that outlived it, so a single
+      // song lands in its exact slot and a run of them keeps its order. One
+      // call adds and moves them all instead of one playlist read per song.
+      const restores: PlaylistRestore[] = sorted.map((item) => {
         const index = snapshot.findIndex((track) => track.setVideoId === item.setVideoId);
-        const before = sorted.length === 1 && index >= 0 && index < snapshot.length - 1 ? (snapshot[index + 1].setVideoId || null) : null;
-        await restorePlaylistItem(id, item.videoId, before);
-      }
+        let beforeSetVideoId: string | null = null;
+        for (let next = Math.max(index + 1, 0); next < snapshot.length; next++) {
+          const setVideoId = snapshot[next].setVideoId;
+          if (setVideoId && !removedSet.has(setVideoId)) {
+            beforeSetVideoId = setVideoId;
+            break;
+          }
+        }
+        return { videoId: item.videoId, beforeSetVideoId };
+      });
+      await restorePlaylistItems(id, restores);
     };
     showToast(
       sorted.length === 1 ? `Removed 1 song from ${playlist.title}` : `Removed ${sorted.length} songs from ${playlist.title}`,
