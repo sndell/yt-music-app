@@ -167,6 +167,10 @@ The app uses wouter's hash router, so setting `window.location.hash = "#/album/<
 
 A `useCallback` that reads `ref.current` fails `react-hooks/preserve-manual-memoization` when the ref is a derived value such as `propRef ?? localRef`, because the compiler infers `ref.current` as a dependency. Move that function into the effect that uses it. A ref received as a prop does not trip it, which is why `useEdgeFade` passes lint.
 
+Home shows every shelf `get_home` returns, in feed order. Quick picks is the one vertical list and every other shelf is a row. The shelf set is not stable: the same account returned "Shows for you", then "Live performances", then "IVAN VALEEV" within minutes, so the app cannot decide what to show from a shelf title. A shelf is dropped when none of its items map to a song, album, artist or playlist. Podcast shows are the case that matters, since `get_playlist` raises `KeyError: contents` on a show id (`MPSPPL…`) and the playlist route cannot open one. The payload is cached under `home:shelves:v4`.
+
+Reading a generated mix needs a page limit. A mix (`RDTMAK…`, `RDAMPL…`) reports no `trackCount` and never runs out, so `get_playlist(playlistId, limit=None)` follows continuations forever and the playlist view spins with no way out. `_fetch_playlist` reads one page of `_PLAYLIST_PAGE_LIMIT` tracks, keeps it when `trackCount` is `None`, and only then reads a playlist whole when it reports a size. `_PlaylistDateCapture` runs across both requests, so owned playlists still get their `addedAt`.
+
 ## Music video overlay
 
 The player bar's video button toggles a video overlay when the playing song has a music video. `currentVideoId` in `PlayerContext` decides this with `musicVideoId`: the row's own id when its `videoType` is `MUSIC_VIDEO_TYPE_OMV`, or the watch playlist's `counterpart` id when the counterpart is an OMV. Library songs are all `MUSIC_VIDEO_TYPE_ATV`, so the counterpart is the usual path.

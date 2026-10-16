@@ -46,7 +46,7 @@ CACHE_DURATION = 7 * 24 * 60 * 60  # 7 days
 CACHE_KEY_PLAYLIST_PREFIX = "playlist:v3:"
 CACHE_KEY_ALBUM_PREFIX = "album:"
 CACHE_KEY_ARTIST_PREFIX = "artist:"
-CACHE_KEY_HOME = "home:shelves:v3"
+CACHE_KEY_HOME = "home:shelves:v4"
 CACHE_KEY_THUMB_PREFIX = "thumb:v2:"
 THUMB_CACHE_SECONDS = 60 * 60 * 24
 # Genre tuner chips for a song's automix. Stable for hours, so cache the
@@ -56,6 +56,10 @@ TUNER_CACHE_SECONDS = 60 * 60 * 12
 # Covers are inlined inline with a request. Past this many items the request is
 # left with remote URLs and the frontend inlines failures on demand.
 MAX_INLINE_ITEMS = 150
+
+# The size of the first playlist page, and the most of a generated mix that is
+# ever read. YouTube's mixes report no track count and never run out.
+_PLAYLIST_PAGE_LIMIT = 100
 
 # Search is not cached: results move, and library scope depends on the session.
 _SEARCH_FILTERS = (
@@ -284,6 +288,24 @@ def _apply_added_dates(tracks: Any, items: list[dict[str, Any]]) -> int:
             track["addedAt"] = value
             stamped += 1
     return stamped
+
+
+def _fetch_playlist(ytmusic: Any, playlist_id: str) -> dict[str, Any]:
+    """Read one playlist, stopping at one page when YouTube says it has no end.
+
+    A generated mix (``RDTMAK…``, ``RDAMPL…``) carries no track count and never
+    runs out: ``limit=None`` follows its continuations forever, so the playlist
+    view sits on its loader and never paints. One page is all such a list has,
+    so keep it and report the length that loaded. Every other playlist knows its
+    size, so it is read whole as before.
+    """
+    first = ytmusic.get_playlist(playlist_id, limit=_PLAYLIST_PAGE_LIMIT)
+    if first.get("trackCount") is not None:
+        return ytmusic.get_playlist(playlist_id, limit=None)
+    tracks = first.get("tracks")
+    if isinstance(tracks, list):
+        first["trackCount"] = len(tracks)
+    return first
 
 
 def _cache_created_playlist(playlist_id: str, title: str, description: str, privacy: str) -> None:
@@ -1004,13 +1026,14 @@ def _normalize_artist(raw: dict[str, Any], channel_id: str) -> dict[str, Any]:
     return payload
 
 
-def _home_layout(title: str) -> str | None:
-    key = title.strip().lower()
-    if key == "quick picks":
-        return "list"
-    if key in {"listen again", "forgotten favorites", "forgotten favourites"}:
-        return "row"
-    return None
+def _home_layout(title: str) -> str:
+    """Quick picks is the feed's one vertical list; every other shelf is a row.
+
+    YouTube Music returns carousels for everything else, so a shelf no longer
+    has to be named here to reach Home. Titles change between accounts and over
+    time, so an allowlist would drop shelves the UI can already render.
+    """
+    return "list" if title.strip().lower() == "quick picks" else "row"
 
 
 def _home_item(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -1091,15 +1114,21 @@ def _home_item(item: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _home_shelves(home: list[Any]) -> list[dict[str, Any]]:
+    """Every shelf the feed returns, in feed order, minus the unrenderable ones.
+
+    A shelf is dropped when it carries no title, when its contents are not a
+    list (description shelves hold a string), or when none of its items map to
+    something the UI can open. Podcast shows are the common case for that last
+    one: the app has no podcast page and ``get_playlist`` cannot read a show, so
+    they have nowhere to go.
+    """
     shelves: list[dict[str, Any]] = []
+    skipped: list[str] = []
     for row in home:
         if not isinstance(row, dict):
             continue
         title = row.get("title")
-        if not isinstance(title, str):
-            continue
-        layout = _home_layout(title)
-        if layout is None:
+        if not isinstance(title, str) or not title.strip():
             continue
         contents = row.get("contents")
         if not isinstance(contents, list):
@@ -1107,9 +1136,12 @@ def _home_shelves(home: list[Any]) -> list[dict[str, Any]]:
         items = [_home_item(item) for item in contents if isinstance(item, dict)]
         shelf_items = [item for item in items if item is not None]
         if not shelf_items:
+            skipped.append(title)
             continue
         _inline_thumbnail_field(shelf_items, "thumbnails")
-        shelves.append({"title": title, "layout": layout, "items": shelf_items})
+        shelves.append({"title": title, "layout": _home_layout(title), "items": shelf_items})
+    if skipped:
+        logger.info("Home shelves skipped (nothing openable): %s", ", ".join(skipped))
     return shelves
 
 
@@ -1782,11 +1814,11 @@ class MusicApi:
             return []
 
     def get_home(self, force_refresh: bool = False) -> dict[str, Any]:
-        """Return Listen again, Quick picks, and Forgotten favorites from home.
+        """Return every shelf YouTube Music puts on the home feed.
 
-        Listen again and Forgotten favorites are horizontal rows. Quick picks
-        stays a vertical list. Shelves missing from the feed are omitted.
-        A saved feed is returned as-is. Pass force_refresh to fetch a new one.
+        Quick picks stays a vertical list and every other shelf is a horizontal
+        row. A shelf whose items have no page to open is left out. A saved feed
+        is returned as-is. Pass force_refresh to fetch a new one.
         """
         empty = _empty_home()
         try:
@@ -1808,7 +1840,7 @@ class MusicApi:
             shelves = _home_shelves(home)
             if not shelves:
                 titles = [row.get("title") for row in home if isinstance(row, dict)]
-                logger.warning("Home feed had none of the requested shelves: %s", titles)
+                logger.warning("Home feed had no shelf this app can show: %s", titles)
                 return empty
 
             result = {"shelves": shelves}
@@ -1938,7 +1970,7 @@ class MusicApi:
             logger.info("Fetching playlist items from API for ID: %s", playlist_id)
             ytmusic = self._get_ytmusic()
             with _PlaylistDateCapture(ytmusic) as item_dates:
-                playlist = ytmusic.get_playlist(playlist_id, limit=None)
+                playlist = _fetch_playlist(ytmusic, playlist_id)
             added = _apply_added_dates(playlist.get("tracks"), item_dates.items)
             logger.info(
                 "Playlist '%s' fetched successfully (tracks: %d, dated: %d)",
