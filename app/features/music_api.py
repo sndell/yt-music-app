@@ -25,6 +25,7 @@ from PIL import Image
 import diskcache
 import ytmusicapi
 from ytmusicapi.continuations import CONTINUATION_ITEMS, get_continuation_token
+from ytmusicapi.exceptions import YTMusicUserError
 from ytmusicapi.helpers import initialize_headers, sapisid_from_cookie
 from ytmusicapi.navigation import nav
 from ytmusicapi.parsers.playlists import parse_playlist_items
@@ -67,6 +68,11 @@ THUMB_CACHE_SECONDS = 60 * 60 * 24
 # network call; empty results are not cached so a transient miss can retry.
 CACHE_KEY_TUNER_PREFIX = "tuner:v1:"
 TUNER_CACHE_SECONDS = 60 * 60 * 12
+# Lyrics do not change for a song, so a read is cached per video id, including
+# the "no lyrics" answer. The ``MPLYt...`` browse id the lookup needs comes from
+# the watch-playlist response, which ytmusicapi drops from its track parse.
+CACHE_KEY_LYRICS_PREFIX = "lyrics:v4:"
+LYRICS_CACHE_SECONDS = 7 * 24 * 60 * 60
 # Covers are inlined inline with a request. Past this many items the request is
 # left with remote URLs and the frontend inlines failures on demand.
 MAX_INLINE_ITEMS = 150
@@ -713,6 +719,94 @@ def _queue_tuner_chips(ytmusic: "ytmusicapi.YTMusic", video_id: str) -> list[dic
             continue
         chips.append({"id": text, "text": text, "playlistId": playlist_id})
     return chips
+
+
+def _lyrics_browse_id(ytmusic: Any, video_id: str) -> str | None:
+    """The ``MPLYt...`` lyrics id for a video, or ``None`` when it has none.
+
+    ytmusicapi resolves lyrics only from that browse id, and a track the queue
+    carries has no lyrics id of its own, so read it from the watch-playlist
+    response, which exposes it next to the tracks. A request that fails raises,
+    so the caller can tell "no lyrics" from "could not ask".
+    """
+    data = ytmusic.get_watch_playlist(videoId=video_id, limit=1)
+    browse_id = data.get("lyrics") if isinstance(data, dict) else None
+    return browse_id if isinstance(browse_id, str) and browse_id else None
+
+
+_lyrics_lock = threading.Lock()
+_signed_out_ytmusic: ytmusicapi.YTMusic | None = None
+
+
+def _signed_out_client() -> ytmusicapi.YTMusic:
+    """A second client that never signs in, for the timed lyrics request.
+
+    YouTube Music serves timed lyrics only to its mobile client, and that client
+    answers a request carrying both the web cookie and its SAPISIDHASH with HTTP
+    400 ("Request contains an invalid argument"). The identical request without
+    either header returns the timed lines, so this client carries no account at
+    all. It is used for nothing else, which also keeps `as_mobile()`'s in-place
+    client swap off the signed-in client every other call shares.
+    """
+    global _signed_out_ytmusic
+    if _signed_out_ytmusic is None:
+        _signed_out_ytmusic = ytmusicapi.YTMusic()
+    return _signed_out_ytmusic
+
+
+def _timed_lyrics(browse_id: str) -> dict[str, Any] | None:
+    """Timed lyrics for a lyrics browse id, read signed out.
+
+    Returns the normalized payload, or ``None`` when the song has no timings.
+    The client is shared, so the read holds a lock for the length of the call.
+    """
+    with _lyrics_lock:
+        try:
+            result = _signed_out_client().get_lyrics(browse_id, timestamps=True)
+        except Exception:
+            logger.warning("Timed lyrics read failed for %s", browse_id, exc_info=True)
+            return None
+    payload = _normalize_lyrics(result)
+    return payload if payload["hasTimestamps"] else None
+
+
+def _normalize_lyrics(result: Any) -> dict[str, Any]:
+    """Flatten a ytmusicapi ``get_lyrics`` result into the UI's shape.
+
+    Timed lyrics arrive as ``LyricLine`` dataclasses with millisecond cue
+    ranges; plain lyrics are one string. Both share the payload, so the UI can
+    highlight against ``lines`` when they are there and fall back to the text.
+    """
+    payload: dict[str, Any] = {"lyrics": None, "source": None, "hasTimestamps": False, "lines": []}
+    if not isinstance(result, dict):
+        return payload
+    attribution = result.get("source")
+    payload["source"] = attribution if isinstance(attribution, str) and attribution.strip() else None
+
+    raw = result.get("lyrics")
+    if result.get("hasTimestamps") and isinstance(raw, list):
+        lines: list[dict[str, Any]] = []
+        for line in raw:
+            text = line.get("text") if isinstance(line, dict) else getattr(line, "text", None)
+            if not isinstance(text, str):
+                continue
+            start = line.get("start_time") if isinstance(line, dict) else getattr(line, "start_time", 0)
+            end = line.get("end_time") if isinstance(line, dict) else getattr(line, "end_time", 0)
+            lines.append(
+                {
+                    "text": text,
+                    "startMs": int(start) if isinstance(start, (int, float)) else 0,
+                    "endMs": int(end) if isinstance(end, (int, float)) else 0,
+                }
+            )
+        if lines:
+            payload["hasTimestamps"] = True
+            payload["lines"] = lines
+            payload["lyrics"] = "\n".join(line["text"] for line in lines)
+        return payload
+
+    payload["lyrics"] = raw if isinstance(raw, str) and raw.strip() else None
+    return payload
 
 
 def _inline_playlist_thumbnails(playlists: list[dict[str, Any]]) -> None:
@@ -2512,6 +2606,61 @@ class MusicApi:
         if chips:
             cache.set(cache_key, chips, expire=TUNER_CACHE_SECONDS)
         return chips
+
+    def get_lyrics(self, video_id: str) -> dict[str, Any]:
+        """Lyrics for a song, with per-line timings when YouTube Music has them.
+
+        Takes the playing song's video id. ytmusicapi reads lyrics from a
+        ``MPLYt...`` browse id instead, so the id is resolved from the watch
+        playlist first. The timed read is mobile-only and can come back with no
+        text at all, so an empty one falls back to the plain read. The answer is
+        cached per video id, including a song that has no lyrics.
+
+        Returns:
+            ``{"lyrics", "source", "hasTimestamps", "lines"}``. ``lyrics`` is
+            ``None`` when the song has none; ``lines`` is empty unless the
+            lyrics came back timed.
+        """
+        if not isinstance(video_id, str) or not video_id.strip():
+            raise ValueError("video id is required")
+        ident = video_id.strip()
+        cache_key = f"{CACHE_KEY_LYRICS_PREFIX}{ident}"
+        cached = cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+
+        try:
+            ytmusic = self._get_ytmusic()
+        except FileNotFoundError:
+            logger.warning("Not authenticated - cannot return lyrics")
+            return {"lyrics": None, "source": None, "hasTimestamps": False, "lines": []}
+
+        browse_id = ident if ident.startswith("MPLYt") else _lyrics_browse_id(ytmusic, ident)
+        # A lookup that failed (network, throttling) is not an answer, so only a
+        # response YouTube Music actually gave is cached as "no lyrics".
+        payload: dict[str, Any] = {"lyrics": None, "source": None, "hasTimestamps": False, "lines": []}
+        if browse_id:
+            try:
+                result = ytmusic.get_lyrics(browse_id)
+            except YTMusicUserError:
+                result = None
+            payload = _normalize_lyrics(result)
+            # Timings come from the signed-out client, and only once there are
+            # words to time.
+            if payload["lyrics"]:
+                timed = _timed_lyrics(browse_id)
+                if timed:
+                    payload["hasTimestamps"] = True
+                    payload["lines"] = timed["lines"]
+                    payload["source"] = payload["source"] or timed["source"]
+
+        cache.set(cache_key, payload, expire=LYRICS_CACHE_SECONDS)
+        logger.info(
+            "Lyrics for %s: %s",
+            ident,
+            "timed" if payload["hasTimestamps"] else "text" if payload["lyrics"] else "none",
+        )
+        return payload
 
     def get_audio_stream(self, video_id: str, refresh: bool = False) -> dict[str, Any]:
         """Direct audio URL for a song on the signed-in account.

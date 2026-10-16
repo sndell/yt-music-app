@@ -335,6 +335,23 @@ export interface WatchTunerChip {
   playlistId: string;
 }
 
+export interface LyricLine {
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
+export interface Lyrics {
+  /** The song's lyrics, or null when YouTube Music has none for it. */
+  lyrics: string | null;
+  /** Attribution YouTube Music shows, e.g. "Source: LyricFind". */
+  source: string | null;
+  /** True when `lines` carries per-line timings to highlight against. */
+  hasTimestamps: boolean;
+  /** Timed lines, empty for plain lyrics. */
+  lines: LyricLine[];
+}
+
 export interface AudioStream {
   url: string;
   mimeType: string;
@@ -479,6 +496,8 @@ export interface ApiMethods {
     response: WatchPlaylist;
   };
   get_queue_tuner: { params: [videoId: string]; response: WatchTunerChip[] };
+  /** Lyrics for the playing song. `videoId` is the track's video id. */
+  get_lyrics: { params: [videoId: string]; response: Lyrics };
   get_audio_stream: { params: [videoId: string, refresh?: boolean]; response: AudioStream };
   get_song_info: { params: [videoId: string]; response: { likeStatus: LikeStatus; year: string | null } };
   rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };

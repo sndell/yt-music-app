@@ -5,11 +5,12 @@ import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { cn } from "@/util/cn";
 import { applyEdgeMask } from "@/components/ui/useEdgeFade";
 import { hexToRgba } from "@/util/hex_to_rgba";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ReorderItem, ReorderList, consumeDragClick, stableDragId } from "@/components/ui/reorder";
 import { usePlayer } from "../context/PlayerContext";
+import { LyricsPanel } from "./LyricsPanel";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
 
 const colorCache = new Map<string, string | null>();
@@ -353,6 +354,30 @@ type QueueEntry =
   | { kind: "loading"; key: string }
   | { kind: "track"; key: string; track: WatchTrack; index: number };
 
+/** One tab of the queue panel. Queue and Lyrics share the panel's width. */
+const PanelTab = ({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) => (
+  <button
+    type="button"
+    role="tab"
+    aria-selected={active}
+    onClick={onClick}
+    className={cn(
+      "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors duration-200",
+      active ? "bg-white/10 text-primary" : "text-primary-dark hover:bg-white/5 hover:text-primary"
+    )}
+  >
+    {children}
+  </button>
+);
+
 export const QueuePanel = () => {
   const {
     queue,
@@ -362,9 +387,11 @@ export const QueuePanel = () => {
     queueChips,
     selectQueueTuner,
     currentSong,
+    lyrics,
     currentQueueIndex,
     queueRevision,
     queueFill,
+    shufflePending,
     playFromQueue,
     reorderQueue,
     playTrackNext,
@@ -376,6 +403,11 @@ export const QueuePanel = () => {
   const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
   const [tunerAnchor, setTunerAnchor] = useState<HTMLButtonElement | null>(null);
   const [tunerOpen, setTunerOpen] = useState(false);
+  const [tab, setTab] = useState<"queue" | "lyrics">("queue");
+  // The Lyrics tab exists only while the playing song has lyrics, so a song
+  // without them falls back to the queue instead of showing an empty tab.
+  const lyricsAvailable = lyrics !== null;
+  const activeTab = tab === "lyrics" && lyricsAvailable ? "lyrics" : "queue";
   const tunerCloseRef = useRef(0);
 
   const openTuner = (element: HTMLButtonElement) => {
@@ -495,21 +527,42 @@ export const QueuePanel = () => {
       inert={!queueOpen}
       className={cn(
         `flex flex-col shrink-0 my-1.5 min-h-0 overflow-hidden transition-[width,margin-right] duration-500 ${QUEUE_EASE}`,
-        queueOpen ? "mr-1.5 w-72" : "mr-0 w-0"
+        queueOpen ? (activeTab === "lyrics" ? "mr-1.5 w-96" : "mr-1.5 w-72") : "mr-0 w-0"
       )}
     >
       <div className="relative flex flex-col flex-1 min-h-0 overflow-hidden rounded-xl bg-primary">
         <CoverWash url={coverUrl} sampleUrl={sampleUrl} color={coverColor} />
-        <div className="relative z-10 flex gap-1 items-center px-2 py-2 [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]">
-          <div className="flex flex-1 gap-2 justify-center items-center min-w-0">
-            <h2 className="font-semibold">Queue</h2>
-            {queue.length > 0 && <span className="text-sm text-primary-dark">{queue.length}</span>}
-          </div>
+        <div
+          role="tablist"
+          aria-label="Queue panel"
+          className="relative z-10 flex gap-1 items-center px-1.5 py-1.5 [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]"
+        >
+          <PanelTab active={activeTab === "queue"} onClick={() => setTab("queue")}>
+            <span>Queue</span>
+            {queue.length > 0 && <span className="text-xs text-primary-dark">{queue.length}</span>}
+            {/* Sits in the tab, not at the end of the list: a long queue keeps the
+                tail out of the virtualizer's window, so a row there is unreachable. */}
+            {shufflePending && (
+              <span
+                role="status"
+                aria-label="Shuffling the rest of the playlist"
+                className="text-sm transition-transform icon-[solar--loader-linear] animate-spin text-primary-dark"
+              />
+            )}
+          </PanelTab>
+          {lyricsAvailable && (
+            <PanelTab active={activeTab === "lyrics"} onClick={() => setTab("lyrics")}>
+              Lyrics
+            </PanelTab>
+          )}
         </div>
         <ReorderList ids={dragIds} axis="y" onMove={reorderQueue}>
           <div
             ref={listRef}
-            className="relative z-10 overflow-y-auto flex-1 px-1.5 pb-2 min-h-0 scrollbar-thin [overflow-anchor:none] [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]"
+            className={cn(
+              "relative z-10 overflow-y-auto flex-1 px-1.5 pb-2 min-h-0 scrollbar-thin [overflow-anchor:none] [text-shadow:0_1px_3px_rgb(0_0_0/0.6)]",
+              activeTab !== "queue" && "hidden"
+            )}
           >
             {queueLoading && queue.length === 0 && (
               <div className="grid place-items-center py-8">
@@ -579,7 +632,12 @@ export const QueuePanel = () => {
           </div>
         </ReorderList>
         {queueChips.length > 1 && (
-          <div className="relative z-10 shrink-0 border-t border-white/5 px-1.5 pb-1.5 pt-1.5">
+          <div
+            className={cn(
+              "relative z-10 shrink-0 border-t border-white/5 px-1.5 pb-1.5 pt-1.5",
+              activeTab !== "queue" && "hidden"
+            )}
+          >
             <button
               type="button"
               aria-haspopup="menu"
@@ -613,6 +671,7 @@ export const QueuePanel = () => {
             </button>
           </div>
         )}
+        {activeTab === "lyrics" && lyrics && <LyricsPanel lyrics={lyrics} />}
       </div>
       {menu && (
         <TrackMenu
