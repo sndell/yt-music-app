@@ -29,7 +29,7 @@ function Step([string]$Name, [scriptblock]$Body) {
 
 Push-Location (Join-Path $Repo "ui")
 try {
-    Step "tsc --noEmit" { & pnpm exec tsc --noEmit }
+    Step "tsc -b" { & pnpm exec tsc -b }
     Step "vitest" { & pnpm exec vitest run }
     if ($Lint) { Step "eslint" { & pnpm exec eslint . } }
 }

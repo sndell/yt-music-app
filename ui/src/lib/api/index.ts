@@ -18,6 +18,7 @@ export type {
   SearchResult,
   Track,
   WatchTrack,
+  WatchCounterpart,
   WatchTunerChip,
   AlbumVersion,
   AlbumDetails,

@@ -137,7 +137,7 @@ A success body is JSON. A failure is HTTP 500 with the error text. The body is t
 
 `/call` can run before the page has finished loading. `/eval` waits until the webview is ready.
 
-For UI changes, run `pnpm exec tsc --noEmit` from `ui` for types.
+For UI changes, run `pnpm exec tsc -b` from `ui` for types. `tsconfig.json` there is a solution file with `files: []`, so `pnpm exec tsc --noEmit` compiles nothing and exits 0. `tsc -b` builds the referenced `tsconfig.app.json` and `tsconfig.node.json`, the same check `build/build.ps1` runs first.
 
 ## Debug and verify
 
@@ -157,7 +157,7 @@ Check the cheapest way first and escalate only when it is not enough; speed is t
 2. Look: `state`, `screenshot`, or the thing in the window. HMR or the restart already applied the change.
 3. `logs --level error` for whatever the eye misses.
 4. The one test file for what you touched: `pnpm exec vitest run <file>`, `pytest app/tests/test_x.py`.
-5. `pnpm exec tsc --noEmit` when types changed.
+5. `pnpm exec tsc -b` when types changed.
 6. `.\tools\test.ps1` for changes that cross modules, touch shared behaviour, or are headed into a PR.
 7. `dev.py browse run tools/verify/<journey>.mjs` (needs `DEVTOOLS=1`), then the packaged exe.
 
