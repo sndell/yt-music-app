@@ -29,6 +29,18 @@ The signed-in YouTube Music account is the user's data. It is read-only unless t
 - If a task looks like it needs any of this, stop and ask the user. Do not decide for them.
 - Reading is always fine: `get_playlists`, `get_playlist_items`.
 
+## Two-way doors swing freely
+
+A **two-way door** is a decision you can walk back through: code, branches, pull requests, test data, dev instances. Walk through it and show the result afterward. Do not ask first.
+
+A **one-way door** is one you cannot: writing to the signed-in account, deploying to users, force-pushing a shared branch, deleting what you did not make, killing a process, a message sent to another person. Stop at a one-way door and ask. Most of the ones here are in **Never destroy what the user has**.
+
+A **rubber stamp** is a question whose only sensible answer is yes. Asking it costs a round trip and teaches nothing. When a command or a call can answer the question, run it instead. Save questions for the taste and product calls only the developer can make. Ask one at a time, with your recommendation, through the question tool in your harness. No is an acceptable answer.
+
+Once the developer opens a one-way door, it stays open for that work, including for any subagent you hand it to, so quote the approval in the brief instead of letting the subagent stop at the same door. Come back only when the door turns out to be different from the one they opened: more at stake than they were told, a check failing, or something they did not know about.
+
+The stub note in **Dev control surface** is how a write becomes a two-way door: stub the method in the page, run the real UI path, and the account sees nothing.
+
 ## The ways to hurt yourself here
 
 1. **Killing by pattern.** Another window may be running on this machine, and both have this repo's path in their command line. Never `Get-Process` or `taskkill` a PID you found by matching a name or path. Kill only the Vite process the window spawned, by the PID `app/dev/vite.py` already holds.
@@ -265,6 +277,7 @@ Run the `unslop` skill (id `unslop`, installed in the global skills source) over
 ## Don't
 
 - Don't delete or alter anything in the signed-in account. See **Never destroy what the user has**.
+- Don't ask a question a command could answer, or stop to ask at a two-way door. See **Two-way doors swing freely**.
 - Don't kill a process you found by name or path. See **The ways to hurt yourself here**.
 - Don't run `pnpm build` alone to produce a release. Use `.\build\build.ps1` (it sets `--base ./`).
 - Don't read, print, or commit `app/browser.json`. It holds the signed-in session.
