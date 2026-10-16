@@ -1,11 +1,21 @@
-import { PyBridge, type LikeStatus, type Track, type WatchTrack, type WatchTunerChip } from "@/lib/api";
+import { PyBridge, type LikeStatus, type LyricLine, type Track, type WatchTrack, type WatchTunerChip } from "@/lib/api";
 import { moveItem } from "@/lib/orderMap";
 import { musicVideoId } from "../lib/musicVideo";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
+/** Lyrics for one song, resolved by its video id. */
+export type SongLyrics = {
+  videoId: string;
+  text: string;
+  source: string | null;
+  lines: LyricLine[];
+};
+
 type PlayerContextType = {
   currentSong: Track | null;
   setCurrentSong: (song: Track) => void;
+  /** Lyrics for the playing song, or null while unknown or when it has none. */
+  lyrics: SongLyrics | null;
   queue: WatchTrack[];
   queueOpen: boolean;
   queueLoading: boolean;
@@ -35,6 +45,11 @@ type PlayerContextType = {
   trueShuffle: (tracks: Track[]) => Promise<void>;
   /** Fetch every song in a playlist, then start it true-randomly shuffled. */
   trueShufflePlaylist: (playlistId: string) => Promise<void>;
+  /**
+   * True while a true shuffle is still reading the rest of the list behind the
+   * queue. The opening song is already playing; the shuffled order lands later.
+   */
+  shufflePending: boolean;
   playNext: () => Promise<boolean>;
   playPrevious: () => void;
   hasNext: boolean;
@@ -163,6 +178,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [queueRevision, setQueueRevision] = useState(0);
   const [queueFill, setQueueFill] = useState(0);
   const [videoOpen, setVideoOpen] = useState(false);
+  const [shufflePendingFor, setShufflePendingFor] = useState<string | null>(null);
+  const [lyricsState, setLyricsState] = useState<SongLyrics | null>(null);
   const [shuffleOn, setShuffleOn] = useState(false);
   const [ratingPending, setRatingPending] = useState(false);
   const [trackRatings, setTrackRatings] = useState<Record<string, LikeStatus>>({});
@@ -179,6 +196,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const trackRatingRequestRef = useRef<Record<string, number>>({});
   // Upcoming tracks in pre-shuffle order. Identity is the track object, not videoId.
   const normalUpcomingRef = useRef<WatchTrack[] | null>(null);
+  const shuffleRequestRef = useRef(0);
+  const lyricsRequestRef = useRef(0);
   const watchPlaylistIdRef = useRef<string | null>(null);
   const sourcePlaylistIdRef = useRef<string | null>(null);
   const playlistExhaustedRef = useRef(false);
@@ -199,6 +218,12 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const hasNext = currentQueueIndex >= 0 && currentQueueIndex < queue.length - 1;
   const hasPrevious = currentQueueIndex > 0;
   const currentVideoId = musicVideoId(currentQueueIndex >= 0 ? queue[currentQueueIndex] : null);
+  // The spinner clears on its own if the song changes mid-read, so the pending
+  // song is what marks it, not a bare flag.
+  const shufflePending = shufflePendingFor !== null && shufflePendingFor === currentSong?.videoId;
+  // Scoped to the playing song, so a payload read for the previous one is not
+  // shown while the next is still being read.
+  const lyrics = lyricsState && lyricsState.videoId === currentSong?.videoId ? lyricsState : null;
 
   queueRef.current = queue;
   queueOpenRef.current = queueOpen;
@@ -609,6 +634,30 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [applyLikeStatus, applyReleaseYear, currentSong?.videoId]);
 
+  // Lyrics drive the queue panel's Lyrics tab, so they are read as soon as the
+  // song changes rather than when the tab is opened. The tab stays hidden until
+  // this answers, which is also how a song with no lyrics keeps it hidden.
+  useEffect(() => {
+    const videoId = currentSong?.videoId;
+    if (!videoId) return;
+    const request = ++lyricsRequestRef.current;
+    void PyBridge.getLyrics(videoId).then((result) => {
+      if (request !== lyricsRequestRef.current) return;
+      const data = result.success ? result.data : null;
+      const text = data?.lyrics;
+      setLyricsState(
+        typeof text === "string" && text.trim()
+          ? {
+              videoId,
+              text: text.trim(),
+              source: data?.source ?? null,
+              lines: Array.isArray(data?.lines) ? data.lines : [],
+            }
+          : null,
+      );
+    });
+  }, [currentSong?.videoId]);
+
   const enqueueTrack = useCallback((source: Track | WatchTrack, position: "next" | "end") => {
     if (isPlaylistTrack(source) && !source.isAvailable) return;
     const track = isPlaylistTrack(source) ? trackToWatchTrack(source) : { ...source };
@@ -762,6 +811,42 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   /**
+   * The true-random order for a list: `openerId` first, then every other
+   * playable track permuted by Python's `SystemRandom` (OS CSPRNG). ``null``
+   * when the shuffle call fails or the opener is not in the list.
+   */
+  const shuffledOrder = useCallback(
+    async (openerId: string, tracks: Track[]): Promise<WatchTrack[] | null> => {
+      const playable = tracks.filter((track) => track.videoId && track.isAvailable);
+      const opener = playable.find((track) => track.videoId === openerId);
+      if (!opener) return null;
+      const rest = playable.filter((track) => track.videoId !== openerId);
+
+      const result = await PyBridge.shuffleTracks(rest.map((track) => track.videoId));
+      if (!result.success || !Array.isArray(result.data)) return null;
+      const byId = new Map(rest.map((track) => [track.videoId, track]));
+      const shuffled = result.data
+        .map((videoId) => byId.get(videoId))
+        .filter((track): track is Track => Boolean(track));
+      const seen = new Set(shuffled.map((track) => track.videoId));
+      const leftover = rest.filter((track) => !seen.has(track.videoId));
+      return [opener, ...shuffled, ...leftover].map(trackToWatchTrack);
+    },
+    [],
+  );
+
+  /** Swap in a shuffled order, keeping `openerId` as the song that is playing. */
+  const applyOrderedQueue = useCallback((openerId: string, ordered: WatchTrack[]) => {
+    const index = ordered.findIndex((track) => track.videoId === openerId);
+    queueRef.current = ordered;
+    currentQueueIndexRef.current = index >= 0 ? index : 0;
+    normalUpcomingRef.current = null;
+    setQueue(ordered);
+    setQueueIndex(currentQueueIndexRef.current);
+    setQueueRevision((revision) => revision + 1);
+  }, []);
+
+  /**
    * Start a list in a true-random order.
    *
    * The opener is drawn from the browser CSPRNG and plays right away, then the
@@ -781,33 +866,59 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       playTracks([opener, ...rest], true);
 
       const generation = playGenerationRef.current;
-      const result = await PyBridge.shuffleTracks(rest.map((track) => track.videoId));
-      if (!result.success || !Array.isArray(result.data)) return;
+      const ordered = await shuffledOrder(opener.videoId, tracks);
+      if (!ordered) return;
       // The user may have started something else while the shuffle was in flight.
       if (playGenerationRef.current !== generation || currentSongRef.current?.videoId !== opener.videoId) return;
-
-      const byId = new Map(rest.map((track) => [track.videoId, track]));
-      const shuffled = result.data
-        .map((videoId) => byId.get(videoId))
-        .filter((track): track is Track => Boolean(track));
-      const seen = new Set(shuffled.map((track) => track.videoId));
-      const leftover = rest.filter((track) => !seen.has(track.videoId));
-      const ordered = [opener, ...shuffled, ...leftover].map(trackToWatchTrack);
-      queueRef.current = ordered;
-      setQueue(ordered);
+      applyOrderedQueue(opener.videoId, ordered);
     },
-    [playTracks],
+    [applyOrderedQueue, playTracks, shuffledOrder],
   );
 
+  /**
+   * True-shuffle a playlist without waiting for the whole list.
+   *
+   * Reading every page of a long playlist takes a while, so the first page is
+   * read first: one of those songs starts immediately and the page becomes the
+   * queue. The rest of the list is read behind it, and the full shuffled order
+   * replaces the queue when it arrives. The song that started it keeps playing
+   * throughout, and a spinner sits on the Queue tab until then. A cache that
+   * already holds every page skips the second read entirely.
+   */
   const trueShufflePlaylist = useCallback(
     async (playlistId: string) => {
       if (!playlistId) return;
-      // A true shuffle is over the whole list, so read it all, not one page.
-      const result = await PyBridge.getPlaylistAllTracks(playlistId);
-      if (!result.success || !Array.isArray(result.data?.tracks)) return;
-      await trueShuffle(result.data.tracks);
+      const first = await PyBridge.getPlaylistItems(playlistId);
+      if (!first.success || !Array.isArray(first.data?.tracks)) return;
+      const opening = first.data.tracks.filter((track) => track.videoId && track.isAvailable);
+      if (opening.length === 0) return;
+
+      const openerIndex = secureRandomIndex(opening.length);
+      const opener = opening[openerIndex];
+      playTracks([opener, ...opening.filter((_, index) => index !== openerIndex)], true);
+
+      const generation = playGenerationRef.current;
+      const request = ++shuffleRequestRef.current;
+      // Only a page-by-page read is slow enough to owe the user a spinner.
+      const complete = first.data.nextToken == null;
+      if (!complete) setShufflePendingFor(opener.videoId);
+      try {
+        let tracks = first.data.tracks;
+        if (!complete) {
+          const result = await PyBridge.getPlaylistAllTracks(playlistId);
+          if (!result.success || !Array.isArray(result.data?.tracks)) return;
+          tracks = result.data.tracks;
+        }
+        if (playGenerationRef.current !== generation || currentSongRef.current?.videoId !== opener.videoId) return;
+        const ordered = await shuffledOrder(opener.videoId, tracks);
+        if (!ordered) return;
+        if (playGenerationRef.current !== generation || currentSongRef.current?.videoId !== opener.videoId) return;
+        applyOrderedQueue(opener.videoId, ordered);
+      } finally {
+        if (shuffleRequestRef.current === request) setShufflePendingFor(null);
+      }
     },
-    [trueShuffle],
+    [applyOrderedQueue, playTracks, shuffledOrder],
   );
 
   const reorderQueue = useCallback((from: number, to: number) => {
@@ -913,6 +1024,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       value={{
         currentSong,
         setCurrentSong,
+        lyrics,
         queue,
         queueOpen,
         queueLoading,
@@ -938,6 +1050,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         playTracks,
         trueShuffle,
         trueShufflePlaylist,
+        shufflePending,
         playNext,
         playPrevious,
         hasNext,

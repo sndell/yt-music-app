@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, type FocusEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { usePlayer } from "../context/PlayerContext";
+import { playhead } from "../lib/playhead";
 import { IconButton } from "@/components/ui/IconButton";
 import { ScrollingText } from "@/components/ui/ScrollingText";
 import { PyBridge } from "@/lib/api";
@@ -124,11 +125,13 @@ export const Player = () => {
     if (playerRef.current) {
       playerRef.current.currentTime = time;
     }
+    playhead.set(time);
   }, []);
 
   const restart = useCallback(() => {
     if (playerRef.current) playerRef.current.currentTime = 0;
     setElapsedTime(0);
+    playhead.reset();
   }, []);
 
   const handlePrevious = useCallback(() => {
@@ -181,6 +184,7 @@ export const Player = () => {
     const videoId = song.videoId;
     setDuration(Number(song.durationSeconds));
     setElapsedTime(0);
+    playhead.reset();
     failedRef.current = null;
     playingRef.current = true;
     setIsPlaying(true);
@@ -352,7 +356,11 @@ export const Player = () => {
           playingRef.current = false;
           setIsPlaying(false);
         }}
-        onTimeUpdate={(event) => setElapsedTime(event.currentTarget.currentTime)}
+        onTimeUpdate={(event) => {
+          const time = event.currentTarget.currentTime;
+          setElapsedTime(time);
+          playhead.set(time);
+        }}
         onDurationChange={(event) => setDuration(event.currentTarget.duration)}
         onEnded={handleEnded}
         onError={() => {

@@ -24,6 +24,8 @@ export type {
   WatchTrack,
   WatchCounterpart,
   WatchTunerChip,
+  Lyrics,
+  LyricLine,
   AlbumVersion,
   AlbumDetails,
   ArtistRelease,
