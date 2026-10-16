@@ -10,6 +10,12 @@ export default defineConfig({
     tailwindcss(),
     react(),
     babel({
+      // Vite pre-bundles dependencies into cacheDir/deps. A named dev instance
+      // points cacheDir at its own directory, which sits outside node_modules,
+      // so the plugin's default exclude misses it and Babel would run the
+      // compiler over Vite's own dependency chunks, which blanks a fresh dev
+      // server start. This is the default exclude plus that directory.
+      exclude: /[\\/]node_modules[\\/]|[\\/]vite[\\/]deps[\\/]|\0rolldown\/runtime\.js/,
       presets: [reactCompilerPreset()],
     }),
   ],
