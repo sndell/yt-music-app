@@ -11,7 +11,7 @@ import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { OverlayScroll } from "@/components/ui/OverlayScroll";
 import { useToast } from "@/components/ui/Toast";
 import { usePlayer } from "@/features/player";
-import { moveItem, orderFreshLast, pinFirst, useOrderMap } from "@/lib/orderMap";
+import { moveItem, orderFreshFirst, pinFirst, useOrderMap } from "@/lib/orderMap";
 import { cn } from "@/util/cn";
 import { usePlaylist } from "../hooks/usePlaylist.tsx";
 
@@ -136,10 +136,10 @@ export const SidebarList = () => {
     return () => window.removeEventListener("ytmusic-auth-changed", onAuthChanged);
   }, [fetchPlaylists]);
 
-  // A freshly created playlist belongs at the bottom of the panel. The saved
-  // order map pins ids, so a new one has to be written after the rest once;
-  // without that, the next fetch would place it by the endpoint's order.
-  // Liked Music stays pinned above everything: the panel's first row, always.
+  // A freshly created playlist belongs at the top of the panel, where YouTube
+  // Music itself reports it. The saved order map pins ids, so a new one has to
+  // be written in once; without that, the next fetch would drop it below the
+  // saved rows. Liked Music stays pinned above everything: the panel's first row.
   const seenIdsRef = useRef<Set<string> | null>(null);
   useEffect(() => {
     const ids = ordered.map((playlist) => playlist.playlistId);
@@ -152,7 +152,7 @@ export const SidebarList = () => {
     const fresh = ids.filter((id) => id !== PINNED_PLAYLIST_ID && !seen.has(id));
     if (fresh.length === 0) return;
     ids.forEach((id) => seen.add(id));
-    orderMap.commit(SIDEBAR_SCOPE, orderFreshLast(ids, PINNED_PLAYLIST_ID, fresh));
+    orderMap.commit(SIDEBAR_SCOPE, orderFreshFirst(ids, PINNED_PLAYLIST_ID, fresh));
   }, [ordered, orderMap]);
 
   useEffect(() => {

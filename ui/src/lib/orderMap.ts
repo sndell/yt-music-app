@@ -77,11 +77,12 @@ export const pinFirst = <T>(items: T[], idOf: (item: T) => string, pinnedId: str
 };
 
 /**
- * Order to save for a list that gained new items: the pinned id, then the items
- * already seen, then the fresh ones. A playlist created now lands at the bottom.
+ * Order to save for a list that gained new items: the pinned id, then the fresh
+ * ones, then the ids already seen. Fresh ids keep the endpoint's order, which is
+ * newest first, so a playlist created now lands at the top of the panel.
  */
-export const orderFreshLast = (ids: string[], pinnedId: string, fresh: string[]): string[] => [
+export const orderFreshFirst = (ids: string[], pinnedId: string, fresh: string[]): string[] => [
   ...ids.filter((id) => id === pinnedId),
+  ...ids.filter((id) => id !== pinnedId && fresh.includes(id)),
   ...ids.filter((id) => id !== pinnedId && !fresh.includes(id)),
-  ...fresh,
 ];
