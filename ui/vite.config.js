@@ -9,6 +9,9 @@ export default defineConfig({
         tailwindcss(),
         react(),
         babel({
+            // Vite pre-bundles dependencies into cacheDir/deps. Keep the plugin
+            // off that directory, or the compiler is handed Vite's own chunks.
+            exclude: /[\\/]node_modules[\\/]|[\\/]vite[\\/]deps[\\/]|\0rolldown\/runtime\.js/,
             presets: [reactCompilerPreset()],
         }),
     ],
