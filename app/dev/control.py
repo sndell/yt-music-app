@@ -5,8 +5,10 @@ the page. This server gives the same object an outside address, so an agent can
 call an API method, run JavaScript in the page, read logs, and take a screenshot
 without seeing the screen.
 
-It binds a free port on 127.0.0.1 and writes `app/dev/.dev.json`, so any later
-command can find the running instance. Dev only.
+It binds a free port on 127.0.0.1 and writes this instance's discovery file, so
+a later command can find it without touching a sibling instance. The `default`
+instance also keeps `app/dev/.dev.json` in step, for notes and scripts written
+before instances existed. Dev only.
 """
 
 from __future__ import annotations
@@ -25,14 +27,11 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from dev import logs
+from dev import instance, logs
 
 logger = logging.getLogger(__name__)
 
-DEV_DIR = Path(__file__).resolve().parent
-REPO_DIR = DEV_DIR.parents[1]
-DISCOVERY_PATH = DEV_DIR / ".dev.json"
-ARTIFACTS_DIR = DEV_DIR / ".dev-artifacts"
+REPO_DIR = instance.REPO_DIR
 
 _server: ThreadingHTTPServer | None = None
 _thread: threading.Thread | None = None
@@ -44,7 +43,7 @@ _started_at = time.time()
 
 
 def discovery_path() -> Path:
-    return DISCOVERY_PATH
+    return instance.discovery_path()
 
 
 def control_port() -> int | None:
@@ -67,25 +66,29 @@ def _discovery_payload() -> dict[str, Any]:
 
     port = vite.vite_port()
     return {
+        "instance": instance.instance_id(),
+        "label": instance.label(),
         "pid": os.getpid(),
         "checkout": str(REPO_DIR),
+        "dataDir": str(instance.data_dir()),
         "controlPort": _port,
         "vitePort": port,
         "viteOrigin": vite.ui_origin() if port else None,
         "loaded": _loaded.is_set(),
         "startedAt": _started_at,
+        "branch": instance.branch(),
+        "worktree": str(instance.REPO_DIR),
     }
 
 
-def existing_instance(timeout: float = 0.5) -> dict[str, Any] | None:
-    """A live dev instance for this checkout, if one is answering.
+def _live_record(path: Path, timeout: float) -> dict[str, Any] | None:
+    """The health of the instance recorded in `path`, when it still answers.
 
-    Reads the discovery file, then confirms the process is still there by asking
-    its own control port. That rules out a stale file and a pid that the OS has
-    since reused. An instance for a different checkout is ignored.
+    Asking the recorded control port rules out a stale file and a pid the OS has
+    since reused. A record for a different checkout is ignored.
     """
     try:
-        info = json.loads(DISCOVERY_PATH.read_text(encoding="utf-8"))
+        info = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     if os.path.normcase(str(info.get("checkout", ""))) != os.path.normcase(str(REPO_DIR)):
@@ -103,18 +106,47 @@ def existing_instance(timeout: float = 0.5) -> dict[str, Any] | None:
     return health
 
 
+def existing_instance(timeout: float = 0.5) -> dict[str, Any] | None:
+    """This instance's dev window, if it is already answering.
+
+    Reads only this instance's discovery file, plus the pre-instance file that
+    `default` also writes, so one instance never reports another as running.
+    """
+    paths = [instance.discovery_path()]
+    if instance.is_default():
+        paths.append(instance.legacy_discovery_path())
+    for path in paths:
+        health = _live_record(path, timeout)
+        if health is not None:
+            return health
+    return None
+
+
 def _write_discovery() -> None:
-    try:
-        DISCOVERY_PATH.write_text(json.dumps(_discovery_payload(), indent=2), encoding="utf-8")
-    except OSError:
-        logger.exception("Could not write %s", DISCOVERY_PATH)
+    payload = _discovery_payload()
+    paths = [instance.discovery_path()]
+    # `default` keeps the pre-instance file current, so notes and scripts that
+    # read `app/dev/.dev.json` keep working. A named instance leaves it alone:
+    # it belongs to `default`, and writing it would advertise the wrong window.
+    if instance.is_default():
+        paths.append(instance.legacy_discovery_path())
+    for path in paths:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except OSError:
+            logger.exception("Could not write %s", path)
 
 
 def _remove_discovery() -> None:
-    try:
-        DISCOVERY_PATH.unlink()
-    except OSError:
-        pass
+    paths = [instance.discovery_path()]
+    if instance.is_default():
+        paths.append(instance.legacy_discovery_path())
+    for path in paths:
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def _call(method: str, args: list[Any]) -> Any:
@@ -254,14 +286,14 @@ class _Handler(BaseHTTPRequestHandler):
             if route == "/screenshot":
                 query = self._query()
                 target = (query.get("path") or [""])[0]
-                path = Path(target) if target else ARTIFACTS_DIR / "screenshot.png"
+                path = Path(target) if target else instance.artifacts_dir() / "screenshot.png"
                 return self._json(200, _capture(path))
             if route == "/":
                 return self._json(
                     200,
                     {
                         "endpoints": {
-                            "GET /health": "pid, checkout, ports, whether the page loaded",
+                            "GET /health": "instance, pid, checkout, ports, whether the page loaded",
                             "POST /call": '{"method": "get_playlists", "args": []}',
                             "POST /eval": '{"expression": "document.body.innerText"}',
                             "POST /stop": "close the window",

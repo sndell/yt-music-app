@@ -46,6 +46,17 @@ _MUSIC = 1
 _COMMANDS = {0: "play", 1: "pause", 6: "next", 7: "previous"}
 
 
+def _media_keys_enabled() -> bool:
+    """Whether this window may own the Windows media keys.
+
+    The SMTC session is OS-wide, so only one window can hold it. A named dev
+    instance sets ``YTM_MEDIA_KEYS=0`` to bow out. Only that exact value
+    disables; unset keeps today's behavior, which is also the frozen build.
+    Read at call time so an explicit variable in the environment always wins.
+    """
+    return os.environ.get("YTM_MEDIA_KEYS") != "0"
+
+
 class GUID(ctypes.Structure):
     _fields_ = [
         ("Data1", ctypes.c_ulong),
@@ -319,6 +330,10 @@ class MediaControls:
 
     def attach(self, window) -> None:
         if sys.platform != "win32":
+            return
+        # Disabled: leave every field at its __init__ value so update() keeps
+        # the last song as pending and no SMTC session is ever published.
+        if not _media_keys_enabled():
             return
         form = window.native
         hwnd = int(form.Handle.ToInt64())

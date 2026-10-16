@@ -8,6 +8,7 @@ preferences.json
 preferences.json.tmp
 playlist_stats.json
 .cache/
+.instances/
 webview-data/
 webview-data-*/
 dev/.dev.json

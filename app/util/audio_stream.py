@@ -10,6 +10,7 @@ from __future__ import annotations
 import atexit
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -22,7 +23,7 @@ import ytmusicapi
 from yt_dlp_ejs.yt.solver import core as solver_core
 from yt_dlp_ejs.yt.solver import lib as solver_lib
 
-from util.app_paths import data_dir
+from util.app_paths import cache_dir
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ def _qjs_path() -> Path:
 
 
 def _solver_dir() -> Path:
-    path = data_dir() / ".cache"
+    path = cache_dir()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -112,7 +113,9 @@ def _solver_script() -> Path:
         + "\n"
         + _SOLVER_LOOP
     )
-    temporary = path.with_suffix(".js.tmp")
+    # The cache dir can be shared by several windows, so the temp name is per
+    # process; the replace target stays shared.
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     temporary.write_text(text, encoding="utf-8")
     temporary.replace(path)
     return path
@@ -153,7 +156,7 @@ class _StreamSolver:
                 self._armed_url = player_url
                 if payload.get("player"):
                     url_path = _solver_dir() / "player-solver.url"
-                    temporary = url_path.with_suffix(".url.tmp")
+                    temporary = url_path.with_name(f"{url_path.name}.{os.getpid()}.tmp")
                     temporary.write_text(player_url, encoding="utf-8")
                     temporary.replace(url_path)
             solved: dict[str, str] = {}

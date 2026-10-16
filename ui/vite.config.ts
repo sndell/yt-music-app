@@ -13,6 +13,9 @@ export default defineConfig({
       presets: [reactCompilerPreset()],
     }),
   ],
+  // Vite only reads cacheDir from config, so a named dev instance passes its
+  // own through the env; the default keeps node_modules/.vite.
+  cacheDir: process.env.YTM_VITE_CACHE_DIR || 'node_modules/.vite',
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),

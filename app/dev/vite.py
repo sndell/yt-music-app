@@ -20,12 +20,12 @@ import sys
 import time
 from pathlib import Path
 
+from dev import instance
+
 logger = logging.getLogger(__name__)
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 UI_DIR = REPO_DIR / "ui"
-ARTIFACTS_DIR = Path(__file__).resolve().parent / ".dev-artifacts"
-LOG_PATH = ARTIFACTS_DIR / "vite.log"
 DEFAULT_PORT = 5173
 
 _process: subprocess.Popen | None = None
@@ -33,8 +33,14 @@ _port: int | None = None
 
 
 def log_path() -> Path:
-    """File the Vite console is tee'd to, for the dev control server."""
-    return LOG_PATH
+    """File the Vite console is tee'd to, for the dev control server.
+
+    Per instance, and resolved on each call rather than at import time, so it
+    cannot be captured before ``YTM_INSTANCE`` is read.
+    """
+    path = instance.artifacts_dir() / "vite.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def vite_port() -> int | None:
@@ -83,6 +89,46 @@ def _serving(port: int, timeout: float = 0.3) -> bool:
         return False
 
 
+def _start_once(port: int, timeout: float) -> bool:
+    """Spawn Vite on ``port`` and wait for it to serve. False on any failure."""
+    global _process, _port
+    _port = port
+    flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+    try:
+        log = log_path()
+        log.write_text("", encoding="utf-8")
+        # `ui/vite.config.js` is a committed compiled copy of the `.ts`, and Vite
+        # prefers `.js`, so name the source config explicitly or every change to
+        # `vite.config.ts` (including the per-instance cacheDir) is ignored.
+        if sys.platform == "win32":
+            # Tee keeps the console visible for a person and leaves a tail an
+            # agent can read through the dev control server. Windows PowerShell
+            # has no -Encoding on Tee-Object, so leave it off.
+            command = (
+                f"pnpm dev --config vite.config.ts --port {port} --strictPort 2>&1 | "
+                f"Tee-Object -FilePath '{log}'"
+            )
+            args: list[str] = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
+        else:
+            args = ["pnpm", "dev", "--config", "vite.config.ts", "--port", str(port), "--strictPort"]
+        _process = subprocess.Popen(args, cwd=str(UI_DIR), creationflags=flags)
+    except OSError:
+        logger.exception("Could not start Vite on port %s", port)
+        return False
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _process.poll() is not None:
+            logger.error("Vite exited with code %s before serving on port %s", _process.returncode, port)
+            return False
+        if _serving(port):
+            logger.info("Vite is serving at %s", ui_origin())
+            return True
+        time.sleep(0.25)
+    logger.warning("Vite did not answer on port %s within %.0fs", port, timeout)
+    return False
+
+
 def start_vite(timeout: float = 60.0) -> None:
     """Run ``pnpm dev`` on a free port, in its own console.
 
@@ -90,7 +136,7 @@ def start_vite(timeout: float = 60.0) -> None:
     ready server. Set ``AUTO_VITE=0`` to skip the start; the window then loads
     ``VITE_PORT``, or 5173.
     """
-    global _process, _port
+    global _port
     if os.environ.get("AUTO_VITE") == "0":
         _port = _port_from_env()
         logger.info("AUTO_VITE=0, expecting Vite on port %s", _port)
@@ -99,41 +145,31 @@ def start_vite(timeout: float = 60.0) -> None:
         logger.warning("No ui directory at %s, cannot start Vite", UI_DIR)
         return
 
-    port = _free_port()
-    _port = port
-    flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
-    logger.info("Starting Vite on port %s in a new console (pnpm dev in %s)", port, UI_DIR)
-    try:
-        log = log_path()
-        log.parent.mkdir(parents=True, exist_ok=True)
-        log.write_text("", encoding="utf-8")
-        if sys.platform == "win32":
-            # Tee keeps the console visible for a person and leaves a tail an
-            # agent can read through the dev control server. Windows PowerShell
-            # has no -Encoding on Tee-Object, so leave it off.
-            command = (
-                f"pnpm dev --port {port} --strictPort 2>&1 | "
-                f"Tee-Object -FilePath '{log}'"
-            )
-            args: list[str] = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
-        else:
-            args = ["pnpm", "dev", "--port", str(port), "--strictPort"]
-        _process = subprocess.Popen(args, cwd=str(UI_DIR), creationflags=flags)
-    except OSError:
-        logger.exception("Could not start Vite")
-        return
-    atexit.register(stop_vite)
+    if not instance.is_default():
+        # Vite's cacheDir is config-only, so the path travels through the env
+        # to ui/vite.config.ts. Left unset for the default instance, whose
+        # node_modules/.vite is the shared cache it always used.
+        os.environ["YTM_VITE_CACHE_DIR"] = str(instance.data_dir() / "vite")
 
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _process.poll() is not None:
-            logger.error("Vite exited with code %s before serving", _process.returncode)
+    atexit.register(stop_vite)
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        # `_free_port` releases the port before Vite binds it again, so a
+        # parallel start can pick the same one. A fresh port per attempt is the
+        # only recovery from the strict-port failure that follows.
+        port = _free_port()
+        logger.info(
+            "Starting Vite on port %s in a new console (pnpm dev in %s, attempt %s/%s)",
+            port,
+            UI_DIR,
+            attempt,
+            attempts,
+        )
+        if _start_once(port, timeout):
             return
-        if _serving(port):
-            logger.info("Vite is serving at %s", ui_origin())
-            return
-        time.sleep(0.25)
-    logger.warning("Vite did not answer on port %s within %.0fs", port, timeout)
+        if attempt < attempts:
+            logger.warning("Retrying Vite on another port")
+    logger.error("Vite failed to start after %s attempts", attempts)
 
 
 def stop_vite() -> None:

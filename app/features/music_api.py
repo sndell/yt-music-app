@@ -26,14 +26,14 @@ import diskcache
 import ytmusicapi
 from ytmusicapi.helpers import initialize_headers, sapisid_from_cookie
 
-from util.app_paths import data_dir, is_frozen
+from util.app_paths import cache_dir, data_dir
 from util.audio_stream import audio_stream
 from util.get_dominant_color import get_dominant_color_hex
 
 logger = logging.getLogger(__name__)
 
 _BROWSER_JSON_PATH = data_dir() / "browser.json"
-_CACHE_DIR = data_dir() / ("cache" if is_frozen() else ".cache")
+_CACHE_DIR = cache_dir()
 
 # Initialize persistent disk cache
 cache = diskcache.Cache(str(_CACHE_DIR))

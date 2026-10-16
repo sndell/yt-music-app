@@ -70,11 +70,11 @@ The window loads the UI, which calls Python methods through the bridge. Each met
 
 From the repo root, `.\start.ps1` runs `app/main.py` with `ENV=dev`. The Python process picks a free port, starts Vite on it in its own console window, and stops Vite when the window closes. There is no separate `pnpm dev` to run and no server left behind. Vite opens in a console of its own, so the webview and the Vite log are both visible.
 
-`start.ps1` always starts a new instance, and one instance runs per checkout. If one is already running here it refuses with the pid and ports, because a second process would fight the first for the WebView2 profile. Pass `-Restart` to stop the old one and start a fresh one. Never hunt for a running instance or probe a port.
+`start.ps1` starts one instance of this checkout. Many can run at once, in one checkout or across worktrees: `-Instance <id>` names one, `-Label <text>` tags it for the window title and listings, and `-Restart` stops only that id. A second start with the same id refuses with its pid and ports instead of fighting it for the WebView2 profile. Never hunt for a running instance or probe a port. See **Many agents at once**.
 
 The port is dynamic, so several checkouts can run at once without colliding. The Python terminal logs it (`Starting Vite on port ...`) and the window loads `http://localhost:<port>`. A frozen build serves the packaged `ui/dist` and starts no server.
 
-`start.ps1` uses this checkout's `app\.venv`, and falls back to the main checkout's venv when the checkout has none, so it runs from a worktree. When the process gets no `app\.venv` at all, it uses `python` on PATH, which usually lacks the app packages.
+`start.ps1` uses this checkout's `app\.venv`, and falls back to the main checkout's venv when the checkout has none, so it runs from a worktree. When the process gets no `app\.venv` at all, it uses `python` on PATH, which usually lacks the app packages. A worktree has no `ui\node_modules` either, so `start.ps1` runs `pnpm install --prefer-offline` in `ui` when it is missing; without pnpm on PATH it fails instead of opening a window on a dead port.
 
 Set `AUTO_VITE=0` to start the window against a Vite you run yourself. The window then loads `VITE_PORT`, or 5173.
 
@@ -82,31 +82,50 @@ Set `AUTO_VITE=0` to start the window against a Vite you run yourself. The windo
 
 Vite listens on `localhost`, which is the IPv6 loopback `[::1]` on this machine, so `netstat -ano -p tcp` shows no listener for its port. Look it up with `netstat -ano`, or `Get-NetTCPConnection -LocalPort <port>` using the port from the log.
 
-## Dev control surface
+## Many agents at once
 
-The dev window also serves a small HTTP surface on a free loopback port, so an agent can drive the app without seeing the screen. The app writes `app/dev/.dev.json` (gitignored) with the pid and ports. `app/dev/cli.py` reads that file and uses only the standard library, so any `python` runs it, not just the venv.
+An **instance** is one window plus its Vite plus its control server, with a private data dir. The instance is the unit of isolation, not the checkout, so several agents work at once without sharing a WebView2 profile, a sign-in file, or a discovery file.
 
 ```powershell
-python app\dev\cli.py health
-python app\dev\cli.py wait
-python app\dev\cli.py call get_playlists
-python app\dev\cli.py call search "daft punk"
-python app\dev\cli.py eval "document.querySelectorAll('*').length"
-python app\dev\cli.py logs --level warning --limit 50
-python app\dev\cli.py screenshot
-python app\dev\cli.py stop
+.\start.ps1 -Instance like-toggle -Label "fix the like toggle"
+.\start.ps1                                    # the `default` instance
 ```
 
-- `health` reports the pid, the checkout, the Vite port, the control port, and whether the page has loaded. `wait` blocks until it has.
-- Discovery is per checkout. The client refuses to talk to an instance whose `checkout` is not this one, so a file found elsewhere fails loudly instead of driving the wrong window.
-- `stop` closes the window, which stops Vite and removes the discovery file. Use it (or `.\start.ps1 -Restart`) rather than killing a process.
+- `YTM_INSTANCE` names the instance; `app/dev/instance.py` derives the rest. `default` keeps the old layout (`app/` for data, `app/dev/.dev.json` for discovery), so a bare `start.ps1` changes nothing.
+- A named instance gets `app/.instances/<id>/` for its profile, sign-in copy, preferences and stats, and `app/dev/.instances/<id>.json` for discovery. It never writes another instance's file.
+- The checkout's `app/browser.json` is copied in at start when that copy is missing or older, so a named instance is signed in straight away. The checkout's file is never modified and a token refresh lands in the instance copy. `-Reseed` forces the copy.
+- The diskcache stays shared per checkout (`app/.cache`), so instances read the same warm data instead of each re-fetching the library. `-IsolatedCache` gives one instance its own.
+- Media keys and Discord rich presence are OS-wide, so only one window can hold them. A named instance leaves both off; `YTM_MEDIA_KEYS=1` and `YTM_DISCORD=1` opt back in.
+- Startup stops when another live instance already owns this instance's data dir, because WebView2 will not open two processes on one profile. That check is per data dir, not per checkout, so two named instances coexist.
+
+## Dev control surface
+
+The dev window also serves a small HTTP surface on a free loopback port, so an agent can drive the app without seeing the screen. The app writes one discovery file per instance at `app/dev/.instances/<id>.json` (gitignored) carrying the pid, ports, instance id, label, branch and data dir; `app/dev/.dev.json` is still written for the `default` instance. `app/dev/cli.py` reads those and uses only the standard library, so any `python` runs it, not just the venv. Name the target with `-i <id>`.
+
+```powershell
+python app\dev\cli.py list
+python app\dev\cli.py list --worktrees
+python app\dev\cli.py -i like-toggle health
+python app\dev\cli.py -i like-toggle wait
+python app\dev\cli.py -i like-toggle call get_playlists
+python app\dev\cli.py -i like-toggle call search "daft punk"
+python app\dev\cli.py eval "document.querySelectorAll('*').length"
+python app\dev\cli.py -i like-toggle logs --level warning --limit 50
+python app\dev\cli.py -i like-toggle screenshot
+python app\dev\cli.py -i like-toggle stop
+```
+
+- `health` reports the pid, instance, label, branch, ports, and whether the page has loaded. `wait` blocks until it has, and keeps retrying while the instance is still starting, so it is safe to run the moment `start.ps1` returns.
+- Without `-i`, the client uses `YTM_INSTANCE`, else the only live instance. With several live it refuses and lists them rather than picking one, because a command must never drive the wrong window. `list` shows them; `list --worktrees` shows every checkout `git worktree list` reports. `list --prune` drops discovery files whose process is gone.
+- Reaching another checkout needs `-c <path> -i <id>`; the client fails loudly rather than driving a window that is not this checkout's.
+- `stop` closes the window, which stops Vite and removes that instance's discovery file. Use it (or `.\start.ps1 -Instance <id> -Restart`) rather than killing a process.
 - `call` runs any public API method. A read is safe; a write changes the signed-in account, so treat it like the app's own buttons. Pass plain string arguments, or `--json` or `--json-file` for a typed list.
 - `eval` runs JavaScript in the page. Use single quotes inside the expression, because PowerShell strips double quotes on the way to a native command. JS that needs a double-quoted string cannot be passed at all, so write such a selector unquoted (`input[aria-label=Search]`).
 - `eval` does not wait on an async expression. Return a promise and the call gives `{}` while its body keeps running in the page, so run a sequence as separate calls with `Start-Sleep` between them.
-- `logs` merges three streams: `python`, `renderer` (console output and uncaught errors forwarded from the page), and `vite` (the Vite console, tee'd to `app/dev/.dev-artifacts/vite.log` while its own console stays visible).
-- `screenshot` writes the window to a PNG and returns its path, which renders in the review pane.
+- `logs` merges three streams: `python`, `renderer` (console output and uncaught errors forwarded from the page), and `vite` (the Vite console, tee'd to that instance's `app/dev/.instances/<id>/artifacts/vite.log` while its own console stays visible).
+- `screenshot` writes the window to a PNG and returns its path, which renders in the review pane. With no path it lands in that instance's artifacts dir, so two instances never overwrite one another.
 
-A hard kill leaves `.dev.json` behind. The port then refuses the connection, so the client fails loudly instead of reaching a stale instance, and the next start overwrites the file.
+A hard kill leaves a discovery file behind. The port then refuses the connection and the recorded pid no longer answers `/health`, so the client fails loudly instead of reaching a stale instance, and `list --prune` clears the litter.
 
 ## Build
 
@@ -121,6 +140,8 @@ That script typechecks the UI, runs `vite build --base ./`, then PyInstaller wit
 The exe has no console. Python logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The WebView2 profile, auth file, and cache live in that folder, not under `app\`.
 
 The window serves `ui/dist` at `http://localhost:<port>/index.html`. It does not load the Vite dev server.
+
+`ui/vite.config.js` is a committed compiled copy of `ui/vite.config.ts`, and Vite prefers `.js`, so it wins and edits to the `.ts` do nothing. `app/dev/vite.py` therefore launches Vite with `--config vite.config.ts`, which is the only reason the per-instance `cacheDir` takes effect in the app. A manual `pnpm dev` still loads the `.js`; add `--config vite.config.ts` there too if a config change matters to you.
 
 ## Verify
 
