@@ -13,12 +13,18 @@ export const BrowseCard = ({
   subtitle,
   explicit = false,
   thumbnails,
+  shape = "square",
+  iconClass = "icon-[solar--library-linear]",
 }: {
   href: string;
   title: string;
   subtitle?: string | null;
   explicit?: boolean;
   thumbnails: Thumbnail[];
+  /** Artist cards are round; albums and playlists are square. */
+  shape?: "square" | "circle";
+  /** Glyph drawn over the cover on hover. */
+  iconClass?: string;
 }) => {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const [inlined, setInlined] = useState<{ from: string; url: string } | null>(null);
@@ -45,12 +51,14 @@ export const BrowseCard = ({
 
   return (
     <Link href={href} aria-label={`Open ${title}`} className="group w-36 shrink-0 sm:w-40">
-      <div className="relative aspect-square overflow-hidden rounded-md bg-secondary">
+      <div className={cn("relative aspect-square overflow-hidden bg-secondary", shape === "circle" ? "rounded-full" : "rounded-md")}>
         {showCover && coverSrc ? (
           <img
             src={coverSrc}
             alt=""
             draggable={false}
+            loading="lazy"
+            decoding="async"
             onError={handleCoverError}
             className="h-full w-full object-cover"
           />
@@ -60,7 +68,7 @@ export const BrowseCard = ({
           </span>
         )}
         <span className={mediaScrimClass}>
-          <RevealIcon iconClassName="icon-[solar--library-linear] text-2xl" />
+          <RevealIcon iconClassName={cn(iconClass, "text-2xl")} />
         </span>
       </div>
       <span className="mt-2 block w-full text-left">
