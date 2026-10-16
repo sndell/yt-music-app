@@ -352,6 +352,13 @@ export interface Lyrics {
   lines: LyricLine[];
 }
 
+export interface TranslatedLyrics extends Lyrics {
+  /** Detected language of the original, e.g. "es", or null when unknown. */
+  language: string | null;
+  /** False when the song is already in the requested language; `lyrics` is null in that case. */
+  translated: boolean;
+}
+
 export interface AudioStream {
   url: string;
   mimeType: string;
@@ -498,6 +505,8 @@ export interface ApiMethods {
   get_queue_tuner: { params: [videoId: string]; response: WatchTunerChip[] };
   /** Lyrics for the playing song. `videoId` is the track's video id. */
   get_lyrics: { params: [videoId: string]; response: Lyrics };
+  /** Lyrics for the playing song in a target language. `videoId` is the track's video id; `language` is a code from Google's translate list, English by default. */
+  translate_lyrics: { params: [videoId: string, language?: string]; response: TranslatedLyrics };
   get_audio_stream: { params: [videoId: string, refresh?: boolean]; response: AudioStream };
   get_song_info: { params: [videoId: string]; response: { likeStatus: LikeStatus; year: string | null } };
   rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };
