@@ -39,8 +39,9 @@ const useActiveLine = (lines: LyricLine[]) => {
  *
  * YouTube Music returns timings for some songs and a plain block for others, so
  * the timed view highlights the playing line and the plain view is shown as is.
- * The translate button asks Python for an English copy, which carries the
- * original's timings, and swaps it in until it is pressed again.
+ * A timed line is a play position too: clicking one seeks the song to it. The
+ * translate button asks Python for a copy in the picked language, which carries
+ * the original's timings, and swaps it in until it is pressed again.
  */
 export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
   const [translation, setTranslation] = useState<SongLyrics & { target: string } | null>(null);
@@ -67,14 +68,16 @@ export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLParagraphElement>(null);
 
-  // Keep the playing line in the middle of the panel as playback moves.
+  // Keep the playing line in the middle of the panel as playback moves. The
+  // language menu listens for scrolls to dismiss itself, so while it is open
+  // the follow pauses; otherwise one programmatic scroll shut it again.
   useEffect(() => {
     const list = listRef.current;
     const line = activeRef.current;
-    if (active < 0 || !list || !line) return;
+    if (active < 0 || menuOpen || !list || !line) return;
     const target = line.offsetTop - list.clientHeight / 2 + line.clientHeight / 2;
     list.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-  }, [active]);
+  }, [active, menuOpen]);
 
   const translateTo = async (target: string) => {
     if (translated?.target === target) return;
@@ -199,13 +202,21 @@ export const LyricsPanel = ({ lyrics }: { lyrics: SongLyrics }) => {
               <p
                 key={index}
                 ref={index === active ? activeRef : undefined}
+                onClick={() => playhead.seek(line.startMs / 1000)}
                 className={cn(
                   // White and bold against dimmed lines: the two panel text tokens
                   // are only 0.15 lightness apart, which the highlight cannot carry.
-                  "text-[15px] leading-7 transition-[color,opacity,font-weight] duration-300",
-                  index === active ? "font-semibold text-white" : "text-primary-dark opacity-50"
+                  "group relative text-[15px] leading-7 transition-[color,opacity,font-weight] duration-300",
+                  index === active
+                    ? "font-semibold text-white"
+                    : "text-primary-dark opacity-50 hover:opacity-100 hover:text-primary"
                 )}
               >
+                {/* A line click seeks the song here; the glyph marks every line as a play position. */}
+                <span
+                  aria-hidden="true"
+                  className="absolute top-1/2 -left-3.5 -translate-y-1/2 text-[11px] text-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100 icon-[solar--play-bold]"
+                />
                 {line.text}
               </p>
             ))}

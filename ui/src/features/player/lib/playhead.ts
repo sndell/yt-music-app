@@ -8,6 +8,9 @@
 let seconds = 0;
 const listeners = new Set<() => void>();
 
+/** The player's seek implementation, set once Player mounts. */
+let seeker: ((seconds: number) => void) | null = null;
+
 export const playhead = {
   get: () => seconds,
   set(value: number) {
@@ -24,5 +27,15 @@ export const playhead = {
     return () => {
       listeners.delete(listener);
     };
+  },
+  /**
+   * Moves the playback to `seconds` through the player's own seek. The audio
+   * element is private to Player, so callers ask instead of reaching the node.
+   */
+  seek(seconds: number) {
+    seeker?.(seconds);
+  },
+  setSeeker(implement: (seconds: number) => void) {
+    seeker = implement;
   },
 };

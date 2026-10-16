@@ -128,6 +128,11 @@ export const Player = () => {
     playhead.set(time);
   }, []);
 
+  // The lyrics panel seeks through playhead, which routes back here.
+  useEffect(() => {
+    playhead.setSeeker(handleSeek);
+  }, [handleSeek]);
+
   const restart = useCallback(() => {
     if (playerRef.current) playerRef.current.currentTime = 0;
     setElapsedTime(0);
