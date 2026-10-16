@@ -64,8 +64,29 @@ export interface LibraryAlbum {
 export interface LibraryArtist {
   browseId: string;
   name: string;
-  subscribers: string;
+  /**
+   * Songs this artist has in the library. ytmusicapi exposes it under
+   * "subscribers", but for a library artist that is this count, not the
+   * channel's subscriber total.
+   */
+  songCount: number;
   thumbnails: Thumbnail[];
+}
+
+/** Saved library lists. Cached whole in Python, so each paints from disk. */
+export interface LibrarySongs {
+  songs: Track[];
+  fromCache?: boolean;
+}
+
+export interface LibraryAlbums {
+  albums: LibraryAlbum[];
+  fromCache?: boolean;
+}
+
+export interface LibraryArtists {
+  artists: LibraryArtist[];
+  fromCache?: boolean;
 }
 
 export interface QuickPick {
@@ -357,9 +378,9 @@ export interface ApiMethods {
   get_cover_color: { params: [imageUrl: string]; response: string | null };
   inline_thumbnail: { params: [imageUrl: string]; response: string | null };
   get_playlists: { params: []; response: PlaylistSummary[] };
-  get_library_albums: { params: [limit?: number]; response: LibraryAlbum[] };
-  get_library_songs: { params: [limit?: number]; response: Track[] };
-  get_library_artists: { params: [limit?: number]; response: LibraryArtist[] };
+  get_library_albums: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryAlbums };
+  get_library_songs: { params: [limit?: number, forceRefresh?: boolean]; response: LibrarySongs };
+  get_library_artists: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryArtists };
   get_quick_picks: { params: []; response: QuickPicks };
   get_home: { params: [forceRefresh?: boolean]; response: HomeFeed };
   search: {
