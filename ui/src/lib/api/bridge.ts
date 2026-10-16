@@ -87,9 +87,9 @@ export const PyBridge = {
   getCoverColor: (imageUrl: string) => callPython("get_cover_color", imageUrl),
   inlineThumbnail: (imageUrl: string) => callPython("inline_thumbnail", imageUrl),
   getPlaylists: () => callPython("get_playlists"),
-  getLibraryAlbums: (limit = 500) => callPython("get_library_albums", limit),
-  getLibrarySongs: (limit = 5000) => callPython("get_library_songs", limit),
-  getLibraryArtists: (limit = 5000) => callPython("get_library_artists", limit),
+  getLibraryAlbums: (limit = 1000, forceRefresh = false) => callPython("get_library_albums", limit, forceRefresh),
+  getLibrarySongs: (limit = 5000, forceRefresh = false) => callPython("get_library_songs", limit, forceRefresh),
+  getLibraryArtists: (limit = 2000, forceRefresh = false) => callPython("get_library_artists", limit, forceRefresh),
   getQuickPicks: () => callPython("get_quick_picks"),
   getHome: (forceRefresh = false) => callPython("get_home", forceRefresh),
   search: (query: string, filter: SearchFilter | "" = "", scope: SearchScope | "" = "", limit = 30) =>

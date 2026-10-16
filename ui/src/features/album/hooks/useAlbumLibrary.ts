@@ -21,10 +21,12 @@ export const useAlbumLibrary = () => {
 
   useEffect(() => {
     let active = true;
-    void PyBridge.getLibraryAlbums().then((result) => {
+    // Force the fresh list: the heart's state comes from this, and a cached
+    // copy could be days old if the album was saved from another client.
+    void PyBridge.getLibraryAlbums(undefined, true).then((result) => {
       if (!active || !result.success) return;
       const ids = new Set<string>();
-      for (const album of result.data) {
+      for (const album of result.data.albums) {
         if (album.browseId) ids.add(album.browseId);
         if (album.playlistId) ids.add(album.playlistId);
       }

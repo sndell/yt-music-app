@@ -54,7 +54,7 @@ The most common defect here is a change that works on the one path you tried and
 | `app/features/music_api.py` | The YouTube Music surface the UI calls |
 | `app/util/` | Window helpers: paths, audio, media keys, Discord, preferences, the packaged UI server, the event dispatcher |
 | `app/dev/` | Dev-only tooling: `vite.py` starts the dev server, `control.py` serves the dev HTTP surface, `logs.py` captures logs, `cli.py` talks to a running instance |
-| `ui/src/features/<name>/` | One folder per feature: album, artist, player, playlist, search, settings |
+| `ui/src/features/<name>/` | One folder per feature: album, artist, library, player, playlist, search, settings |
 | `ui/src/components/ui/` | Shared UI pieces (menus, dialogs, rows, scroll) |
 | `ui/src/pages/` | Home and Library |
 | `ui/src/lib/api/` | The contract (`types.ts`) and the bridge (`bridge.ts`) |
@@ -101,7 +101,8 @@ python app\dev\cli.py stop
 - Discovery is per checkout. The client refuses to talk to an instance whose `checkout` is not this one, so a file found elsewhere fails loudly instead of driving the wrong window.
 - `stop` closes the window, which stops Vite and removes the discovery file. Use it (or `.\start.ps1 -Restart`) rather than killing a process.
 - `call` runs any public API method. A read is safe; a write changes the signed-in account, so treat it like the app's own buttons. Pass plain string arguments, or `--json` or `--json-file` for a typed list.
-- `eval` runs JavaScript in the page. Use single quotes inside the expression, because PowerShell strips double quotes on the way to a native command.
+- `eval` runs JavaScript in the page. Use single quotes inside the expression, because PowerShell strips double quotes on the way to a native command. JS that needs a double-quoted string cannot be passed at all, so write such a selector unquoted (`input[aria-label=Search]`).
+- `eval` does not wait on an async expression. Return a promise and the call gives `{}` while its body keeps running in the page, so run a sequence as separate calls with `Start-Sleep` between them.
 - `logs` merges three streams: `python`, `renderer` (console output and uncaught errors forwarded from the page), and `vite` (the Vite console, tee'd to `app/dev/.dev-artifacts/vite.log` while its own console stays visible).
 - `screenshot` writes the window to a PNG and returns its path, which renders in the review pane.
 
@@ -150,6 +151,8 @@ Where the data lives: opened playlists are cached on disk by Python (`diskcache`
 A freshly created playlist cannot be read back at once. YouTube serves a stub browse page with no header section while it prepares the playlist, so `get_playlist` raises `KeyError: contents`, `get_playlist_items` returns `{}`, and the playlist view sits on its loader. Two playlists created on 2026-10-16 read back 15 seconds and 3.5 minutes after creation. `create_playlist` caches the header it already knows (title, privacy, empty track list) when no songs were requested, so the view renders straight away. A create that includes songs cannot describe the track list and is left to the fetch.
 
 Albums are rated through `rate_playlist` with the album's `audioPlaylistId`. ytmusicapi has no `rate_album`. Read the saved state from `get_library_albums` and match on `browseId` or `playlistId`. `get_album`'s `likeStatus` is always `INDIFFERENT`, even for a saved album, because ytmusicapi reads the header toggle's `defaultServiceEndpoint` and never looks at `isToggled`. The album heart is in `ui/src/features/album`, backed by `useAlbumLibrary`.
+
+The saved library lists (`get_library_songs`, `get_library_albums`, `get_library_artists`) are cached whole on disk and return `{songs|albums|artists, fromCache}` so the Library page paints from the cache and refreshes behind it. YouTube Music has no offset for them, only a limit, and paging re-fetches from the top, so the page fetches one large page per category and virtualizes the songs. A library artist row carries that artist's library song count under ytmusicapi's `subscribers` key ("25 songs" → "25"), not the channel's subscriber total, which only `get_artist` reports; `get_library_artists` normalizes it to `songCount`.
 
 The UI accent lives in `ui/src/styles/globals.css` as three literals: `--color-accent`, `--text-color-accent`, and `--background-color-accent`. Change all three together. It colors the playing ring, the player progress and volume bars, and the search library toggle. A separate `--color-success` group (also `--text-color-success` and `--background-color-success`) greens the added-to-playlist checkmarks and the toast success icon and action label. Red stays for errors, destructive actions, and the duplicate badge.
 

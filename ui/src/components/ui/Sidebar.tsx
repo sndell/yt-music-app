@@ -6,6 +6,9 @@ import { SidebarSearch } from "@/features/search";
 
 export const Sidebar = () => {
   const [searchOpen, setSearchOpen] = useState(false);
+  // The term outlives the field, so closing search and opening it again shows
+  // what was last searched instead of an empty box.
+  const [searchQuery, setSearchQuery] = useState("");
 
   return (
     <div
@@ -19,7 +22,11 @@ export const Sidebar = () => {
           <SidebarItem icon="icon-[solar--home-2-linear]" path="/" text="Home" />
           <SidebarItem icon="icon-[solar--library-linear]" path="/library" text="Library" />
           {searchOpen ? (
-            <SidebarSearch onClose={() => setSearchOpen(false)} />
+            <SidebarSearch
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              onClose={() => setSearchOpen(false)}
+            />
           ) : (
             <SidebarItem
               icon="icon-[solar--magnifer-linear]"

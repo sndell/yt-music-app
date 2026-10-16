@@ -47,6 +47,16 @@ CACHE_KEY_PLAYLIST_PREFIX = "playlist:v3:"
 CACHE_KEY_ALBUM_PREFIX = "album:"
 CACHE_KEY_ARTIST_PREFIX = "artist:"
 CACHE_KEY_HOME = "home:shelves:v4"
+# The saved library lists. Each is fetched in one large page and cached whole,
+# so opening the Library page paints from disk and refreshes in the background.
+CACHE_KEY_LIBRARY_SONGS = "library:songs:v1"
+CACHE_KEY_LIBRARY_ALBUMS = "library:albums:v1"
+CACHE_KEY_LIBRARY_ARTISTS = "library:artists:v2"
+# YouTube Music has no offset for these lists, only a limit, and paging re-fetches
+# from the top. One large page plus virtualization beats repeated refetches.
+LIBRARY_SONGS_LIMIT = 5000
+LIBRARY_ALBUMS_LIMIT = 1000
+LIBRARY_ARTISTS_LIMIT = 2000
 CACHE_KEY_THUMB_PREFIX = "thumb:v2:"
 THUMB_CACHE_SECONDS = 60 * 60 * 24
 # Genre tuner chips for a song's automix. Stable for hours, so cache the
@@ -1701,50 +1711,82 @@ class MusicApi:
             logger.exception("Failed to fetch playlists: %s", e)
             return []
 
-    def get_library_albums(self, limit: int = 500) -> list[dict[str, Any]]:
+    def get_library_albums(
+        self, limit: int = LIBRARY_ALBUMS_LIMIT, force_refresh: bool = False
+    ) -> dict[str, Any]:
         """Fetch the albums saved to the user's YouTube Music library.
+
+        The list is cached whole; a later call with a smaller limit slices it.
+        Pass force_refresh to fetch a new copy instead of the cached one.
 
         Args:
             limit: Maximum number of albums to return.
+            force_refresh: Skip the cached payload and fetch again.
 
         Returns:
-            A list of album dictionaries, or an empty list on error.
+            ``{"albums": [...], "fromCache": bool}``, empty on error.
         """
+        empty: dict[str, Any] = {"albums": []}
         try:
             if not self._is_authenticated():
                 logger.warning("Not authenticated - cannot return library albums")
-                return []
+                return empty
+
+            if not force_refresh:
+                cached = _cached_hit(CACHE_KEY_LIBRARY_ALBUMS)
+                albums = cached.get("albums") if cached else None
+                if isinstance(albums, list):
+                    logger.info("Returning cached library albums (count: %d)", len(albums))
+                    return {**cached, "albums": albums[:limit] if limit else albums}
 
             logger.info("Fetching library albums from API...")
             ytmusic = self._get_ytmusic()
             albums = ytmusic.get_library_albums(limit=limit)
             _inline_playlist_thumbnails(albums)
 
+            payload: dict[str, Any] = {"albums": albums}
+            cache.set(CACHE_KEY_LIBRARY_ALBUMS, payload, expire=CACHE_DURATION)
             logger.info("Library albums fetched (count: %d)", len(albums))
-            return albums
+            return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
         except Exception as e:
             logger.exception("Failed to fetch library albums: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
 
-    def get_library_songs(self, limit: int = 5000) -> list[dict[str, Any]]:
+    def get_library_songs(
+        self, limit: int = LIBRARY_SONGS_LIMIT, force_refresh: bool = False
+    ) -> dict[str, Any]:
         """Fetch the songs saved to the user's YouTube Music library.
 
         Normalized to the shared Track shape. Covers are left as remote URLs so
-        a large library does not inline hundreds of images on every load.
+        a large library does not inline hundreds of images; the frontend inlines
+        the ones it cannot decode. The list is cached whole for the next launch.
 
         Args:
             limit: Maximum number of songs to return.
+            force_refresh: Skip the cached payload and fetch again.
 
         Returns:
-            A list of track dictionaries, or an empty list on error.
+            ``{"songs": [...], "fromCache": bool}``, empty on error.
         """
+        empty: dict[str, Any] = {"songs": []}
         try:
             if not self._is_authenticated():
                 logger.warning("Not authenticated - cannot return library songs")
-                return []
+                return empty
+
+            if not force_refresh:
+                cached = _cached_hit(CACHE_KEY_LIBRARY_SONGS)
+                songs = cached.get("songs") if cached else None
+                if isinstance(songs, list):
+                    logger.info("Returning cached library songs (count: %d)", len(songs))
+                    return {**cached, "songs": songs[:limit] if limit else songs}
 
             logger.info("Fetching library songs from API...")
             ytmusic = self._get_ytmusic()
@@ -1756,32 +1798,49 @@ class MusicApi:
                 if normalized is not None and normalized["videoId"]:
                     songs.append(normalized)
 
+            payload: dict[str, Any] = {"songs": songs}
+            cache.set(CACHE_KEY_LIBRARY_SONGS, payload, expire=CACHE_DURATION)
             logger.info("Library songs fetched (count: %d)", len(songs))
-            return songs
+            return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
         except Exception as e:
             logger.exception("Failed to fetch library songs: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
 
-    def get_library_artists(self, limit: int = 5000) -> list[dict[str, Any]]:
+    def get_library_artists(
+        self, limit: int = LIBRARY_ARTISTS_LIMIT, force_refresh: bool = False
+    ) -> dict[str, Any]:
         """Fetch the artists saved to the user's YouTube Music library.
 
         ytmusicapi returns each artist with an "MPLAUC..." browse id; the
         channel id the artist page expects is that value without the "MPLA"
-        prefix. Covers are left as remote URLs.
+        prefix. Covers are left as remote URLs. The list is cached whole.
 
         Args:
             limit: Maximum number of artists to return.
+            force_refresh: Skip the cached payload and fetch again.
 
         Returns:
-            A list of artist dictionaries, or an empty list on error.
+            ``{"artists": [...], "fromCache": bool}``, empty on error.
         """
+        empty: dict[str, Any] = {"artists": []}
         try:
             if not self._is_authenticated():
                 logger.warning("Not authenticated - cannot return library artists")
-                return []
+                return empty
+
+            if not force_refresh:
+                cached = _cached_hit(CACHE_KEY_LIBRARY_ARTISTS)
+                artists = cached.get("artists") if cached else None
+                if isinstance(artists, list):
+                    logger.info("Returning cached library artists (count: %d)", len(artists))
+                    return {**cached, "artists": artists[:limit] if limit else artists}
 
             logger.info("Fetching library artists from API...")
             ytmusic = self._get_ytmusic()
@@ -1795,23 +1854,35 @@ class MusicApi:
                 if not isinstance(browse_id, str) or not browse_id:
                     continue
                 channel_id = browse_id[4:] if browse_id.startswith("MPLAUC") else browse_id
+                # ytmusicapi reads these rows' subtitle as "subscribers", but for a
+                # library artist it is the number of that artist's songs saved here
+                # ("25 songs" -> "25"). The real subscriber count only comes from
+                # the artist page.
+                songs_text = _as_text(item.get("subscribers")).replace(",", "")
                 artists.append(
                     {
                         "browseId": channel_id,
                         "name": _as_text(item.get("artist")),
-                        "subscribers": _as_text(item.get("subscribers")),
+                        "songCount": int(songs_text) if songs_text.isdigit() else 0,
                         "thumbnails": _thumbnails(item.get("thumbnails")),
                     }
                 )
 
+            _inline_items(artists)
+            payload: dict[str, Any] = {"artists": artists}
+            cache.set(CACHE_KEY_LIBRARY_ARTISTS, payload, expire=CACHE_DURATION)
             logger.info("Library artists fetched (count: %d)", len(artists))
-            return artists
+            return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
         except Exception as e:
             logger.exception("Failed to fetch library artists: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
 
     def get_home(self, force_refresh: bool = False) -> dict[str, Any]:
         """Return every shelf YouTube Music puts on the home feed.
