@@ -1,12 +1,20 @@
 # Agent notes
 
-The UI is Vite in `ui`. The desktop window is Python (`app/main.py`, pywebview). In dev the window loads Vite and calls Python through `window.pywebview.api`. That object exists only inside the desktop window. A browser tab on the Vite port, including the Cursor browser, does not have it.
+YTMusic is a Windows desktop client for YouTube Music. The UI is Vite in `ui`, the desktop window is Python (`app/main.py`, pywebview), and the two talk over `window.pywebview.api`. That object exists only inside the desktop window. A browser tab on the Vite port does not have it.
 
-The main checkout is slot 0: Vite `5173`, probe `8765`, remote debugging `9222`. A worktree writes `app/dev/.dev-slot`, and its ports are those numbers plus the slot. Two numbers matter. `DEV_UI_SLOT` is the checkout slot, which picks the Vite port and the URL the window loads. `DEV_SLOT` is the instance slot, which picks the probe port, the CDP port, and the WebView2 profile. They are equal for the default session.
+These notes are good defaults, not hard rules. The developer's request wins over anything here. When a rule fights the task in front of you, say so instead of breaking it quietly.
 
-## Apply unslop by default
+## Glossary
 
-Run the `unslop` skill (id `unslop`, installed in the global skills source) over all prose in this repo: chat replies, commits, PR text, UI copy, and edits to this file. It is hidden from the model's skill list, so load it yourself with `@unslop` or the skill tool before finalizing text. The existing notes in this file keep their wording; apply unslop to what you add.
+- **window** is the pywebview process running `app/main.py`.
+- **UI** is the React app in `ui`, loaded from Vite in dev and from `ui/dist` in a frozen build.
+- **bridge** is `ui/src/lib/api/bridge.ts`. It calls Python through `window.pywebview.api` and wraps the result in `{ success, data }`.
+- **API method** is a public Python method on `MusicApi` or `Api`. The UI reaches it only when it is also in the contract and in the bridge.
+- **contract** is `ui/src/lib/api/types.ts`, the one place method params and responses are typed.
+- **event** is a Python-to-UI push through `WebViewController.dispatch_event`, which calls `window.pythonEvent`.
+- **data_dir()** is where state lives: `app/` in dev, `%LOCALAPPDATA%\YTMusic` in a frozen build.
+- **frozen build** is the PyInstaller exe. It serves the packaged UI and starts no dev server.
+- **library** is the signed-in user's collection read back from YouTube Music.
 
 ## Never destroy what the user has
 
@@ -17,227 +25,87 @@ The signed-in YouTube Music account is the user's data. It is read-only unless t
 - Never delete or overwrite a file in this repo that the task did not put in play. No `git clean`, no removing directories, no "tidying" files outside the change.
 - Never change a playlist's title, description, visibility, or track order unless the task asked for that change.
 - Never clear, empty, or reset the queue, the cache, or stored preferences to "fix" a problem.
-- The probe and the tests write to the real account too. Treat `call create_playlist`, `call delete_playlist`, `call add_playlist_items`, `call remove_playlist_items`, `call edit_playlist`, `call rate_playlist` and `call rate_song` as account writes, not as experiments.
+- Any API method that writes to the account is a write, not an experiment: `create_playlist`, `delete_playlist`, `add_playlist_items`, `remove_playlist_items`, `edit_playlist`, `rate_playlist`, and `rate_song`.
 - If a task looks like it needs any of this, stop and ask the user. Do not decide for them.
-- Reading is always fine: `get_playlists`, `get_playlist_items`, `state`, `logs`, `screenshot`.
+- Reading is always fine: `get_playlists`, `get_playlist_items`.
 
-## Keep these notes current
+## The ways to hurt yourself here
 
-The app changes, so these notes change with it. While you work, watch for a better way to debug, inspect, track, upgrade, or implement something in this repo. When you find one, add it to this file before you finish, so the next agent starts with it instead of rediscovering it.
+1. **Killing by pattern.** Another window may be running on this machine, and both have this repo's path in their command line. Never `Get-Process` or `taskkill` a PID you found by matching a name or path. Kill only the Vite process the window spawned, by the PID `app/dev/vite.py` already holds.
+2. **Fighting over the WebView2 profile.** The profile folder is `app/webview-data`, one per checkout. WebView2 refuses two processes on one folder, so a second window in the same checkout has to point somewhere else. `start.ps1` refuses to start a second one and `cli.py stop` ends the first.
+3. **Writing to the account.** See **Never destroy what the user has**.
 
-Write it the way the rest of this file is written: what to run or check, when it helps, and the trap that wastes time. Short and specific, from a real run, not a guess. Do not rewrite or delete notes you have not verified.
+## Hit every surface
 
-Add only what running the repo taught you. No note about your own edit, no in-joke, no "do not delete this"; the next agent cannot use it.
+The most common defect here is a change that works on the one path you tried and is missing everywhere else. Before you call a change done, walk this list and name what applied:
 
-## Do what they meant
+- **A new API method.** It needs the Python method, an entry in `ApiMethods` in `ui/src/lib/api/types.ts`, and a wrapper in `PyBridge` in `ui/src/lib/api/bridge.ts`. Miss the contract and `tsc -b` fails; miss the bridge and the UI cannot call it.
+- **A Python to UI event.** It needs `WebViewController.dispatch_event` on the Python side and a `window.pythonEvent` handler on the UI side. Only the player listens today.
+- **Cached data.** Python caches payloads in `diskcache`. Change a payload's shape and raise the cache key version (`playlist:v3:` today), or the old shape is served from the cache.
+- **The frozen build.** The packaged page runs without Vite and without `import.meta.env.DEV`. A change that only works under Vite is not finished.
+- **Reverse states.** Every way in needs a way out and a way to see it. Like needs unlike, add needs remove, open needs close.
+- **The account.** A read that is fine in dev is still a read of the user's real library. A write needs the conversation to have asked for it.
 
-Treat a request as the intent behind it, not a literal script. When someone asks for X, work out what X implies and do the parts that are clearly the same change: a renamed method moves its callers, a new field reaches the type, the parser, the stored shape and the UI, a fixed bug gets the test that would have caught it. Before you call it done, search for the other places the change touches.
+## Where code lives
 
-Stay inside that intent. Do not redesign, reformat, or refactor what nobody asked about, and do not pile on improvements. When the implied work is large, risky, or genuinely ambiguous, do the safe part, say what you skipped, and why.
+| Path | What it is |
+| --- | --- |
+| `app/main.py` | Startup, the window, and `Api` (media controls, Discord, volume) on top of `MusicApi` |
+| `app/features/music_api.py` | The YouTube Music surface the UI calls |
+| `app/util/` | Window helpers: paths, audio, media keys, Discord, preferences, the packaged UI server, the event dispatcher |
+| `app/dev/` | Dev-only tooling: `vite.py` starts the dev server, `control.py` serves the dev HTTP surface, `logs.py` captures logs, `cli.py` talks to a running instance |
+| `ui/src/features/<name>/` | One folder per feature: album, artist, player, playlist, search, settings |
+| `ui/src/components/ui/` | Shared UI pieces (menus, dialogs, rows, scroll) |
+| `ui/src/pages/` | Home and Library |
+| `ui/src/lib/api/` | The contract (`types.ts`) and the bridge (`bridge.ts`) |
+| `ui/src/lib/orderMap.ts` | Client-side ordering helpers |
+| `build/` | `build.ps1` and the PyInstaller spec |
+| `start.ps1` | Starts the window for development |
 
-## Fan the work out
+## How it works
 
-Orchestration is cheap here and usually wins. Split off anything that does not depend on what you are doing: ask an explore subagent "where does this live / how does it work", give a self-contained chunk to a general subagent, and run builds, tests, installs, and long commands as background shells instead of blocking on them. Start dev servers in the background too (see Run). Fire independent calls in the same block so they overlap, and keep the main thread for the decisions and the edits that need it.
-
-Do not parallelize steps that depend on each other, and never let two workers edit the same file: one writer per file. When the pieces come back, check they actually fit together before you trust the result. Parallelism buys time, it does not lower the bar for being right.
-
-## Shell
-
-The repo is Windows-only (pywebview + WebView2, PowerShell build script). Run commands as PowerShell. Use `curl.exe`, not `curl` (an alias for `Invoke-WebRequest` in Windows PowerShell). For JSON POSTs to the probe, use the venv Python one-liners below so quoting survives.
-
-`.\tools\dev.py` is not runnable on its own in this shell: PowerShell reads the `.py` path as a document and stops with `Cannot run a document in the middle of a pipeline`. Call it through the interpreter, `.\app\.venv\Scripts\python.exe tools\dev.py ...` on the main checkout, or the path in `app/dev/.dev-python` in a worktree.
+The window loads the UI, which calls Python methods through the bridge. Each method returns a plain object, and the bridge turns it into `{ success, data }`. Python owns the network, the cache, and every write to YouTube Music; the UI renders what it gets. Python pushes facts back the other way with `dispatch_event`, which the UI reads through `window.pythonEvent`.
 
 ## Run
 
-One Python window per checkout. A second `app\dev\watch.py` or debugger session on the same slot fights for that probe port.
+From the repo root, `.\start.ps1` runs `app/main.py` with `ENV=dev`. The Python process picks a free port, starts Vite on it in its own console window, and stops Vite when the window closes. There is no separate `pnpm dev` to run and no server left behind. Vite opens in a console of its own, so the webview and the Vite log are both visible.
 
-`tools\dev.py up` starts Vite and the watcher with `CREATE_NO_WINDOW`, and the watcher gives the app that flag too when the watcher's own output is on a log file. So a worktree started that way shows only the pywebview window, with no console window. `tools\dev.py up --attach` runs Vite and the watcher in the calling shell instead, so the `[dev]` lines land there and the task stays visibly running; run that one as a background task. Start `app\dev\watch.py` in a terminal when you want the app's tracebacks in that terminal; then the app inherits it and no extra window appears.
+`start.ps1` always starts a new instance, and one instance runs per checkout. If one is already running here it refuses with the pid and ports, because a second process would fight the first for the WebView2 profile. Pass `-Restart` to stop the old one and start a fresh one. Never hunt for a running instance or probe a port.
 
-`pnpm dev` never exits. `app\dev\watch.py` runs until the window it started is closed (see below). Start each as a background task, not a foreground command. Ask `tools\dev.py doctor` whether this checkout is up; do not probe a fixed port. On the main checkout `8765` is right, but in a worktree `8765` is the main checkout's window, so a response there says nothing about yours.
+The port is dynamic, so several checkouts can run at once without colliding. The Python terminal logs it (`Starting Vite on port ...`) and the window loads `http://localhost:<port>`. A frozen build serves the packaged `ui/dist` and starts no server.
 
-UI, from `ui`:
+`start.ps1` uses this checkout's `app\.venv`, and falls back to the main checkout's venv when the checkout has none, so it runs from a worktree. When the process gets no `app\.venv` at all, it uses `python` on PATH, which usually lacks the app packages.
 
-```powershell
-pnpm dev
-```
+Set `AUTO_VITE=0` to start the window against a Vite you run yourself. The window then loads `VITE_PORT`, or 5173.
 
-Python, from the repo root:
+`app/browser.json` holds the sign-in and is not committed, so a checkout that never signed in starts signed out. A worktree has its own `app\` and no `browser.json`.
 
-```powershell
-.\app\.venv\Scripts\python.exe app\dev\watch.py
-```
+Vite listens on `localhost`, which is the IPv6 loopback `[::1]` on this machine, so `netstat -ano -p tcp` shows no listener for its port. Look it up with `netstat -ano`, or `Get-NetTCPConnection -LocalPort <port>` using the port from the log.
 
-`app\dev\watch.py` runs `main.py` with unbuffered logs and `ENV=dev`. Saving a `.py` file under `app` closes that window and starts it again. Wait for this line before judging the change:
+## Dev control surface
 
-```text
-[dev] restarted app/features/music_api.py generation=4 pid=1234
-```
-
-The path is the file that changed. `generation` increases on every restart. Then read that same terminal for tracebacks and `logger` lines. `GET http://127.0.0.1:<probe>/health` returns `"ok": true` plus `pid`, `slot`, `generation`, and `restarted_files` once the new process is listening. On the main checkout the probe port is 8765. Elsewhere it is `8765` plus the slot from the `[dev] started` line.
-
-Closing the window ends the session. The app stops the Vite server it was loading from, found through the checkout's UI port, so it works for `tools\dev.py up`, a raw `pnpm dev`, or the `Python: YTMusic` launch config. The watcher prints `[dev] exited code=0 ...` then `[dev] session ended`, and exits, releasing the checkout slot. A crash is different. The watcher prints `[dev] exited code=N generation=4 files=app/features/music_api.py`, stays up, and the next Python save starts the app again. Both events go to `app/dev/.dev-restarts.jsonl`.
-
-Vite listens on `localhost`, which is the IPv6 loopback `[::1]` on this machine, so `netstat -ano -p tcp` shows no listener for its port. Look it up with `netstat -ano`, or `Get-NetTCPConnection -LocalPort 5173`. The stop code is `app/dev/vite_server.py`; `app/tests/test_vite_server.py` covers it.
-
-A watcher that dies is quiet. It prints `[dev] started slot=... generation=1 pid=...` and then stops, while the app process it already spawned keeps working, so `state` and `/health` look healthy and every save silently does nothing. Read the tail of `app/dev/.dev-artifacts/app.log` or the `start`/`restart` records in `.dev-restarts.jsonl` before blaming the app. Nothing in `tools/test.ps1` imported `app/dev/watch.py`, so a `NameError` in it went unnoticed until a live run; `app/tests/test_watch.py` covers it now.
-
-`subprocess.Popen().pid` is not always the real process pid here; a shim process sits in between. The watcher's `[dev] restarted ... pid=` can differ from `/health`'s `pid` for the same window. Use `/health` for the app's pid and `netstat -ano` for whoever holds a port.
-
-Vite edits refresh inside the open window. Python edits close and reopen it. Wait for `[dev] restarted` and `/health` again before the next probe call.
-
-`__pycache__`, `.cache`, and `.venv` do not trigger a restart.
-
-## Parallel worktrees and slots
-
-Every checkout starts its own instance. `tools\dev.py up --attach` from a checkout runs Vite and the watcher in the calling shell, so run it as a background task. The `[dev]` lines stream there and the session stays visible. `tools\dev.py up` without `--attach` detaches and logs to `app/dev/.dev-artifacts/`. Both ensure a slot, claim it, provision the worktree, and wait for `/health`. `pnpm dev` plus `app\dev\watch.py` still work once `app/dev/.dev-slot` exists. When a session already runs for this checkout, `up` prints its ports and exits instead of starting a second one.
-
-Starting Vite is not starting an instance. `pnpm dev`, with or without a hand-set `DEV_UI_SLOT`, serves the page for a headless screenshot and opens no window. When a task needs the app, run `tools\dev.py up --attach` in the worktree first; it allocates the slot, starts Vite, and opens this checkout's window. A worktree created before this tooling landed has no `--attach`, so recreate it from current `main`.
-
-A worktree never resolves to slot 0 and never reads another checkout's probe. `tools/dev.py` allocates a slot when `app/dev/.dev-slot` is missing, and every probe command checks that `/health` reports this checkout, so a stranger's port fails loudly instead of answering with the wrong window. Start your own instance when a task begins; do not attach to a window another worktree owns.
-
-A slot is stable. A checkout keeps its number in `app/dev/.dev-slot`, rewrites only its own file when another checkout took that number, and frees the slot when the session ends so the next start reuses it. The allocator is `app/dev/slots.py`. The live registry is shared by every worktree at `<git-common-dir>/ytmusic-dev/<slot>.json`, found with `git rev-parse --path-format=absolute --git-common-dir`, so the per-checkout files never coordinate. The ports are the hard truth: a slot is busy while a live claim names it or one of its three ports is bound. `port_in_use` binds, it does not connect, because a connect to an unbound loopback port here times out and would call every free port busy. While a session is up on this checkout's slot, `pytest app/tests` fails `test_slots.py::test_moves_and_rewrites_when_preferred_claimed` with `assert 3 == 1`. That test stubs the registry and the ports but not `_probe_checkout`, so the live app answers the probe as this checkout and `ensure_checkout_slot` keeps the preferred slot instead of taking slot 1. It passes with the session down.
-
-An extra app process for a test or a second agent is `tools\dev.py instance up`, which takes a free slot and prints its probe and CDP ports. Use `instance list` and `instance down --slot N` to manage them. Each instance needs its own WebView2 profile, because WebView2 refuses two processes on one folder, so a non-default slot uses `app/webview-data-<slot>/` while the default keeps `app/webview-data/`.
-
-The window title names the checkout, so parallel windows are easy to tell apart. The main checkout stays `YTMusic`, a worktree shows its branch as `YTMusic - <branch>`, and a non-default instance appends `(slot N)`. `screenshot` still matches on the owning pid, and it accepts any title that starts with `YTMusic`.
-
-## Check a change
-
-The probe listens on `http://127.0.0.1:<probe>` while the dev window is running, and while a packaged exe was started with `DEVTOOLS=1` (that exe stays on port 8765). It uses the same API object the window exposes. Run the commands below from `app`. The samples use the main checkout's port. Add the slot when `app/dev/.dev-slot` is present.
-
-`/call` and `/eval` responses include `X-Dev-Generation`, `X-Dev-Restart-Files`, and `X-Dev-Pid`. Match those to the generation you are testing.
-
-Health:
+The dev window also serves a small HTTP surface on a free loopback port, so an agent can drive the app without seeing the screen. The app writes `app/dev/.dev.json` (gitignored) with the pid and ports. `app/dev/cli.py` reads that file and uses only the standard library, so any `python` runs it, not just the venv.
 
 ```powershell
-curl.exe -s http://127.0.0.1:8765/health
+python app\dev\cli.py health
+python app\dev\cli.py wait
+python app\dev\cli.py call get_playlists
+python app\dev\cli.py call search "daft punk"
+python app\dev\cli.py eval "document.querySelectorAll('*').length"
+python app\dev\cli.py logs --level warning --limit 50
+python app\dev\cli.py screenshot
+python app\dev\cli.py stop
 ```
 
-Call a public Python method (`POST /call`). This does not go through JavaScript. Send the JSON with the venv Python so PowerShell does not strip the quotes:
+- `health` reports the pid, the checkout, the Vite port, the control port, and whether the page has loaded. `wait` blocks until it has.
+- Discovery is per checkout. The client refuses to talk to an instance whose `checkout` is not this one, so a file found elsewhere fails loudly instead of driving the wrong window.
+- `stop` closes the window, which stops Vite and removes the discovery file. Use it (or `.\start.ps1 -Restart`) rather than killing a process.
+- `call` runs any public API method. A read is safe; a write changes the signed-in account, so treat it like the app's own buttons. Pass plain string arguments, or `--json` or `--json-file` for a typed list.
+- `eval` runs JavaScript in the page. Use single quotes inside the expression, because PowerShell strips double quotes on the way to a native command.
+- `logs` merges three streams: `python`, `renderer` (console output and uncaught errors forwarded from the page), and `vite` (the Vite console, tee'd to `app/dev/.dev-artifacts/vite.log` while its own console stays visible).
+- `screenshot` writes the window to a PNG and returns its path, which renders in the review pane.
 
-```powershell
-.\.venv\Scripts\python.exe -c "import json,urllib.request; body=json.dumps({'method':'get_playlists','args':[]}).encode(); req=urllib.request.Request('http://127.0.0.1:8765/call', data=body, headers={'Content-Type':'application/json'}); print(urllib.request.urlopen(req, timeout=30).read().decode())"
-```
-
-Call through the real bridge, or read and click the live page (`POST /eval`). The expression runs in the desktop window. A returned promise, including `window.pywebview.api.*`, is waited on for up to 30 seconds. Change the `expression` string:
-
-```powershell
-.\.venv\Scripts\python.exe -c "import json,urllib.request; body=json.dumps({'expression':'window.pywebview.api.get_playlists()'}).encode(); req=urllib.request.Request('http://127.0.0.1:8765/eval', data=body, headers={'Content-Type':'application/json'}); print(urllib.request.urlopen(req, timeout=30).read().decode())"
-```
-
-```powershell
-.\.venv\Scripts\python.exe -c "import json,urllib.request; body=json.dumps({'expression':'document.body.innerText'}).encode(); req=urllib.request.Request('http://127.0.0.1:8765/eval', data=body, headers={'Content-Type':'application/json'}); print(urllib.request.urlopen(req, timeout=30).read().decode())"
-```
-
-```powershell
-.\.venv\Scripts\python.exe -c "import json,urllib.request; body=json.dumps({'expression':'document.querySelector(\'a\').click()'}).encode(); req=urllib.request.Request('http://127.0.0.1:8765/eval', data=body, headers={'Content-Type':'application/json'}); print(urllib.request.urlopen(req, timeout=30).read().decode())"
-```
-
-A success body is JSON. A failure is HTTP 500 with the error text. The body is the method's raw Python return value, so `get_playlists` comes back as a JSON list, not an object. The `{success, data}` envelope the UI code reads is added by `ui/src/lib/api/bridge.ts`, not the probe. The Python terminal also logs the call and any traceback from the API method. Names starting with `_` are rejected.
-
-`/call` can run before the page has finished loading. `/eval` waits until the webview is ready.
-
-For UI changes, run `pnpm exec tsc -b` from `ui` for types. `tsconfig.json` there is a solution file with `files: []`, so `pnpm exec tsc --noEmit` compiles nothing and exits 0. `tsc -b` builds the referenced `tsconfig.app.json` and `tsconfig.node.json`, the same check `build/build.ps1` runs first.
-
-## Debug and verify
-
-`tools\dev.py` is the fast way to see the running window: `doctor`, `state`, `logs --level error`, `screenshot --diff`, `eval`, `call`, and `watch` (a live loop that prints PASS/FAIL after each edit). Prefer it over hand-rolled PowerShell and DOM scripts.
-
-The full workflow — which surface can see `window.pywebview.api`, how to read a verdict, and the safety rules for anything that writes to the account — is in `.agents/skills/debug-ytmusic/`. Read it before a change you cannot prove from the terminal. Written artifacts land in `app/dev/.dev-artifacts/`.
-
-A presentational component can be rendered on its own, without the window or any account data. Vite serves any extra `.html` file at the `ui` root, so a throwaway entry that mounts that component with literal props gets the real styles. Start Vite with `$env:DEV_UI_SLOT="1"` to take port 5174 without writing `app/dev/.dev-slot`, then shoot it with `msedge --headless=new --screenshot=out.png --window-size=480,620 http://localhost:5174/<entry>.html`. Add `--force-device-scale-factor=2` when the detail is a few pixels wide, such as a focus ring. Add `--user-data-dir=<temp dir> --virtual-time-budget=6000` too; without them the run can start Edge and exit without writing the file. The opencode browser tab is a worse fit here because `browser.screenshot` fails with "Screenshot needs a visible tab" whenever the desktop window is not in front, while `browser.evaluate` keeps working. The preview entry can only import an exported component. A private one, such as `PlaylistTracksLoading` in `ui/src/features/playlist/pages/Playlist.tsx`, needs a temporary `export` that you revert before you finish.
-
-What that catches: a scroll container clips its children at its padding box, so a focus ring drawn outside a full-width child gets sliced off at the left and right edges. `overflow-y-auto` does this even when the content does not overflow, because the other axis then computes to `auto` too. `EditPlaylistDialog` gives the scrolling form `-m-1 p-1`, and the negative margin cancels the padding so the resting layout does not move.
-
-Run the checks with `.\tools\test.ps1` (tsc + vitest + pytest); add `-Lint` for eslint.
-
-Check the cheapest way first and escalate only when it is not enough; speed is the point.
-
-1. Reason about the diff.
-2. Look: `state`, `screenshot`, or the thing in the window. HMR or the restart already applied the change.
-3. `logs --level error` for whatever the eye misses.
-4. The one test file for what you touched: `pnpm exec vitest run <file>`, `pytest app/tests/test_x.py`.
-5. `pnpm exec tsc -b` when types changed.
-6. `.\tools\test.ps1` for changes that cross modules, touch shared behaviour, or are headed into a PR.
-7. `dev.py browse run tools/verify/<journey>.mjs` (needs `DEVTOOLS=1`), then the packaged exe.
-
-Stop as soon as the evidence covers the change, and never re-run something you already ran. Keep output small: `state` instead of a raw payload, because a playlist dump is thousands of tokens of base64 thumbnails. `dev.py watch` runs the suites only with `--tests`.
-
-Writing JS or JSON on the command line is the biggest time sink here: PowerShell eats `|`, `||`, `>` and nested quotes. Put anything beyond a trivial expression in a file and use `tools\dev.py eval --file <path>`, and use `tools\dev.py call` instead of hand-writing a `python -c` one-liner. The app uses wouter's hash router, so a file with `window.location.hash = "#/album/<browseId>"` moves the window to a route. Pushing a pathname does not, and a reload then drops back to Home.
-
-A track row's context menu has no visible button; it opens on `contextmenu`. To raise it from the probe, find the row with `button[aria-label^="Play "]`, then dispatch `new MouseEvent("contextmenu", { bubbles: true, clientX, clientY })` on the button's parent. The menu's `Add to playlist` item opens the picker whose rows are easy to compare side by side.
-
-An element that only shows on hover is absent from `screenshot`, since the pointer is never over it. Dispatch a bubbling `pointerover` from `/eval` on its wrapper to fire React's `onPointerEnter`. Nothing sends `pointerleave`, so the hover stays on and the next `screenshot` catches it.
-
-To drive a pointer-capture drag from `/eval`, first replace the element instance's `setPointerCapture`, `hasPointerCapture` and `releasePointerCapture` with no-ops, then dispatch `pointerdown`, `pointermove` and `pointerup` with a made-up `pointerId`. Capture rejects an id that is not an active pointer. `delete` the three overrides when the probe is done, because they stay on the live element until a reload and break the real drag.
-
-The music video overlay is a YouTube iframe, so `/eval` cannot click inside it. Send the IFrame API a command instead: `document.querySelector('iframe').contentWindow.postMessage(JSON.stringify({event:'command',func:'pauseVideo',args:[]}),'*')`, then `playVideo`. That drives the real `onStateChange` path, so use it to check the overlay's pause and resume reach the app. To read the app's play state, use the transport toggle, the button right after `Previous`; track rows carry the same `Play` label, so a plain `button[aria-label="Play"]` query finds those first.
-
-A write flow can be driven from `/eval` without touching the account. Replace the method on the bridge object, for example `window.pywebview.api.create_playlist = () => Promise.resolve({ playlistId: "PLfake" })`. `bridge.ts` calls that property, so Python never sees the call. Reload when the probe is done; the patch outlives it, and a later real write would go to the fake.
-
-A `useCallback` that reads `ref.current` fails `react-hooks/preserve-manual-memoization` when the ref is a derived value such as `propRef ?? localRef`, because the compiler infers `ref.current` as a dependency. Move that function into the effect that uses it. A ref received as a prop does not trip it, which is why `useEdgeFade` passes lint.
-
-Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v3:<playlistId>` with a 7 day expiry. The payload's `id` field is `None` — the id is only in the key. Each track carries `addedAt`, the Unix second it was added, from `playlistItemData.voteSortValue` in the browse response `get_playlist_items` already fetches; ytmusicapi drops it, so `_PlaylistDateCapture` records it during that call and `_apply_added_dates` joins it by `setVideoId`, or by `videoId` order for a playlist owned by someone else. Albums have no add time. `app/dev/` also keeps the probe, the screenshot capture, and `app/dev/.dev-artifacts/`.
-
-A freshly created playlist cannot be read back at once. YouTube serves a stub browse page with no header section while it prepares the playlist, and ytmusicapi's `get_playlist` raises `KeyError: contents` on it, so `get_playlist_items` returns `{}` and the playlist view sits on its loader. Two playlists created on 2026-10-16 read back 15 seconds and 3.5 minutes after creation. `create_playlist` now caches the header it already knows (title, privacy, empty track list) when no songs were requested, so the view renders straight away; a create that includes songs cannot describe the track list and is left to the fetch.
-
-Albums are rated through `rate_playlist` with the album's `audioPlaylistId`. ytmusicapi has no `rate_album`. Read the saved state from `get_library_albums` and match on `browseId` or `playlistId`. `get_album`'s `likeStatus` is always `INDIFFERENT`, even for a saved album, because ytmusicapi reads the header toggle's `defaultServiceEndpoint` and never looks at `isToggled`. The album heart is in `ui/src/features/album`, backed by `useAlbumLibrary`.
-
-The UI accent lives in `ui/src/styles/globals.css` as three literals: `--color-accent`, `--text-color-accent`, and `--background-color-accent`. Change all three together. It colors the playing ring, the player progress and volume bars, and the search library toggle. A separate `--color-success` group (also `--text-color-success` and `--background-color-success`) greens the added-to-playlist checkmarks and the toast success icon and action label. Red stays for errors, destructive actions, and the duplicate badge.
-
-Icons are Iconify classes on spans (`icon-[solar--play-bold]`, `icon-[lucide--dices]`) sized by font-size, not width or height. `@iconify/tailwind4` renders them as 1em inline-blocks and sets no vertical-align, so an icon inside an inline wrapper rides the text baseline and sits about 2px above the label beside it. A base rule in `globals.css` sets `vertical-align: -0.125em` to line them up. Icons that are direct flex or grid children ignore vertical-align and centre through `items-center` and `place-items-center`.
-
-`StickyCollectionBar` (Playlist, Album, Artist) is z-30, above the track rows' z-10 wrappers. The collection pages clear the scroll container's edge-fade mask (`useEdgeFade`) at the very bottom, which drops the container's stacking context, so a z-10 bar ties with the rows and loses to DOM order and the songs paint over it. Only scrolling fully to the bottom shows this.
-
-Draggable rows keep the normal pointer cursor. Songs, sidebar playlists, queue entries, and the `SnapRow` card strips all reorder by drag, but hover shows `cursor-pointer`, not `cursor-grab`. `ui/src/components/ui/reorder.tsx` is the shared wrapper, so a `cursor-grab` added there comes back on every list at once. `SnapRow` still sets `grabbing` while a pointer drag is live, which is the only place that is wanted.
-
-Add-to-playlist writes: the picker sends every add and remove through one queue in `usePlaylist` (`enqueue`, a promise chain), so several quick picks finish one at a time instead of racing the session. YouTube rejects an add whose songs are already in the playlist, because `add_playlist_items` sends no dedupe option. Python returns that as `duplicate: true`, and the toast offers "Add anyway" to send the same edit again with `duplicates=True`. Clicking an added row calls `remove_playlist_videos`, which removes one row per song, using the `setVideoId`s it was given or looking them up in the playlist.
-
-## Music video overlay
-
-The player bar's video button toggles a video overlay when the playing song has a music video. `currentVideoId` in `PlayerContext` decides this with `musicVideoId`: the row's own id when its `videoType` is `MUSIC_VIDEO_TYPE_OMV`, or the watch playlist's `counterpart` id when the counterpart is an OMV. Library songs are all `MUSIC_VIDEO_TYPE_ATV`, so the counterpart is the usual path.
-
-`VideoOverlay` draws over the sidebar and the routed content on black. `main.tsx` wraps the sidebar and the content pane in a `relative` box and puts the overlay in it, so the black cover reaches the left bar while the queue and the player bar stay put. The overlay is inset and rounded like the other panels. It uses the YouTube IFrame Player API (`lib/youtube.ts` loads `iframe_api` once). The embed is muted and clickable, so the YouTube title and link work, but its control bar is off (`controls=0`), which drops volume, progress, and settings together. YouTube's `controls` is all or nothing, so the subtitle and fullscreen buttons go with the bar; there is no partial bar. Control still moves both ways: capture-phase `play`, `pause`, and `seeked` on the app's `<audio>` move the embed, and the embed's `onStateChange` pauses or plays the audio. The one-second poll keeps the picture on the audio only while both play (`getPlayerState()` is 1), so a pause is left alone instead of being forced back. Playback drift stays around 0.3s. The player bar's video button uses the `dense` icon scale, because the film-frame glyph fills its box and looks larger than the shuffle and repeat icons at the same scale.
-
-## Whose error
-
-Before you edit, read `/health` and remember `generation` and `restarted_files`.
-
-After a Python save, wait until `generation` increases and `/health` returns `"ok": true`.
-
-The failure is yours only when every path in `restarted_files` is a file you wrote, and the traceback names one of those files.
-
-If the list contains any other file, stop. That save owns the failure. The sequence is in `app/dev/.dev-restarts.jsonl` and in the watcher line. Do not edit that file to make your check pass.
-
-A restart whose file list mixes your file with another save is not yours alone. Wait until a later generation lists only your files, then test again.
-
-## Another feature
-
-A chat that is already open on this folder stays here. Create a worktree one of two ways, depending on your client. Both put a new checkout next to this one and run `.cursor\setup-worktree-windows.ps1` in it.
-
-Cursor, from the Agents Window: set Cursor Settings → Agents → Conversation → Default Environment to New Worktree (Cursor 3.11.6 or later). New Agent and the "+" on this repo then start in a fresh checkout. The editor chat does not use that setting. Start an editor request with `/worktree`. `/apply-worktree` brings the result back. `/delete-worktree` removes the checkout.
-
-Any other client, from the main checkout:
-
-```powershell
-.\tools\new-worktree.ps1 <branch-name>
-```
-
-That runs `git worktree add` to `..\yt-music-app-<branch-name>` on a new branch and runs the setup script there. `.cursor\` is gitignored, so the script copies `setup-worktree-windows.ps1` into the new checkout itself. Remove a finished worktree with `git worktree remove ..\yt-music-app-<branch-name>`.
-
-Deleting a worktree fails while a Vite for the same pnpm store is still running. `ui/node_modules/.pnpm` holds hardlinks into the store, Vite keeps the native ones mapped, and both `git worktree remove` and `rmdir` stop with `Access is denied` on the `@rolldown/binding`, `@tailwindcss/oxide`, and `lightningcss` binaries. Stop the `node.exe` that serves the repo, then delete. Deregistration and deletion are separate, so a path still on disk after `git worktree remove` means the files were locked; the opencode `worktree_remove` tool reports "Unable to remove worktree" for the same reason after it has already deregistered the entry, so check disk, not `git worktree list`.
-
-Setup installs the UI dependencies, copies `app/browser.json` when the new checkout has none, and writes `app/dev/.dev-python` and `app/dev/.dev-slot`. The slot comes from `app/dev/slots.py`, so it matches what any other starting checkout reserves. From that worktree, `tools\dev.py up` starts Vite and the watcher together against its slot. To start them by hand, run `pnpm dev` from the worktree's `ui`, and run `app\dev\watch.py` with the interpreter path stored in `app/dev/.dev-python` (the main checkout's venv). The window and the probe use that slot's ports.
-
-One `app\dev\watch.py` per worktree. Two agents in the same folder still share one app. The restart log names the files behind the current process.
-
-An opencode worktree never runs the Cursor setup script, so the first `tools\dev.py` command in it provisions the checkout: allocate a slot, record the main checkout's interpreter in `app/dev/.dev-python`, copy `app/browser.json`, and run `pnpm install` when `ui/node_modules` is missing. `tools\dev.py setup` does the same and prints the ports. `tools\test.ps1` and `app\dev\watch.py` read `app/dev/.dev-python`, so they run with that interpreter; `pytest` still runs from the worktree root. Python packages come from the main checkout's venv, not a per-worktree one.
-
-`.opencode/plugins/ytmusic-dev-instance/` does that on creation. It registers the worktree strategy, so `worktree_create` runs `git worktree add` and then `tools\dev.py setup`. The worktree arrives with its slot, dependencies, and `browser.json`. A plugin cannot create a shell task, so it does not start the app itself. Instead, on the first prompt of a session whose directory is a linked worktree, it sends a synthetic message telling the agent to start the app with `tools\dev.py up --attach` as a background shell, where the task stays visible. It delegates every operation to git, so branch and detached behavior are unchanged. `opencode plugin list` shows it; it loads on `opencode reload` or a restart. Removal still hits the locked pnpm binaries above.
-
-## Breakpoints
-
-Use the `Python: YTMusic` launch config. It starts `app/main.py` with the venv, `cwd` `app`, and `ENV=dev`. The probe listens on this checkout's slot port (8765 on the main checkout). Do not run `app\dev\watch.py` at the same time: a save would kill the debug session, and the port is already taken. Stop the debugger and return to `.\app\.venv\Scripts\python.exe app\dev\watch.py` from the repo root when finished.
+A hard kill leaves `.dev.json` behind. The port then refuses the connection, so the client fails loudly instead of reaching a stale instance, and the next start overwrites the file.
 
 ## Build
 
@@ -251,29 +119,107 @@ That script typechecks the UI, runs `vite build --base ./`, then PyInstaller wit
 
 The exe has no console. Python logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The WebView2 profile, auth file, and cache live in that folder, not under `app\`.
 
-The window serves `ui/dist` at `http://localhost:<port>/index.html`. It does not load the Vite dev server, and the probe on port 8765 stays off.
+The window serves `ui/dist` at `http://localhost:<port>/index.html`. It does not load the Vite dev server.
 
-## Inspect
+## Verify
 
-For ordinary Python and UI changes, use the dev window and this checkout's probe (`http://127.0.0.1:8765` on the main checkout). A browser tab on the Vite port, including the Cursor browser, is not the app.
+Verification is manual. There is no automated suite, so the proof is the diff, the typecheck, the running window, and the dev control surface.
 
-To inspect the packaged window, or to open DevTools on the real WebView2, stop `app\dev\watch.py` first. Both would bind this checkout's probe port. Then, from the repo root, run the exe in the dated folder you want:
+- Reason about the diff first. It is the cheapest check.
+- Types, from `ui`: `pnpm exec tsc -b`. `tsconfig.json` there is a solution file with `files: []`, so `tsc --noEmit` compiles nothing and exits 0. `tsc -b` builds the referenced projects, the same check `build/build.ps1` runs first.
+- Python: `python -m py_compile app\main.py`, or import the module.
+- Then run `.\start.ps1` and drive the app through `app\dev\cli.py` (see **Dev control surface**): `wait`, then `call`, `eval`, `logs`, and `screenshot`. This replaces guessing from the screen. Vite edits refresh in place; a Python edit needs the window restarted.
+- Do not launch a browser or drive the screen unless the user asked for it.
+- Stop as soon as the evidence covers the change, and never re-run a check you already ran.
+
+## Inspect the packaged window
+
+To open DevTools on the real WebView2, run the exe in the dated folder you want:
 
 ```powershell
 $env:DEVTOOLS = "1"
 .\build\dist\<yyyy-MM-dd_HHmm>\YTMusic.exe
 ```
 
-The same variable works for the Vite window. Set it in the shell before `app\dev\watch.py`. `app\dev\watch.py` copies the parent environment into the app process.
+The same variable works for the Vite window. Set it in the shell before `app\main.py`. `DEVTOOLS=1` turns WebView2 debug on, opens the DevTools window, and serves the packaged page from that exe. Debug mode is still on in a plain dev window, so the page menu can open DevTools there.
 
-`DEVTOOLS=1` turns WebView2 debug on, including for the frozen exe, and still serves the packaged page from that exe. It opens the DevTools window, and it listens for remote debugging on port 9222 plus the slot. The main checkout and the frozen exe use `http://127.0.0.1:9222/json/list`. It also starts the probe, so `/health`, `/call`, and `/eval` work against that window.
+## App notes
 
-A normal `app\dev\watch.py` session and the `Python: YTMusic` launch config leave the DevTools window closed and do not open that port. Debug mode is still on there, so the page menu can open DevTools.
+Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v3:<playlistId>` with a 7 day expiry. The payload's `id` field is `None`; the id is only in the key. Each track carries `addedAt`, the Unix second it was added, from `playlistItemData.voteSortValue` in the browse response `get_playlist_items` already fetches. ytmusicapi drops it, so `_PlaylistDateCapture` records it during that call and `_apply_added_dates` joins it by `setVideoId`, or by `videoId` order for a playlist owned by someone else. Albums have no add time.
+
+A freshly created playlist cannot be read back at once. YouTube serves a stub browse page with no header section while it prepares the playlist, so `get_playlist` raises `KeyError: contents`, `get_playlist_items` returns `{}`, and the playlist view sits on its loader. Two playlists created on 2026-10-16 read back 15 seconds and 3.5 minutes after creation. `create_playlist` caches the header it already knows (title, privacy, empty track list) when no songs were requested, so the view renders straight away. A create that includes songs cannot describe the track list and is left to the fetch.
+
+Albums are rated through `rate_playlist` with the album's `audioPlaylistId`. ytmusicapi has no `rate_album`. Read the saved state from `get_library_albums` and match on `browseId` or `playlistId`. `get_album`'s `likeStatus` is always `INDIFFERENT`, even for a saved album, because ytmusicapi reads the header toggle's `defaultServiceEndpoint` and never looks at `isToggled`. The album heart is in `ui/src/features/album`, backed by `useAlbumLibrary`.
+
+The UI accent lives in `ui/src/styles/globals.css` as three literals: `--color-accent`, `--text-color-accent`, and `--background-color-accent`. Change all three together. It colors the playing ring, the player progress and volume bars, and the search library toggle. A separate `--color-success` group (also `--text-color-success` and `--background-color-success`) greens the added-to-playlist checkmarks and the toast success icon and action label. Red stays for errors, destructive actions, and the duplicate badge.
+
+Icons are Iconify classes on spans (`icon-[solar--play-bold]`, `icon-[lucide--dices]`) sized by font-size, not width or height. `@iconify/tailwind4` renders them as 1em inline-blocks and sets no vertical-align, so an icon inside an inline wrapper rides the text baseline and sits about 2px above the label beside it. A base rule in `globals.css` sets `vertical-align: -0.125em` to line them up. Icons that are direct flex or grid children ignore vertical-align and centre through `items-center` and `place-items-center`.
+
+`StickyCollectionBar` (Playlist, Album, Artist) is z-30, above the track rows' z-10 wrappers. The collection pages clear the scroll container's edge-fade mask (`useEdgeFade`) at the very bottom, which drops the container's stacking context, so a z-10 bar ties with the rows and loses to DOM order and the songs paint over it. Only scrolling fully to the bottom shows this.
+
+Draggable rows keep the normal pointer cursor. Songs, sidebar playlists, queue entries, and the `SnapRow` card strips all reorder by drag, but hover shows `cursor-pointer`, not `cursor-grab`. `ui/src/components/ui/reorder.tsx` is the shared wrapper, so a `cursor-grab` added there comes back on every list at once. `SnapRow` still sets `grabbing` while a pointer drag is live, which is the only place that is wanted.
+
+Add-to-playlist writes: the picker sends every add and remove through one queue in `usePlaylist` (`enqueue`, a promise chain), so several quick picks finish one at a time instead of racing the session. YouTube rejects an add whose songs are already in the playlist, because `add_playlist_items` sends no dedupe option. Python returns that as `duplicate: true`, and the toast offers "Add anyway" to send the same edit again with `duplicates=True`. Clicking an added row calls `remove_playlist_videos`, which removes one row per song, using the `setVideoId`s it was given or looking them up in the playlist.
+
+A track row's context menu has no visible button; it opens on `contextmenu`. Dispatch `new MouseEvent("contextmenu", { bubbles: true, clientX, clientY })` on the button's parent to open it. The menu's `Add to playlist` item opens the picker whose rows are easy to compare side by side.
+
+The app uses wouter's hash router, so setting `window.location.hash = "#/album/<browseId>"` moves the window to a route. Pushing a pathname does not, and a reload then drops back to Home.
+
+A `useCallback` that reads `ref.current` fails `react-hooks/preserve-manual-memoization` when the ref is a derived value such as `propRef ?? localRef`, because the compiler infers `ref.current` as a dependency. Move that function into the effect that uses it. A ref received as a prop does not trip it, which is why `useEdgeFade` passes lint.
+
+## Music video overlay
+
+The player bar's video button toggles a video overlay when the playing song has a music video. `currentVideoId` in `PlayerContext` decides this with `musicVideoId`: the row's own id when its `videoType` is `MUSIC_VIDEO_TYPE_OMV`, or the watch playlist's `counterpart` id when the counterpart is an OMV. Library songs are all `MUSIC_VIDEO_TYPE_ATV`, so the counterpart is the usual path.
+
+`VideoOverlay` draws over the sidebar and the routed content on black. `main.tsx` wraps the sidebar and the content pane in a `relative` box and puts the overlay in it, so the black cover reaches the left bar while the queue and the player bar stay put. The overlay is inset and rounded like the other panels. It uses the YouTube IFrame Player API (`lib/youtube.ts` loads `iframe_api` once). The embed is muted and clickable, so the YouTube title and link work, but its control bar is off (`controls=0`), which drops volume, progress, and settings together. YouTube's `controls` is all or nothing, so the subtitle and fullscreen buttons go with the bar; there is no partial bar. Control still moves both ways: capture-phase `play`, `pause`, and `seeked` on the app's `<audio>` move the embed, and the embed's `onStateChange` pauses or plays the audio. The one-second poll keeps the picture on the audio only while both play (`getPlayerState()` is 1), so a pause is left alone instead of being forced back. Playback drift stays around 0.3s. The player bar's video button uses the `dense` icon scale, because the film-frame glyph fills its box and looks larger than the shuffle and repeat icons at the same scale.
+
+## Taste
+
+- Python is the source of truth. Keep business rules, network calls, and YouTube's messy shapes in `app`. The UI calls one method and renders the result.
+- Type it once. Add a method to `ApiMethods` and infer from it; do not redeclare the shape in the UI.
+- Complexity belongs at the boundary. Parsing YouTube happens in Python so the UI sees clean objects.
+- Every payload crosses the bridge as JSON. Watch what you send, and keep long lists virtualized (`@tanstack/react-virtual`).
+- Comments say why: a constraint, an external quirk, or an invariant the code cannot show. Do not restate the name or narrate steps.
+- The user runs this all day and notices a stale label and a wrong count. Prefer the honest empty state over a spinner that lies.
+
+## Pull requests and work artifacts
+
+- Never open a pull request unless the developer asks.
+- One request is one pull request.
+- Do not commit plans, research notes, or scratch files. Keep working material outside the repo.
+- A merged pull request is the record. Do not keep a second checklist in the repo.
+
+## Shell
+
+The repo is Windows-only (pywebview + WebView2, PowerShell build script). Run commands as PowerShell. Use `curl.exe`, not `curl` (an alias for `Invoke-WebRequest` in Windows PowerShell).
+
+## Do what they meant
+
+Treat a request as the intent behind it, not a literal script. When someone asks for X, work out what X implies and do the parts that are clearly the same change: a renamed method moves its callers, a new field reaches the type, the parser, the stored shape and the UI. Before you call it done, search for the other places the change touches.
+
+Stay inside that intent. Do not redesign, reformat, or refactor what nobody asked about, and do not pile on improvements. When the implied work is large, risky, or genuinely ambiguous, do the safe part, say what you skipped, and why.
+
+## Fan the work out
+
+Orchestration is cheap here and usually wins. Split off anything that does not depend on what you are doing: ask an explore subagent "where does this live / how does it work", give a self-contained chunk to a general subagent, and run builds, installs, and long commands as background shells instead of blocking on them. Fire independent calls in the same block so they overlap, and keep the main thread for the decisions and the edits that need it.
+
+Do not parallelize steps that depend on each other, and never let two workers edit the same file: one writer per file. When the pieces come back, check they actually fit together before you trust the result. Parallelism buys time, it does not lower the bar for being right.
+
+## Keep these notes current
+
+The app changes, so these notes change with it. While you work, watch for a better way to build, inspect, upgrade, or implement something in this repo. When you find one, add it to this file before you finish, so the next agent starts with it instead of rediscovering it.
+
+Write it the way the rest of this file is written: what to run or check, when it helps, and the trap that wastes time. Short and specific, from a real run, not a guess. Do not rewrite or delete notes you have not verified.
+
+Add only what running the repo taught you. No note about your own edit, no in-joke, no "do not delete this"; the next agent cannot use it.
+
+## Apply unslop by default
+
+Run the `unslop` skill (id `unslop`, installed in the global skills source) over all prose in this repo: chat replies, commits, PR text, UI copy, and edits to this file. It is hidden from the model's skill list, so load it yourself with `@unslop` or the skill tool before finalizing text. The existing notes in this file keep their wording; apply unslop to what you add.
 
 ## Don't
 
 - Don't delete or alter anything in the signed-in account. See **Never destroy what the user has**.
+- Don't kill a process you found by name or path. See **The ways to hurt yourself here**.
 - Don't run `pnpm build` alone to produce a release. Use `.\build\build.ps1` (it sets `--base ./`).
 - Don't read, print, or commit `app/browser.json`. It holds the signed-in session.
-- Don't edit `app/dev/.dev-restarts.jsonl`, `.dev-slot`, or `.dev-python` by hand.
-- Don't read another checkout's window or probe a port you do not own. Start your own instance with `tools\dev.py up --attach`.

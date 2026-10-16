@@ -1,1 +1,1 @@
-"""Restart watcher, localhost probe, and port identity."""
+"""The dev package: tooling that only runs outside a frozen build."""

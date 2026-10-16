@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import atexit
 import logging
 import os
 import sys
@@ -12,8 +11,6 @@ from util.app_paths import data_dir, is_frozen
 # failures land in the data folder.
 ENV = "prod" if is_frozen() else os.getenv("ENV", "dev")
 # Opt-in inspector. Stays off for a normal dev window and for the release exe.
-# Does not change which UI is loaded: dev still uses Vite, a frozen exe still
-# serves the packaged page.
 DEVTOOLS = os.getenv("DEVTOOLS") == "1"
 _DEBUG = ENV == "dev" or DEVTOOLS
 _LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -75,6 +72,17 @@ class Api(MusicApi):
         """Save the player volume and return the stored value."""
         return preferences.set_volume(volume)
 
+    def dev_log(self, entry: dict | None = None) -> None:
+        """Dev only: the page forwards renderer console output here.
+
+        The dev control server reads it, so an agent can see page errors without
+        watching the screen. Does nothing outside dev.
+        """
+        if ENV == "dev":
+            from dev import logs
+
+            logs.add_renderer_entry(entry)
+
 
 def resource_path(*relative_parts: str) -> Path:
     """Get absolute path to resource, works for dev and PyInstaller builds."""
@@ -100,40 +108,39 @@ def _disable_browser_context_menu(window: webview.Window) -> None:
     from System import Action
 
     # BeginInvoke posts to the window thread and returns. Invoke would wait on
-    # that thread and can stall the dev probe.
+    # that thread and can stall startup.
     control.BeginInvoke(Action(apply))
 
 
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
-    # The default session shares the checkout slot. An ephemeral instance
-    # claims its own, so its probe, CDP port, and WebView2 profile stay apart.
-    from dev import slots
-    from dev.identity import dev_slot, ui_slot, webview_data_dir, window_title
-
-    instance_slot = dev_slot()
-    claim_instance = instance_slot != ui_slot()
-    if claim_instance:
-        slots.claim_slot(instance_slot, "instance")
-        atexit.register(slots.release_slot, instance_slot)
-    if _DEBUG:
-        # Dev-only: keep Python logs in memory for the probe's /logs, and let the
-        # page forward its console through the JS API. This runs before the
-        # window is created so `dev_report` is part of the exposed API.
-        from dev import observability
-
-        observability.install_python_ring()
-        observability.attach_renderer_sink(api)
-    # Slot 0 stays on port 5173. A worktree's slot moves the Vite URL with it.
+    # Dev loads Vite. This process starts it in its own console and stops it
+    # when the window closes, so the server never outlives the window. It also
+    # keeps Python logs in memory and opens the dev control server, so an agent
+    # can drive the app without seeing the screen.
     if ENV == "dev":
-        from dev.identity import debug_port, ui_origin
+        from dev import control, logs, vite
 
-        url = ui_origin()
+        # One window per checkout. A second process would fight the first for
+        # the WebView2 profile, so refuse instead of half-starting.
+        running = control.existing_instance()
+        if running:
+            logging.getLogger(__name__).error(
+                "A dev instance already runs for this checkout (pid %s, vite %s, control %s). "
+                "Stop it with `python app\\dev\\cli.py stop`, or restart with `.\\start.ps1 -Restart`.",
+                running.get("pid"),
+                running.get("vitePort"),
+                running.get("controlPort"),
+            )
+            raise SystemExit(1)
+        logs.install_python_ring()
+        vite.start_vite()
+        url = vite.ui_origin()
     else:
         url = serve_ui(resource_path("ui"))
     window = webview.create_window(
-        window_title(),
+        "YTMusic",
         url,
         js_api=api,
         resizable=True,
@@ -143,41 +150,21 @@ if __name__ == "__main__":
     WebViewController.set_window(window)
     window.events.before_show += lambda: media_controls.attach(window)
     window.events.loaded += lambda: _disable_browser_context_menu(window)
+    if ENV == "dev":
+        window.events.loaded += lambda: control.mark_loaded()
+        control.start(api, window)
     if _DEBUG:
-        from dev.probe import start_dev_probe
-
-        # A normal dev window can still open DevTools from the page menu.
-        # DEVTOOLS=1 opens them and exposes a remote debugging port.
+        # A dev window can still open DevTools from the page menu.
         webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = DEVTOOLS
-        if DEVTOOLS:
-            # A frozen exe stays on 9222. A dev worktree uses 9222 plus its slot.
-            remote_port = debug_port() if ENV == "dev" else 9222
-            webview.settings["REMOTE_DEBUGGING_PORT"] = remote_port
-        start_dev_probe(api, window)
-    storage_path = webview_data_dir()
+    storage_path = data_dir() / "webview-data"
     storage_path.mkdir(parents=True, exist_ok=True)
-    window_closed = False
     try:
-        webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
         # start() returns when the window is closed, and raises instead when
-        # startup fails. Only a real close ends the session.
-        window_closed = True
+        # startup fails.
+        webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
     finally:
+        if ENV == "dev":
+            control.stop()
+            vite.stop_vite()
         discord_presence.shutdown()
-        if window_closed and ENV == "dev" and not claim_instance:
-            # Closing the window ends the dev session, so the Vite server that
-            # serves it must not outlive the window. An instance shares the
-            # checkout's Vite, so only the default session stops it.
-            _log = logging.getLogger(__name__)
-            try:
-                from dev.vite_server import stop_vite
-
-                stopped = stop_vite()
-            except Exception:
-                _log.exception("Could not stop the Vite dev server")
-            else:
-                if stopped:
-                    _log.info("Stopped the Vite dev server (pid=%s)", stopped)
-        if claim_instance:
-            slots.release_slot(instance_slot)
 

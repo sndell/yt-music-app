@@ -32,24 +32,23 @@ Grab the latest pre-release from the [Releases page](https://github.com/sndell/y
 
 ## Run in development
 
-Install the UI and start Vite:
+Install the UI dependencies and create the Python environment once:
 
 ```powershell
 cd ui
 pnpm install
-pnpm dev
-```
-
-In a second terminal, create the Python environment in `app` and start the watcher from there. It loads the Vite server at `http://localhost:5173`.
-
-```powershell
-cd app
+cd ..\app
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe dev\watch.py
 ```
 
-`app\dev\watch.py` restarts the window when a Python file under `app` is saved. Vite refreshes the page in place. Closing the window ends the session. The app stops the Vite server it was loading from, and the watcher exits. Keep a single Python window per checkout. A second feature should be a Cursor worktree: in the Agents Window set Default Environment to New Worktree, or start an editor chat with `/worktree`. That checkout gets its own window and ports.
+From the repo root, start the window:
+
+```powershell
+.\start.ps1
+```
+
+`start.ps1` runs `app/main.py`. In dev that process picks a free port, starts the Vite server on it in its own console window, and opens the webview at `http://localhost:<port>`, so there is no second terminal to run. The port is printed in the Python terminal, and each run gets its own, so several checkouts can run at the same time. Closing the window stops Vite too. A frozen build serves the packaged `ui/dist` instead and starts no server.
 
 Sign in from **Settings**. The app opens YouTube Music, waits until you are logged in, and stores the request it needs. Auth, the WebView2 profile, and the cache stay in the `app` folder while you are developing.
 
@@ -69,7 +68,8 @@ The exe has no console. Logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The Web
 
 | Path | What it is |
 | --- | --- |
-| `app/` | The desktop window, YouTube Music API, Windows media keys, and the dev watcher |
+| `start.ps1` | Starts the window; the Python process starts the Vite server for dev |
+| `app/` | The desktop window, YouTube Music API, and Windows media keys |
 | `docs/screenshot.png` | README image |
 | `ui/` | The React interface (Vite, TypeScript, Tailwind) |
 | `build/build.ps1` | UI build plus the onefile exe |

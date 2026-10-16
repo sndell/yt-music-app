@@ -1,4 +1,0 @@
-# YTMusic App - Python dev/test dependencies
-# Install with: app\.venv\Scripts\python.exe -m pip install -r app/requirements-dev.txt
-
-pytest>=8.0

@@ -13,8 +13,7 @@ import { Artist } from "./features/artist";
 import { Search } from "./features/search";
 import { Player, PlayerProvider, QueuePanel, VideoOverlay } from "./features/player";
 import { ToastProvider } from "./components/ui/Toast";
-import { AgentErrorBoundary } from "./dev/AgentErrorBoundary";
-import { installAgentBridge } from "./dev/agentBridge";
+import { installRendererLog } from "./dev/rendererLog";
 
 const App = () => {
   useEffect(() => {
@@ -58,8 +57,6 @@ const App = () => {
   );
 };
 
-if (import.meta.env.DEV) installAgentBridge();
-
 // Reuse the root if this module runs again (HMR): calling createRoot twice on
 // the same container is an error, re-rendering the existing root is not.
 type RootContainer = HTMLElement & { __ytmusicRoot?: ReturnType<typeof createRoot> };
@@ -67,12 +64,6 @@ const container = document.getElementById("root") as RootContainer;
 const root = container.__ytmusicRoot ?? createRoot(container);
 container.__ytmusicRoot = root;
 
-root.render(
-  import.meta.env.DEV ? (
-    <AgentErrorBoundary>
-      <App />
-    </AgentErrorBoundary>
-  ) : (
-    <App />
-  ),
-);
+if (import.meta.env.DEV) installRendererLog();
+
+root.render(<App />);

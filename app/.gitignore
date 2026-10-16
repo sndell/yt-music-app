@@ -10,7 +10,5 @@ playlist_stats.json
 .cache/
 webview-data/
 webview-data-*/
-dev/.dev-registry/
-
-# Scratch probe scripts left in the working tree.
-_probe_*.py
+dev/.dev.json
+dev/.dev-artifacts/
