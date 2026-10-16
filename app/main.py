@@ -177,10 +177,18 @@ if __name__ == "__main__":
         webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = DEVTOOLS
     storage_path = data_dir() / "webview-data"
     storage_path.mkdir(parents=True, exist_ok=True)
+    # A frozen build takes its window icon from the exe's embedded resource.
+    # Dev runs under python.exe, so the ico has to be passed explicitly.
+    app_icon = None if is_frozen() else Path(__file__).resolve().parents[1] / "build" / "icon.ico"
     try:
         # start() returns when the window is closed, and raises instead when
         # startup fails.
-        webview.start(debug=_DEBUG, private_mode=False, storage_path=str(storage_path))
+        webview.start(
+            debug=_DEBUG,
+            private_mode=False,
+            storage_path=str(storage_path),
+            icon=str(app_icon) if app_icon else None,
+        )
     finally:
         if ENV == "dev":
             control.stop()

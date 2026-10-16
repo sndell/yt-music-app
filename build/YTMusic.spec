@@ -49,4 +49,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
+    icon=str(root / "build" / "icon.ico"),
+    # Bump alongside the release tag, so the exe properties show the version.
+    version="0.1.0",
 )
