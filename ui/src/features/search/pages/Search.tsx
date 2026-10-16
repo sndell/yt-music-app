@@ -5,7 +5,6 @@ import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
 import { BrowseCard } from "@/components/ui/BrowseCard";
-import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { SnapRow } from "@/components/ui/SnapRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
@@ -96,8 +95,7 @@ const TopResult = ({ result, onSelect }: { result: SearchResult; onSelect: () =>
     >
       <span
         className={cn(
-          "grid shrink-0 place-items-center overflow-hidden bg-secondary",
-          isVideoMedia(result.videoType) ? "h-24 aspect-video" : "size-24",
+          "grid size-24 shrink-0 place-items-center overflow-hidden bg-secondary",
           round ? "rounded-full" : "rounded-lg",
         )}
       >

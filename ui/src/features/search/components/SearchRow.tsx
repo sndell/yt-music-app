@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { PyBridge, type SearchResult } from "@/lib/api";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
-import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { cn } from "@/util/cn";
 
 const kindIcon = (kind: SearchResult["kind"]) => {
@@ -66,7 +65,7 @@ export const SearchRow = ({
       <span
         className={cn(
           "relative grid shrink-0 place-items-center overflow-hidden bg-secondary",
-          isVideoMedia(result.videoType) ? (dense ? "h-9 aspect-video" : "h-10 aspect-video") : dense ? "size-9" : "size-10",
+          dense ? "size-9" : "size-10",
           isRound(result.kind) ? "rounded-full" : "rounded-md",
         )}
       >
