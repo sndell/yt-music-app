@@ -46,7 +46,7 @@ CACHE_DURATION = 7 * 24 * 60 * 60  # 7 days
 CACHE_KEY_PLAYLIST_PREFIX = "playlist:v3:"
 CACHE_KEY_ALBUM_PREFIX = "album:"
 CACHE_KEY_ARTIST_PREFIX = "artist:"
-CACHE_KEY_HOME = "home:shelves:v4"
+CACHE_KEY_HOME = "home:shelves:v5"
 # The saved library lists. Each is fetched in one large page and cached whole,
 # so opening the Library page paints from disk and refreshes in the background.
 CACHE_KEY_LIBRARY_SONGS = "library:songs:v1"
@@ -1046,6 +1046,24 @@ def _home_layout(title: str) -> str:
     return "list" if title.strip().lower() == "quick picks" else "row"
 
 
+def _landscape_thumbnail(thumbnails: Any) -> bool:
+    """True when a thumbnail is wider than tall, the video-rendition tell.
+
+    Home's "Music videos for you" shelf reports ``MUSIC_VIDEO_TYPE_ATV`` for
+    items whose art is 16:9, so the shape is the only signal that they are
+    videos and not audio tracks.
+    """
+    if not isinstance(thumbnails, list):
+        return False
+    for thumb in thumbnails:
+        if not isinstance(thumb, dict):
+            continue
+        width, height = thumb.get("width"), thumb.get("height")
+        if isinstance(width, int) and isinstance(height, int) and height > 0:
+            return width > height
+    return False
+
+
 def _home_item(item: dict[str, Any]) -> dict[str, Any] | None:
     title = item.get("title")
     if not isinstance(title, str) or not title.strip():
@@ -1057,6 +1075,12 @@ def _home_item(item: dict[str, Any]) -> dict[str, Any] | None:
     audio_playlist_id = _optional_str(item.get("audioPlaylistId"))
     playlist_id = _optional_str(item.get("playlistId"))
     if video_id:
+        video_type = item.get("videoType")
+        if video_type not in {_SONG_VIDEO_TYPE, "MUSIC_VIDEO_TYPE_OMV", "MUSIC_VIDEO_TYPE_UGC"}:
+            video_type = _SONG_VIDEO_TYPE
+        # Some video shelves report ATV, so fall back to the 16:9 art.
+        if video_type == _SONG_VIDEO_TYPE and _landscape_thumbnail(thumbnails):
+            video_type = "MUSIC_VIDEO_TYPE_OMV"
         return {
             "kind": "song",
             "title": title,
@@ -1067,6 +1091,7 @@ def _home_item(item: dict[str, Any]) -> dict[str, Any] | None:
             "playlistId": None,
             "browseId": browse_id,
             "explicit": explicit,
+            "videoType": video_type,
         }
 
     if browse_id and browse_id.startswith("MPRE"):

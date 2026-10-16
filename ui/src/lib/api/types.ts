@@ -121,6 +121,8 @@ export interface HomeItem {
   playlistId: string | null;
   browseId: string | null;
   explicit: boolean;
+  /** Set on song items only, so the UI can mark a video rendition with a 16:9 frame. */
+  videoType?: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | null;
 }
 
 export interface HomeShelf {
@@ -145,7 +147,7 @@ export interface Track {
   thumbnails: Thumbnail[];
   isAvailable: boolean;
   isExplicit: boolean;
-  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV";
+  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC";
   views: number | null;
   duration: string;
   durationSeconds: number;
@@ -285,7 +287,7 @@ export interface WatchTrack {
   length: string | null;
   thumbnail: Thumbnail[] | null;
   likeStatus: LikeStatus | null;
-  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | null;
+  videoType: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | null;
   inLibrary: boolean | null;
   feedbackTokens: FeedbackTokens | null;
   pinnedToListenAgain: boolean | null;
