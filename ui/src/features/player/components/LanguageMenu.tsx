@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/util/cn";
-import { isProgrammaticScroll } from "@/components/ui/menuDom";
+import { useMenuDismiss } from "@/components/ui/useMenuDismiss";
 import { LANGUAGES, searchableText } from "../lib/languages";
 
 export const LanguageMenu = ({
@@ -44,32 +44,7 @@ export const LanguageMenu = ({
     menu.style.transformOrigin = `${top < anchor.top ? "bottom" : "top"} right`;
   }, [trigger]);
 
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (menuRef.current?.contains(target) || trigger?.contains(target)) return;
-      onClose();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    // Scrolling the menu itself must not dismiss it; scrolling the panel behind
-    // it should.
-    const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node) || isProgrammaticScroll()) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose, trigger]);
+  useMenuDismiss({ ref: menuRef, onClose, trigger, flyoutAware: false });
 
   // The menu mounts fresh when it opens, so the search box starts empty and
   // picks up the keyboard through autoFocus. `open` still gates the search:

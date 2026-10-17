@@ -9,7 +9,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ReorderItem, ReorderList, consumeDragClick, stableDragId } from "@/components/ui/reorder";
-import { isProgrammaticScroll, suppressScrollDismiss } from "@/components/ui/menuDom";
+import { suppressScrollDismiss } from "@/components/ui/menuDom";
+import { useMenuDismiss } from "@/components/ui/useMenuDismiss";
 import { usePlayer } from "../context/PlayerContext";
 import { LyricsPanel } from "./LyricsPanel";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
@@ -752,32 +753,7 @@ const TunerMenu = ({
     menu.style.transformOrigin = `${left < anchor.left ? "right" : "left"} ${top < anchor.top ? "bottom" : "top"}`;
   }, [trigger]);
 
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (menuRef.current?.contains(target) || trigger?.contains(target)) return;
-      onClose();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    // Scrolling the menu itself must not dismiss it; scrolling the queue behind
-    // it should.
-    const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node) || isProgrammaticScroll()) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose, trigger]);
+  useMenuDismiss({ ref: menuRef, onClose, trigger, flyoutAware: false });
 
   return createPortal(
     <div
