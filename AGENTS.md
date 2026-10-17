@@ -301,7 +301,7 @@ A rule that a check carries is not a rule an agent has to remember. This table p
 | A new API method is one declaration in Python | `@api.read/write/internal` plus `app/dev/contract.py --check`; a public method with no declaration fails, and the TypeScript is generated from the declarations |
 | A Python-to-UI event needs both sides | `app/dev/checks.py` compares the media-key map against `APP_EVENTS` in `ui/src/features/player/lib/appEvents.ts` |
 | Change a payload's shape and the cache key follows | one family per payload kind in `app/contract/cache.py`; the key carries a hash of the declared shape, and `store.write` refuses a payload that does not match |
-| Only the store touches the disk cache | `app/dev/checks.py` fails on `diskcache` or a direct `cache.get/set/delete` outside it |
+| Only the store touches the disk cache | `app/dev/checks.py` fails on `diskcache` or a direct `cache.get/set/delete` outside it. The scan skips `app/.venv`: a venv inside `app/` is full of vendored cache calls, and CI has none, so only a local run sees the difference |
 | Only the transport touches `window.pywebview` | `app/dev/checks.py` names the file |
 | Types are checked with `tsc -b`, not `tsc --noEmit` | `check.ps1` runs `tsc -b` with `eslint --quiet`; CI and `build\build.ps1` run `check.ps1` |
 | The frozen build is the same app | `build\build.ps1` runs `check.ps1` before PyInstaller |

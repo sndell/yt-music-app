@@ -37,6 +37,11 @@ PYWEBVIEW_ALLOWED = {
 
 PY_EVENT_LITERAL = re.compile(r'"([a-z]+)"')
 
+# The checkout's venv sits at app/.venv (see start.ps1), inside the tree the
+# cache scan reads, so its site-packages would report every vendored package
+# that touches a cache. CI has no venv, which is why it never showed there.
+VENV_DIRS = {".venv", "venv", "site-packages"}
+
 
 def generated() -> list[str]:
     """The generator proves the TypeScript matches the Python declarations."""
@@ -71,6 +76,8 @@ def cache_discipline() -> list[str]:
     allowed = {ROOT / "app/contract/cache.py", ROOT / "app/dev/checks.py"}
     problems: list[str] = []
     for path in sorted((ROOT / "app").rglob("*.py")):
+        if VENV_DIRS.intersection(path.relative_to(ROOT / "app").parts):
+            continue
         if path in allowed:
             continue
         text = path.read_text(encoding="utf-8")
