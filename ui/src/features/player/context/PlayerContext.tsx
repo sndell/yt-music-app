@@ -28,6 +28,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [queue, setQueue] = useState<WatchTrack[]>([]);
   const [queueOpen, setQueueOpen] = useState(false);
   const [queueLoading, setQueueLoading] = useState(false);
+  // The Related tab's browse id, taken from the watch playlist response the
+  // queue is built from. Null when the queue is a fixed list, or YouTube Music
+  // shows no related id for the song.
+  const [relatedId, setRelatedId] = useState<string | null>(null);
   const [queueTuner, setQueueTuner] = useState("All");
   const [queueChips, setQueueChips] = useState<WatchTunerChip[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -114,6 +118,13 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         if (requestId !== requestIdRef.current || playGenerationRef.current !== generation) return "stale";
 
         if (!result.success || !result.data || !Array.isArray(result.data.tracks)) return "empty";
+
+        // The Related tab's id comes from this same response; a queue that did
+        // not start from a song has none to show.
+        if (videoId) {
+          const related = result.data.related;
+          setRelatedId(typeof related === "string" && related ? related : null);
+        }
 
         const tracks = result.data.tracks.filter((track) => track.videoId);
         let added = false;
@@ -202,6 +213,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       fillPromiseRef.current = null;
       normalUpcomingRef.current = null;
       watchPlaylistIdRef.current = null;
+      setRelatedId(null);
       knownVideoIdsRef.current = new Set();
       // A fresh queue starts untuned. Genre chips exist for song and mix plays,
       // not for a fixed album or library playlist.
@@ -568,6 +580,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       fillPromiseRef.current = null;
       normalUpcomingRef.current = null;
       watchPlaylistIdRef.current = null;
+      setRelatedId(null);
       knownVideoIdsRef.current = new Set();
       queueRef.current = [];
       currentQueueIndexRef.current = -1;
@@ -646,6 +659,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     fillPromiseRef.current = null;
     freshLoadRef.current = null;
     watchPlaylistIdRef.current = null;
+    setRelatedId(null);
     knownVideoIdsRef.current = new Set(next.map((track) => track.videoId));
 
     let queued = next;
@@ -914,6 +928,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         currentQueueIndex,
         queueRevision,
         queueFill,
+        relatedId,
         currentVideoId,
         videoOpen,
         toggleVideo,

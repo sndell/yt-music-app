@@ -14,6 +14,7 @@ import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
 import { averageLuminance, largestCover, parseHex, readableAccent, useVibrantCover } from "../lib/coverAccent";
 import { TunerMenu } from "./TunerMenu";
 import { LyricsPanel } from "./LyricsPanel";
+import { RelatedPanel } from "./RelatedPanel";
 
 const waveMask =
   "radial-gradient(130% 80% at 42% -6%, #000 0%, rgba(0,0,0,0.88) 26%, rgba(0,0,0,0.42) 60%, transparent 92%), radial-gradient(72% 46% at 64% 58%, rgba(0,0,0,0.72) 0%, transparent 76%)";
@@ -182,6 +183,7 @@ export const QueuePanel = () => {
     selectQueueTuner,
     currentSong,
     lyrics,
+    relatedId,
     currentQueueIndex,
     queueRevision,
     queueFill,
@@ -197,11 +199,17 @@ export const QueuePanel = () => {
   const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
   const [tunerAnchor, setTunerAnchor] = useState<HTMLButtonElement | null>(null);
   const [tunerOpen, setTunerOpen] = useState(false);
-  const [tab, setTab] = useState<"queue" | "lyrics">("queue");
-  // The Lyrics tab exists only while the playing song has lyrics, so a song
-  // without them falls back to the queue instead of showing an empty tab.
+  const [tab, setTab] = useState<"queue" | "lyrics" | "related">("queue");
+  // The Lyrics and Related tabs exist only while the playing song has them, so
+  // a song without either falls back to the queue instead of an empty tab.
   const lyricsAvailable = lyrics !== null;
-  const activeTab = tab === "lyrics" && lyricsAvailable ? "lyrics" : "queue";
+  const relatedAvailable = relatedId !== null;
+  const activeTab =
+    tab === "lyrics" && lyricsAvailable
+      ? "lyrics"
+      : tab === "related" && relatedAvailable
+        ? "related"
+        : "queue";
   const tunerCloseRef = useRef(0);
 
   const openTuner = (element: HTMLButtonElement) => {
@@ -351,6 +359,11 @@ export const QueuePanel = () => {
               Lyrics
             </PanelTab>
           )}
+          {relatedAvailable && (
+            <PanelTab active={activeTab === "related"} onClick={() => setTab("related")}>
+              Related
+            </PanelTab>
+          )}
         </div>
         <ReorderList ids={dragIds} axis="y" onMove={reorderQueue}>
           <div
@@ -468,6 +481,7 @@ export const QueuePanel = () => {
           </div>
         )}
         {activeTab === "lyrics" && lyrics && <LyricsPanel lyrics={lyrics} />}
+        {activeTab === "related" && relatedId && <RelatedPanel relatedId={relatedId} />}
       </div>
       {menu && (
         <TrackMenu

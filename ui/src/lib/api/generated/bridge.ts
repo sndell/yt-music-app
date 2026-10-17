@@ -70,6 +70,8 @@ export const PyBridge = {
   getSearchSuggestions: (query: string) => callPython("get_search_suggestions", query),
   /** Return the signed-in user's like status and the release year of a song. */
   getSongInfo: (videoId: string) => callPython("get_song_info", videoId),
+  /** YouTube Music's Related tab for the song that started the queue. */
+  getSongRelated: (relatedId: string) => callPython("get_song_related", relatedId),
   /** Saved player volume, 0-100 on the slider scale. */
   getVolume: () => callPython("get_volume"),
   /** Get a watch playlist for a specific video or playlist. */

@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -53,6 +53,8 @@ export interface ApiMethods {
   get_watch_playlist: { params: [videoId?: string | null, playlistId?: string | null, radio?: boolean, shuffle?: boolean]; response: WatchPlaylist };
   /** Genre chips that retune the mix around one song. */
   get_queue_tuner: { params: [videoId: string]; response: WatchTunerChip[] };
+  /** YouTube Music's Related tab for the song that started the queue. */
+  get_song_related: { params: [relatedId: string]; response: RelatedSection[] };
   /** Lyrics for a song, with per-line timings when YouTube Music has them. */
   get_lyrics: { params: [videoId: string]; response: Lyrics };
   /** Lyrics for a song in another language, split like the original. */

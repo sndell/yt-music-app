@@ -140,6 +140,25 @@ EXPLORE_SECTION_SHAPE: Shape = (
     ("categories", MOOD_CATEGORY_SHAPE),
 )
 
+# The watch playlist's Related tab. Rows carry the same field set as a Home
+# item, plus a "text" kind for the about-the-artist paragraph, which is a
+# string section rather than a list. Keyed by the related browse id the watch
+# playlist response carries.
+RELATED_ITEM_SHAPE: Shape = (
+    "kind",
+    "title",
+    "subtitle",
+    "artists",
+    "thumbnails",
+    "videoId",
+    "playlistId",
+    "browseId",
+    "explicit",
+    "videoType?",
+)
+
+RELATED_SECTION_SHAPE: Shape = ("title", ("items", RELATED_ITEM_SHAPE))
+
 
 @dataclass(frozen=True, slots=True)
 class Family:
@@ -202,6 +221,9 @@ HOME = Family(name="home", ttl=WEEK, shape=(("shelves", HOME_SHELF_SHAPE),))
 # YouTube Music's Explore page: one family for the whole feed, keyed by a single
 # id, because every section comes from the one browse request.
 EXPLORE = Family(name="explore", ttl=WEEK, shape=(("sections", EXPLORE_SECTION_SHAPE),))
+# The Related tab of one watch playlist, keyed by the related browse id from
+# that response. A song's related set is stable, so a week is safe.
+RELATED = Family(name="related", ttl=WEEK, shape=(("sections", RELATED_SECTION_SHAPE),))
 # The moods and genres page, and the one category a user opened. A category
 # payload is keyed by the category's own params token, the same one the page's
 # route carries.
