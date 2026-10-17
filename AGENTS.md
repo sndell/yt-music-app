@@ -104,7 +104,7 @@ An **instance** is one window plus its Vite plus its control server, with a priv
 .\start.ps1                                    # the `default` instance
 ```
 
-- `YTM_INSTANCE` names the instance; `app/dev/instance.py` derives the rest. Unset, a linked worktree takes its own directory name (`t3-b5d79117`) and labels itself with its branch, so `-Instance` and `-Label` are only needed for a second window in one checkout. Only the checkout that owns `.git` is `default`, which keeps the old layout (`app/` for data, `app/dev/.dev.json` for discovery), so a bare `start.ps1` in the main checkout changes nothing. Keep `start.ps1`'s `Get-DerivedInstanceId` in step with the Python, or the guard watches a name main.py never writes.
+- `YTM_INSTANCE` names the instance; `app/dev/instance.py` derives the rest, and `start.ps1` asks it rather than deriving a second time. Unset, a linked worktree takes its own directory name (`t3-b5d79117`) and labels itself with its branch, so `-Instance` and `-Label` are only needed for a second window in one checkout. Only the checkout that owns `.git` is `default`, which keeps the old layout (`app/` for data, `app/dev/.dev.json` for discovery), so a bare `start.ps1` in the main checkout changes nothing.
 - A named instance gets `app/.instances/<id>/` for its profile, sign-in copy, preferences and stats, and `app/dev/.instances/<id>.json` for discovery. It never writes another instance's file.
 - The checkout's `app/browser.json` is copied in at start when that copy is missing or older, so a named instance is signed in straight away. The checkout's file is never modified and a token refresh lands in the instance copy. `-Reseed` forces the copy.
 - The diskcache stays shared per checkout (`app/.cache`), so instances read the same warm data instead of each re-fetching the library. `-IsolatedCache` gives one instance its own.
@@ -289,6 +289,27 @@ Stay inside that intent. Do not redesign, reformat, or refactor what nobody aske
 Orchestration is cheap here and usually wins. Split off anything that does not depend on what you are doing: ask an explore subagent "where does this live / how does it work", give a self-contained chunk to a general subagent, and run builds, installs, and long commands as background shells instead of blocking on them. Fire independent calls in the same block so they overlap, and keep the main thread for the decisions and the edits that need it.
 
 Do not parallelize steps that depend on each other, and never let two workers edit the same file: one writer per file. When the pieces come back, check they actually fit together before you trust the result. Parallelism buys time, it does not lower the bar for being right.
+
+## What enforces what
+
+A rule that a check carries is not a rule an agent has to remember. This table pairs each one with the thing that fails when it is broken. A rule with no enforcement is a judgment call, not a check, and is kept only when the mistake is a product decision rather than a repo fact.
+
+| Rule | Enforced by |
+| --- | --- |
+| A new API method is one declaration in Python | `@api.read/write/internal` plus `app/dev/contract.py --check`; a public method with no declaration fails, and the TypeScript is generated from the declarations |
+| A Python-to-UI event needs both sides | `app/dev/checks.py` compares the media-key map against `APP_EVENTS` in `ui/src/features/player/lib/appEvents.ts` |
+| Change a payload's shape and the cache key follows | one family per payload kind in `app/contract/cache.py`; the key carries a hash of the declared shape, and `store.write` refuses a payload that does not match |
+| Only the store touches the disk cache | `app/dev/checks.py` fails on `diskcache` or a direct `cache.get/set/delete` outside it |
+| Only the transport touches `window.pywebview` | `app/dev/checks.py` names the file |
+| Types are checked with `tsc -b`, not `tsc --noEmit` | `check.ps1` runs `tsc -b` with `eslint --quiet`; CI and `build\build.ps1` run `check.ps1` |
+| The frozen build is the same app | `build\build.ps1` runs `check.ps1` before PyInstaller |
+| The 16:9 frame is Home only | the `no-restricted-imports` block in `ui/eslint.config.js` |
+| One instance id derivation | `start.ps1` asks `app/dev/instance.py`; there is no second copy |
+| The account is read-only unless the conversation asked | judgment. The write methods are named in **Never destroy what the user has**; the dev `/call` path and the page-level stub are the two ways to drive them |
+| Never kill a process found by name or path | judgment |
+| One request is one pull request | judgment |
+| Do not commit plans, research notes or scratch files | judgment |
+| Keep these notes current | judgment. The table is what keeps it honest: a new rule with no enforcement belongs in the table's last rows, not in prose that reads like a check |
 
 ## Keep these notes current
 
