@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, type FocusEvent, type Keyboar
 import { Link, useLocation } from "wouter";
 import { usePlayer } from "../context/PlayerContext";
 import { playhead } from "../lib/playhead";
+import { APP_EVENTS, type AppEvent } from "../lib/appEvents";
 import { IconButton } from "@/components/ui/IconButton";
 import { ScrollingText } from "@/components/ui/ScrollingText";
 import { useToast } from "@/components/ui/Toast";
@@ -299,14 +300,16 @@ export const Player = () => {
 
   useEffect(() => {
     window.pythonEvent = (action: string) => {
-      if (action === "play") {
+      if (!APP_EVENTS.includes(action as AppEvent)) return;
+      const event = action as AppEvent;
+      if (event === "play") {
         playingRef.current = true;
         setIsPlaying(true);
-      } else if (action === "pause") {
+      } else if (event === "pause") {
         playingRef.current = false;
         setIsPlaying(false);
-      } else if (action === "next") handleNext();
-      else if (action === "previous") handlePrevious();
+      } else if (event === "next") handleNext();
+      else if (event === "previous") handlePrevious();
     };
     return () => {
       window.pythonEvent = undefined;

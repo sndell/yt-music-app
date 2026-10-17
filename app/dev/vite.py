@@ -97,9 +97,9 @@ def _start_once(port: int, timeout: float) -> bool:
     try:
         log = log_path()
         log.write_text("", encoding="utf-8")
-        # `ui/vite.config.js` is a committed compiled copy of the `.ts`, and Vite
-        # prefers `.js`, so name the source config explicitly or every change to
-        # `vite.config.ts` (including the per-instance cacheDir) is ignored.
+        # Name the source config so the per-instance cacheDir always applies.
+        # Vite resolves vite.config.ts on its own now that the compiled copy is
+        # gone; naming it keeps the door closed for a future `.js` file.
         if sys.platform == "win32":
             # Tee keeps the console visible for a person and leaves a tail an
             # agent can read through the dev control server. Windows PowerShell

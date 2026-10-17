@@ -1,4 +1,4 @@
-import type { WatchTrack, WatchTunerChip } from "@/lib/api";
+import { PyBridge, type WatchTrack, type WatchTunerChip } from "@/lib/api";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
@@ -177,17 +177,10 @@ const useVibrantCover = (url: string | undefined, videoId: string | undefined, f
     };
 
     void (async () => {
-      const readCover = window.pywebview?.api?.get_cover_color;
-      if (typeof readCover === "function") {
-        try {
-          const value = await readCover(url);
-          if (usableAccent(value)) {
-            finish(value);
-            return;
-          }
-        } catch {
-          // The palette call can miss; the in-page sample still has the cover.
-        }
+      const cover = await PyBridge.getCoverColor(url);
+      if (cover.success && usableAccent(cover.data)) {
+        finish(cover.data);
+        return;
       }
       const fromCover = await sampleCover(url);
       if (usableAccent(fromCover)) {

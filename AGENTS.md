@@ -51,8 +51,8 @@ The stub note in **Dev control surface** is how a write becomes a two-way door: 
 
 The most common defect here is a change that works on the one path you tried and is missing everywhere else. Before you call a change done, walk this list and name what applied:
 
-- **A new API method.** It needs the Python method, an entry in `ApiMethods` in `ui/src/lib/api/types.ts`, and a wrapper in `PyBridge` in `ui/src/lib/api/bridge.ts`. Miss the contract and `tsc -b` fails; miss the bridge and the UI cannot call it.
-- **A Python to UI event.** It needs `WebViewController.dispatch_event` on the Python side and a `window.pythonEvent` handler on the UI side. Only the player listens today.
+- **A new API method.** It needs the Python method, an entry in `ApiMethods` in `ui/src/lib/api/types.ts`, and a wrapper in `PyBridge` in `ui/src/lib/api/bridge.ts`. `.\check.ps1` names whichever one is missing, and `tsc -b` fails on a wrong name in the bridge.
+- **A Python to UI event.** It needs `WebViewController.dispatch_event` on the Python side and a name in `ui/src/features/player/lib/appEvents.ts` on the UI side, which `.\check.ps1` compares against the media-key map. Only the player listens today.
 - **Cached data.** Python caches payloads in `diskcache`. Change a payload's shape and raise the cache key version (`playlist:v4:` today), or the old shape is served from the cache.
 - **The frozen build.** The packaged page runs without Vite and without `import.meta.env.DEV`. A change that only works under Vite is not finished.
 - **Reverse states.** Every way in needs a way out and a way to see it. Like needs unlike, add needs remove, open needs close.
@@ -149,13 +149,13 @@ From the repo root:
 .\build\build.ps1
 ```
 
-That script typechecks the UI, runs `vite build --base ./`, then PyInstaller with `build/YTMusic.spec`. The packaged page needs that base path, so build with `build/build.ps1` rather than `pnpm build` alone. The result is a windowed onefile exe at `build\dist\<yyyy-MM-dd_HHmm>\YTMusic.exe`. Older builds stay in their folders.
+That script runs `.\check.ps1`, typechecks the UI, runs `vite build --base ./`, then PyInstaller with `build/YTMusic.spec`. The packaged page needs that base path, so build with `build/build.ps1` rather than `pnpm build` alone. The result is a windowed onefile exe at `build\dist\<yyyy-MM-dd_HHmm>\YTMusic.exe`. Older builds stay in their folders.
 
 The exe has no console. Python logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The WebView2 profile, auth file, and cache live in that folder, not under `app\`.
 
 The window serves `ui/dist` at `http://localhost:<port>/index.html`. It does not load the Vite dev server.
 
-`ui/vite.config.js` is a committed compiled copy of `ui/vite.config.ts`, and Vite prefers `.js`, so it wins and edits to the `.ts` do nothing. `app/dev/vite.py` therefore launches Vite with `--config vite.config.ts`, which is the only reason the per-instance `cacheDir` takes effect in the app. A manual `pnpm dev` still loads the `.js`; add `--config vite.config.ts` there too if a config change matters to you.
+`ui/vite.config.ts` is the only Vite config. A manual `pnpm dev` and `app/dev/vite.py` both load it.
 
 ## Release
 
@@ -171,13 +171,16 @@ The app's icon lives in `build/icon.ico` (multi-size, generated from `build/logo
 
 ## Verify
 
-Verification is manual. There is no automated suite, so the proof is the diff, the typecheck, the running window, and the dev control surface.
+Verification is manual. There is no automated suite, so the proof is the diff, `.\check.ps1`, the running window, and the dev control surface.
 
 - Reason about the diff first. It is the cheapest check.
-- Types, from `ui`: `pnpm exec tsc -b`. `tsconfig.json` there is a solution file with `files: []`, so `tsc --noEmit` compiles nothing and exits 0. `tsc -b` builds the referenced projects, the same check `build/build.ps1` runs first.
+- `.\check.ps1` from the repo root: `app/dev/checks.py` (the API contract, the event names, and direct `window.pywebview` use), `tsc -b`, and `eslint --quiet`. Seconds. CI runs the same script. If it fails, fix the named problem rather than the check.
+- Types alone, from `ui`: `pnpm exec tsc -b`. `tsconfig.json` there is a solution file with `files: []`, so `tsc --noEmit` compiles nothing and exits 0. `tsc -b` builds the referenced projects.
 - Python: `python -m py_compile app\main.py`, or import the module.
 - Then run `.\start.ps1` and drive the app through `app\dev\cli.py` (see **Dev control surface**): `wait`, then `call`, `eval`, `logs`, and `screenshot`. This replaces guessing from the screen. Vite edits refresh in place; a Python edit needs the window restarted. A method the live process predates is not on `window.pywebview.api`, so the call waits out the 30s bridge timeout and the renderer log shows `[PyBridge] Method "<name>" not found on Python API (timeout)`. A new feature that "does not work" against a window older than the Python change is usually just that; `.\start.ps1 -Restart` fixes it.
-- The dev window comes up blank while `/health` says loaded and the API methods run: the body is empty and the renderer log shows a `SidebarList` hook-order error with wouter's `useLocation` reading undefined. The cause is Vite's pre-bundled deps. A named instance points `cacheDir` at its own directory, so `cacheDir/deps` sits outside `node_modules` and `@rolldown/plugin-babel`'s default `exclude` does not cover it. Babel then runs the React Compiler over Vite's own dependency chunks, and React's hook order desyncs on the first re-render. A fresh `start.ps1` reproduces it, and a reload on the same server can render, so a reload is not a retest. Both UI configs exclude `cacheDir/deps` from that plugin, so keep that exclusion when the compiler is rewired. Only the dev window sees this: a manual `pnpm dev` and `vite build` leave the dep cache under `node_modules`, which the default exclude already covers.
+- A file written by a script (`Set-Content`, a codemod) can leave Vite's module graph stale and the window blank, with an error like `does not provide an export named X`. Touch the changed entry files or reload; it is not a code fault.
+- `.\start.ps1` exits at the first stderr line from Python under Windows PowerShell 5.1, because the script sets `$ErrorActionPreference = "Stop"`. It is fixed; if it comes back, that is the cause.
+- The dev window comes up blank while `/health` says loaded and the API methods run: the body is empty and the renderer log shows a `SidebarList` hook-order error with wouter's `useLocation` reading undefined. The cause is Vite's pre-bundled deps. A named instance points `cacheDir` at its own directory, so `cacheDir/deps` sits outside `node_modules` and `@rolldown/plugin-babel`'s default `exclude` does not cover it. Babel then runs the React Compiler over Vite's own dependency chunks, and React's hook order desyncs on the first re-render. A fresh `start.ps1` reproduces it, and a reload on the same server can render, so a reload is not a retest. `ui/vite.config.ts` excludes `cacheDir/deps` from that plugin, so keep that exclusion when the compiler is rewired. Only the dev window sees this: a manual `pnpm dev` and `vite build` leave the dep cache under `node_modules`, which the default exclude already covers.
 - Do not launch a browser or drive the screen unless the user asked for it.
 - Stop as soon as the evidence covers the change, and never re-run a check you already ran.
 
