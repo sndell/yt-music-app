@@ -44,6 +44,7 @@ from contract.cache import (
     LIBRARY_ALBUMS,
     LIBRARY_ARTISTS,
     LIBRARY_SONGS,
+    LIBRARY_UPLOADS,
     LYRICS,
     LYRICS_TRANSLATED,
     MOOD_PLAYLISTS,
@@ -54,7 +55,7 @@ from contract.cache import (
     store,
 )
 
-from features.music.normalize import _album_home_subtitle, _album_track, _artist_track, _as_int, _as_text, _dominant_color, _empty_home, _empty_quick_picks, _fill_missing_song_durations, _home_item, _home_layout, _home_shelves, _inline_items, _inline_thumbnail, _inline_thumbnail_field, _joined_names, _landscape_thumbnail, _named_album, _normalize_album, _normalize_artist, _optional_str, _other_version, _people, _playlist_subtitle, _related_artists, _release_item, _release_shelf, _search_count_label, _search_people, _search_playlist_id, _search_result, _song_subtitle, _songs_shelf, _thumbnails, _videos_shelf  # moved out of this module
+from features.music.normalize import _album_home_subtitle, _album_track, _artist_track, _as_int, _as_text, _dominant_color, _empty_home, _empty_quick_picks, _fill_missing_song_durations, _home_item, _home_layout, _home_shelves, _inline_items, _inline_thumbnail, _inline_thumbnail_field, _joined_names, _landscape_thumbnail, _named_album, _normalize_album, _normalize_artist, _optional_str, _other_version, _people, _playlist_subtitle, _related_artists, _release_item, _release_shelf, _search_count_label, _search_people, _search_playlist_id, _search_result, _song_subtitle, _songs_shelf, _thumbnails, _upload_track, _videos_shelf  # moved out of this module
 from features.music.charts import _chart_country_code, _charts_payload, _empty_charts  # the charts browse page
 from features.music.lyrics import _lyrics_browse_id, _normalize_lyrics, _query_batches, _signed_out_client, _split_blocks, _timed_lyrics, _translate_block, _translate_lines_individually, _translate_lyric_lines, _translate_request  # moved out of this module
 from features.music.moods import _empty_mood_categories, _mood_fallback_sections, _mood_playlists, _mood_sections, MOODS_BROWSE_ID  # the moods and genres browse page
@@ -74,6 +75,7 @@ _BROWSER_JSON_PATH = data_dir() / "browser.json"
 LIBRARY_SONGS_LIMIT = 5000
 LIBRARY_ALBUMS_LIMIT = 1000
 LIBRARY_ARTISTS_LIMIT = 2000
+LIBRARY_UPLOADS_LIMIT = 5000
 # Covers are inlined inline with a request. Past this many items the request is
 # left with remote URLs and the frontend inlines failures on demand.
 MAX_INLINE_ITEMS = 150
@@ -1118,6 +1120,66 @@ class MusicApi:
             if force_refresh:
                 raise
             return empty
+
+    @api.read(returns="LibraryUploads", cache="library_uploads")
+    def get_library_upload_songs(
+        self, limit: int = LIBRARY_UPLOADS_LIMIT, force_refresh: bool = False
+    ) -> dict[str, Any]:
+        """Fetch the songs the account uploaded to its own YouTube Music library.
+
+        Uploaded songs are the account's own files, not saves, so they answer a
+        different read from the liked-songs list and are cached under their own
+        family. Normalized to the shared Track shape, with covers left as remote
+        URLs like the saved lists. An account that has uploaded nothing gets an
+        empty list, which is a real answer; a read that fails raises, because the
+        page has to tell those apart.
+
+        Args:
+            limit: Maximum number of songs to return.
+            force_refresh: Skip the cached payload and fetch again.
+
+        Returns:
+            ``{"songs": [...], "fromCache": bool}``. Raises when the read fails
+            and nothing is cached.
+        """
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return uploaded songs")
+                return {"songs": []}
+
+            if not force_refresh:
+                cached = store.read(LIBRARY_UPLOADS, "all")
+                songs = cached.get("songs") if cached else None
+                if isinstance(songs, list):
+                    logger.info("Returning cached uploaded songs (count: %d)", len(songs))
+                    return {**cached, "songs": songs[:limit] if limit else songs}
+
+            logger.info("Fetching uploaded songs from API...")
+            raw = self._get_ytmusic().get_library_upload_songs(limit=limit)
+
+            songs: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for item in raw if isinstance(raw, list) else []:
+                normalized = _upload_track(item)
+                # YouTube's own lists repeat rows; the first wins and the order
+                # it sent stays.
+                if normalized is not None and normalized["videoId"] and normalized["videoId"] not in seen:
+                    seen.add(normalized["videoId"])
+                    songs.append(normalized)
+
+            payload: dict[str, Any] = {"songs": songs}
+            store.write(LIBRARY_UPLOADS, "all", payload)
+            logger.info("Uploaded songs fetched (count: %d)", len(songs))
+            return payload
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            raise
+        except Exception as e:
+            # A cached payload is returned above, so reaching here means there
+            # is nothing to serve. Returning empty would paint the UI's honest
+            # empty state over a failed read; raise so the page shows the error.
+            logger.exception("Failed to fetch uploaded songs: %s", e)
+            raise
 
     @api.read(returns="{ songs: Track[] }")
     def get_history(self) -> dict[str, Any]:

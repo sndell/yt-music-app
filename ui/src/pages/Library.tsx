@@ -8,7 +8,7 @@ import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
 import { LibraryTrackRow, useLibraryData } from "@/features/library";
 import { cn } from "@/util/cn";
 
-type LibraryView = "all" | "playlists" | "songs" | "albums" | "artists";
+type LibraryView = "all" | "playlists" | "songs" | "albums" | "artists" | "uploads";
 
 const VIEWS: { value: LibraryView; label: string }[] = [
   { value: "all", label: "All" },
@@ -16,6 +16,7 @@ const VIEWS: { value: LibraryView; label: string }[] = [
   { value: "songs", label: "Songs" },
   { value: "albums", label: "Albums" },
   { value: "artists", label: "Artists" },
+  { value: "uploads", label: "Uploads" },
 ];
 
 // The saved songs are YouTube Music's liked-songs list, so playback and shuffle
@@ -131,9 +132,12 @@ export const Library = () => {
     albumsError,
     artists,
     artistsError,
+    uploads,
+    uploadsError,
     loadSongs,
     loadAlbums,
     loadArtists,
+    loadUploads,
     reload,
     revision,
   } = useLibraryData();
@@ -141,6 +145,7 @@ export const Library = () => {
   const wantsSongs = view === "all" || view === "songs";
   const wantsAlbums = view === "all" || view === "albums";
   const wantsArtists = view === "all" || view === "artists";
+  const wantsUploads = view === "uploads";
 
   // Only the chips in play load, so opening the page fetches nothing until the
   // user asks for a category. `revision` re-runs this after a sign-in reset.
@@ -148,7 +153,8 @@ export const Library = () => {
     if (wantsSongs) loadSongs();
     if (wantsAlbums) loadAlbums();
     if (wantsArtists) loadArtists();
-  }, [wantsSongs, wantsAlbums, wantsArtists, revision, loadSongs, loadAlbums, loadArtists]);
+    if (wantsUploads) loadUploads();
+  }, [wantsSongs, wantsAlbums, wantsArtists, wantsUploads, revision, loadSongs, loadAlbums, loadArtists, loadUploads]);
 
   useEffect(() => {
     const onAuthChanged = () => reload();
@@ -205,6 +211,25 @@ export const Library = () => {
             }}
           />
         }
+      />
+    );
+  };
+
+  // Uploaded songs are the account's own files, not a playlist, so the list
+  // plays through `playTracks` rather than a YouTube Music playlist id.
+  const renderUploads = () => {
+    if (uploadsError) return <Empty message={uploadsError} onReload={reload} />;
+    if (uploads === null) return <Loading label="Loading uploads" />;
+    if (uploads.length === 0) {
+      return <Empty message="Songs you upload to YouTube Music will show up here." onReload={reload} />;
+    }
+    return (
+      <PlaylistTrackList
+        tracks={uploads}
+        gradient="transparent"
+        playlistId={undefined}
+        filterable
+        actions={<PlaybackButtons onPlay={() => playTracks(uploads)} />}
       />
     );
   };
@@ -279,8 +304,8 @@ export const Library = () => {
           </div>
         </div>
 
-        {view === "songs" ? (
-          renderSongs()
+        {view === "songs" || view === "uploads" ? (
+          view === "songs" ? renderSongs() : renderUploads()
         ) : (
           <div className="px-4 pb-8 sm:px-6">
             {view === "all" && renderAll()}

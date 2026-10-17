@@ -89,6 +89,15 @@ export interface LibraryArtists {
   fromCache?: boolean;
 }
 
+/**
+ * Songs the account uploaded itself. Not a save: YouTube Music keeps uploads
+ * apart from the liked-songs list, so they are their own payload and family.
+ */
+export interface LibraryUploads {
+  songs: Track[];
+  fromCache?: boolean;
+}
+
 export interface QuickPick {
   videoId: string;
   title: string;

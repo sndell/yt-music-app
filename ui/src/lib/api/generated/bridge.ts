@@ -46,6 +46,8 @@ export const PyBridge = {
   getLibraryArtists: (limit: number = 2000, forceRefresh: boolean = false) => callPython("get_library_artists", limit, forceRefresh),
   /** Fetch the songs saved to the user's YouTube Music library. */
   getLibrarySongs: (limit: number = 5000, forceRefresh: boolean = false) => callPython("get_library_songs", limit, forceRefresh),
+  /** Fetch the songs the account uploaded to its own YouTube Music library. */
+  getLibraryUploadSongs: (limit: number = 5000, forceRefresh: boolean = false) => callPython("get_library_upload_songs", limit, forceRefresh),
   /** Lyrics for a song, with per-line timings when YouTube Music has them. */
   getLyrics: (videoId: string) => callPython("get_lyrics", videoId),
   /** Return YouTube Music's mood and genre sections and their categories. */

@@ -293,6 +293,35 @@ def _artist_track(track: Any, channel_id: str) -> dict[str, Any] | None:
         "setVideoId": set_video_id,
     }
 
+def _upload_track(track: Any) -> dict[str, Any] | None:
+    """One uploaded song, in the shared Track shape.
+
+    An upload's row carries no ``isAvailable`` flag, so playability follows the
+    video id the way an artist song list's does; the cover is the row's own.
+    """
+    if not isinstance(track, dict):
+        return None
+    video_id = track.get("videoId") if isinstance(track.get("videoId"), str) else ""
+    like_status = track.get("likeStatus")
+    if like_status not in _LIKE_STATUSES:
+        like_status = "INDIFFERENT"
+    return {
+        "videoId": video_id,
+        "title": track.get("title") if isinstance(track.get("title"), str) else "",
+        "artists": _people(track.get("artists")),
+        "album": _named_album(track.get("album"), ""),
+        "likeStatus": like_status,
+        "inLibrary": bool(track.get("inLibrary")),
+        "thumbnails": _thumbnails(track.get("thumbnails")),
+        "isAvailable": bool(video_id),
+        "isExplicit": bool(track.get("isExplicit")),
+        "videoType": _SONG_VIDEO_TYPE,
+        "views": None,
+        "duration": track.get("duration") if isinstance(track.get("duration"), str) else "",
+        "durationSeconds": _as_int(track.get("duration_seconds")),
+        "setVideoId": "",
+    }
+
 def _other_version(item: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None

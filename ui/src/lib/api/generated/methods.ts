@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LibraryUploads, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -17,6 +17,8 @@ export interface ApiMethods {
   get_library_songs: { params: [limit?: number, forceRefresh?: boolean]; response: LibrarySongs };
   /** Fetch the artists saved to the user's YouTube Music library. */
   get_library_artists: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryArtists };
+  /** Fetch the songs the account uploaded to its own YouTube Music library. */
+  get_library_upload_songs: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryUploads };
   /** Return the songs the account played recently, newest first. */
   get_history: { params: []; response: { songs: Track[] } };
   /** Return every shelf YouTube Music puts on the home feed. */

@@ -233,6 +233,9 @@ LIBRARY_ARTISTS = Family(
     shape=(("artists", ("browseId", "name", "songCount", "thumbnails")),),
     strict_extra=False,
 )
+# The account's own uploaded songs. Same Track shape as the saved songs, but its
+# own family: an upload and a saved song answer different reads and expire apart.
+LIBRARY_UPLOADS = Family(name="library:uploads", ttl=WEEK, shape=(("songs", TRACK_SHAPE),), strict_extra=False)
 ALBUM = Family(
     name="album",
     ttl=WEEK,

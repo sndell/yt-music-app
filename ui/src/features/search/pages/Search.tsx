@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useSearch } from "wouter";
-import { PyBridge, type SearchFilter, type SearchResult } from "@/lib/api";
+import { PyBridge, type SearchFilter, type SearchResult, type SearchScope } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
@@ -23,6 +23,13 @@ const FILTERS: { value: SearchFilter | ""; label: string }[] = [
   { value: "playlists", label: "Playlists" },
 ];
 
+// A scope narrows the search to part of the account instead of reordering it,
+// which is why it sits apart from the filter chips.
+const SCOPES: { value: SearchScope; label: string; iconClass: string }[] = [
+  { value: "library", label: "Library", iconClass: "icon-[solar--library-linear]" },
+  { value: "uploads", label: "Uploads", iconClass: "icon-[solar--cloud-upload-linear]" },
+];
+
 const resultKey = (result: SearchResult, index: number) =>
   `${result.kind}-${result.videoId ?? result.browseId ?? result.playlistId ?? index}`;
 
@@ -40,27 +47,36 @@ const Chip = ({ active, onClick, children }: { active: boolean; onClick: () => v
 );
 
 /**
- * The library scope is a binary toggle, not a result type, so it sits apart
- * from the filter chips: an outlined pill on the heading row that fills in and
- * shows a check while it is on.
+ * The scope is a binary choice between two parts of the account, not a result
+ * type, so it sits apart from the filter chips: outlined pills on the heading
+ * row that fill in and show a check while they are on. Picking the active one
+ * again clears it, which searches everything.
  */
-const LibraryToggle = ({ active, onClick }: { active: boolean; onClick: () => void }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-pressed={active}
-    className={cn(
-      "flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors",
-      active
-        ? "border-transparent bg-primary-light text-primary"
-        : "border-white/40 text-primary-dark hover:border-white/70 hover:text-primary",
-    )}
-  >
-    <span
-      className={cn("text-base", active ? "icon-[solar--check-circle-bold] text-accent" : "icon-[solar--library-linear]")}
-    />
-    Library
-  </button>
+const ScopeToggle = ({ scope, onSelect }: { scope: SearchScope | ""; onSelect: (next: SearchScope | "") => void }) => (
+  <div className="flex shrink-0 items-center gap-1">
+    {SCOPES.map((option) => {
+      const active = scope === option.value;
+      return (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onSelect(active ? "" : option.value)}
+          aria-pressed={active}
+          className={cn(
+            "flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors",
+            active
+              ? "border-transparent bg-primary-light text-primary"
+              : "border-white/40 text-primary-dark hover:border-white/70 hover:text-primary",
+          )}
+        >
+          <span
+            className={cn("text-base", active ? "icon-[solar--check-circle-bold] text-accent" : option.iconClass)}
+          />
+          {option.label}
+        </button>
+      );
+    })}
+  </div>
 );
 
 const TopResult = ({ result, onSelect }: { result: SearchResult; onSelect: () => void }) => {
@@ -124,14 +140,14 @@ export const Search = () => {
   const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
 
   // Filters reset when the query changes, derived during render the way Album does.
-  const [selection, setSelection] = useState<{ query: string; filter: SearchFilter | ""; library: boolean }>({
+  const [selection, setSelection] = useState<{ query: string; filter: SearchFilter | ""; scope: SearchScope | "" }>({
     query,
     filter: "",
-    library: false,
+    scope: "",
   });
-  if (selection.query !== query) setSelection({ query, filter: "", library: false });
-  const current = selection.query === query ? selection : { query, filter: "" as const, library: false };
-  const { filter, library } = current;
+  if (selection.query !== query) setSelection({ query, filter: "", scope: "" });
+  const current = selection.query === query ? selection : { query, filter: "" as const, scope: "" as const };
+  const { filter, scope } = current;
 
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +155,7 @@ export const Search = () => {
   const requestIdRef = useRef(0);
 
   const load = useCallback(
-    (text: string, nextFilter: SearchFilter | "", nextLibrary: boolean) => {
+    (text: string, nextFilter: SearchFilter | "", nextScope: SearchScope | "") => {
       if (!text) {
         requestIdRef.current += 1;
         setResults([]);
@@ -150,7 +166,7 @@ export const Search = () => {
       const requestId = ++requestIdRef.current;
       setError(null);
       setResults(null);
-      void PyBridge.search(text, nextFilter, nextLibrary ? "library" : "", PAGE_LIMIT).then((result) => {
+      void PyBridge.search(text, nextFilter, nextScope, PAGE_LIMIT).then((result) => {
         if (requestId !== requestIdRef.current) return;
         if (result.success) {
           setResults(result.data);
@@ -164,9 +180,9 @@ export const Search = () => {
   );
 
   useEffect(() => {
-    const timer = window.setTimeout(() => load(query, filter, library), 0);
+    const timer = window.setTimeout(() => load(query, filter, scope), 0);
     return () => window.clearTimeout(timer);
-  }, [load, query, filter, library]);
+  }, [load, query, filter, scope]);
 
   const openResult = (result: SearchResult) => {
     if (isPlayable(result)) {
@@ -282,23 +298,29 @@ export const Search = () => {
                 "Search"
               )}
             </h1>
-            <LibraryToggle
-              active={library}
-              onClick={() => setSelection((state) => ({ ...state, query, library: !state.library }))}
+            <ScopeToggle
+              scope={scope}
+              onSelect={(next) => setSelection((state) => ({ ...state, query, scope: next }))}
             />
           </div>
 
-          <div className="scrollbar-none mt-4 flex items-center gap-1 overflow-x-auto pb-1">
-            {FILTERS.map((option) => (
-              <Chip
-                key={option.value || "all"}
-                active={filter === option.value}
-                onClick={() => setSelection((state) => ({ ...state, query, filter: option.value }))}
-              >
-                {option.label}
-              </Chip>
-            ))}
-          </div>
+          {/* ytmusicapi refuses a filter alongside the uploads scope, and the
+              scope returns the account's uploads whatever the type, so the
+              filter row goes with it rather than showing a control that does
+              nothing. */}
+          {scope !== "uploads" && (
+            <div className="scrollbar-none mt-4 flex items-center gap-1 overflow-x-auto pb-1">
+              {FILTERS.map((option) => (
+                <Chip
+                  key={option.value || "all"}
+                  active={filter === option.value}
+                  onClick={() => setSelection((state) => ({ ...state, query, filter: option.value }))}
+                >
+                  {option.label}
+                </Chip>
+              ))}
+            </div>
+          )}
 
           <div className="mt-5">{renderBody()}</div>
         </div>
