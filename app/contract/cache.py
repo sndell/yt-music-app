@@ -72,7 +72,7 @@ PLAYLIST_TRACK_SHAPE: Shape = (
     "likeStatus",
     "listenAgainFeedbackTokens",
     "pinnedToListenAgain",
-    "setVideoId",
+    "setVideoId?",
     "thumbnails",
     "title",
     "videoId",
