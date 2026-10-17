@@ -5,6 +5,20 @@ import { useMoodCategories } from "../hooks/useMoodCategories";
 import { useMoodPlaylists } from "../hooks/useMoodPlaylists";
 
 /**
+ * `decodeURIComponent` for the tile's percent-encoded token. wouter's own
+ * `decodeURI` leaves reserved escapes (a `+`, `=`, or `/` in a params token)
+ * encoded, so without this the token reaches Python wrong. A hand-edited hash
+ * with a malformed escape falls back to the raw value instead of throwing.
+ */
+const decodeParam = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+/**
  * One mood or genre: the playlists YouTube Music fills it with.
  *
  * A category is addressed by the `params` token its tile carries, which is what
@@ -13,12 +27,13 @@ import { useMoodPlaylists } from "../hooks/useMoodPlaylists";
  */
 export const MoodCategory = () => {
   const { params = "" } = useParams<{ params: string }>();
+  const token = decodeParam(params);
   const { sections, reload: reloadCategories } = useMoodCategories();
-  const { playlists, error, load } = useMoodPlaylists(params);
+  const { playlists, error, load } = useMoodPlaylists(token);
 
   const category = (sections ?? [])
     .flatMap((section) => section.categories)
-    .find((entry) => entry.params === params);
+    .find((entry) => entry.params === token);
 
   const retry = () => {
     load(true);
