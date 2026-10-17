@@ -119,12 +119,18 @@ def _mood_playlists(playlists: Any) -> list[dict[str, Any]]:
     """Rows the playlist cards render, in ``PlaylistSummary`` shape.
 
     ``get_mood_playlists`` already returns this shape, so only the rows that
-    cannot be opened are dropped. A category holds a few hundred rows, all of
-    them YouTube's own, so ``owned`` is false for every one of them today.
+    cannot be opened are dropped, and an id YouTube repeats is kept once. A
+    category holds a few hundred rows, all of them YouTube's own, so ``owned``
+    is false for every one of them today.
     """
     if not isinstance(playlists, list):
         return []
     rows: list[dict[str, Any]] = []
+    # YouTube repeats a playlist across a category's shelves, so a raw read
+    # carries the same id several times; the card keys by playlistId, so a
+    # repeat would render twice and warn about duplicate React keys. Keep the
+    # first row for an id, in YouTube's order.
+    seen: set[str] = set()
     for playlist in playlists:
         if not isinstance(playlist, dict):
             continue
@@ -132,8 +138,11 @@ def _mood_playlists(playlists: Any) -> list[dict[str, Any]]:
         title = playlist.get("title")
         if not isinstance(playlist_id, str) or not playlist_id:
             continue
+        if playlist_id in seen:
+            continue
         if not isinstance(title, str) or not title.strip():
             continue
+        seen.add(playlist_id)
         description = playlist.get("description")
         row: dict[str, Any] = {
             "title": title.strip(),
