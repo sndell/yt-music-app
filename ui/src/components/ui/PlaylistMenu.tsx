@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { cn } from "@/util/cn";
 import { MenuFlyout } from "./MenuFlyout";
 import { MenuSeparator } from "./MenuSeparator";
-import { announceMenuOpen, isInsideMenuFlyout, isProgrammaticScroll, nextMenuId, onOtherMenuOpen } from "./menuDom";
+import { nextMenuId } from "./menuDom";
+import { useMenuDismiss, useMenuLifecycle } from "./useMenuDismiss";
 import { useMenuPosition } from "./useMenuPosition";
 
 const itemClass =
@@ -73,34 +74,8 @@ export const PlaylistMenu = ({
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  useEffect(() => {
-    announceMenuOpen(menuId);
-    return onOtherMenuOpen(menuId, () => onCloseRef.current());
-  }, [menuId]);
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (menuRef.current?.contains(event.target as Node) || isInsideMenuFlyout(event.target)) return;
-      onClose();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node) || isInsideMenuFlyout(event.target) || isProgrammaticScroll()) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose]);
+  useMenuLifecycle(menuId, onClose);
+  useMenuDismiss({ ref: menuRef, onClose });
 
   const choose = (action: () => void) => {
     action();

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlaylistSummary } from "@/lib/api/types";
 import { useAddToPlaylist } from "@/features/playlist/hooks/useAddToPlaylist";
 import { cn } from "@/util/cn";
-import { isProgrammaticScroll } from "./menuDom";
+import { useMenuDismiss } from "./useMenuDismiss";
 import { useMenuPosition } from "./useMenuPosition";
 
 export const panelWidth = 320;
@@ -258,35 +258,11 @@ export const AddToPlaylistMenu = ({
   onClose: () => void;
 } & Omit<Parameters<typeof AddToPlaylistPanel>[0], "className">) => {
   const menuRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
 
   useMenuPosition(menuRef, x, y);
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      onCloseRef.current();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCloseRef.current();
-    };
-    const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node) || isProgrammaticScroll()) return;
-      onCloseRef.current();
-    };
-    const onResize = () => onCloseRef.current();
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onResize);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
+  // This panel is never a flyout of another menu, so a click anywhere outside
+  // it closes it.
+  useMenuDismiss({ ref: menuRef, onClose, flyoutAware: false });
 
   return createPortal(
     <div

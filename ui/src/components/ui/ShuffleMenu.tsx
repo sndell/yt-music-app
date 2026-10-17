@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { announceMenuOpen, isInsideMenuFlyout, isProgrammaticScroll, nextMenuId, onOtherMenuOpen } from "./menuDom";
+import { nextMenuId } from "./menuDom";
+import { useMenuDismiss, useMenuLifecycle } from "./useMenuDismiss";
 import { useMenuPosition } from "./useMenuPosition";
 
 const itemClass =
@@ -33,36 +34,8 @@ export const ShuffleMenu = ({
 
   useMenuPosition(menuRef, x, y);
 
-  useEffect(() => {
-    announceMenuOpen(menuId);
-    return onOtherMenuOpen(menuId, () => onClose());
-  }, [menuId, onClose]);
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (menuRef.current?.contains(target as Node) || isInsideMenuFlyout(target)) return;
-      if (trigger && target instanceof Node && trigger.contains(target)) return;
-      onClose();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node) || isInsideMenuFlyout(event.target) || isProgrammaticScroll()) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose, trigger]);
+  useMenuLifecycle(menuId, onClose);
+  useMenuDismiss({ ref: menuRef, onClose, trigger });
 
   const choose = (action: () => void) => {
     action();
