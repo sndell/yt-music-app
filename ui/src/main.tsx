@@ -12,7 +12,7 @@ import { Playlist, PlaylistProvider } from "./features/playlist";
 import { Album } from "./features/album";
 import { Artist } from "./features/artist";
 import { Search } from "./features/search";
-import { MoodCategory, MoodsGenres } from "./features/discovery";
+import { MoodCategory, MoodsGenres, Explore } from "./features/discovery";
 import { Player, PlayerProvider, QueuePanel, VideoOverlay } from "./features/player";
 import { ToastProvider } from "./components/ui/Toast";
 import { installRendererLog } from "./dev/rendererLog";
@@ -38,6 +38,7 @@ const App = () => {
                   <div className="flex flex-col flex-1 overflow-hidden rounded-xl bg-primary m-1.5 ml-0">
                     <Switch>
                       <Route path="/" component={Home} />
+                      <Route path="/explore" component={Explore} />
                       <Route path="/library" component={Library} />
                       <Route path="/history" component={History} />
                       <Route path="/settings" component={Settings} />

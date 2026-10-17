@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, DevLogEntry, DiscordPresenceStatus, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -23,6 +23,8 @@ export interface ApiMethods {
   get_home: { params: [forceRefresh?: boolean]; response: HomeFeed };
   /** Return the Quick picks shelf in the older title-and-tracks shape. */
   get_quick_picks: { params: []; response: QuickPicks };
+  /** Return YouTube Music's Explore feed as the sections the page renders. */
+  get_explore: { params: [forceRefresh?: boolean]; response: ExploreFeed };
   /** Return YouTube Music's mood and genre sections and their categories. */
   get_mood_categories: { params: [forceRefresh?: boolean]; response: MoodCategories };
   /** Return the playlists YouTube Music groups under one mood or genre. */
