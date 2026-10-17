@@ -12,6 +12,7 @@ import { Playlist, PlaylistProvider } from "./features/playlist";
 import { Album } from "./features/album";
 import { Artist } from "./features/artist";
 import { Search } from "./features/search";
+import { MoodCategory, MoodsGenres } from "./features/discovery";
 import { Player, PlayerProvider, QueuePanel, VideoOverlay } from "./features/player";
 import { ToastProvider } from "./components/ui/Toast";
 import { installRendererLog } from "./dev/rendererLog";
@@ -44,6 +45,8 @@ const App = () => {
                       <Route path="/album/:id" component={Album} />
                       <Route path="/artist/:id" component={Artist} />
                       <Route path="/search" component={Search} />
+                      <Route path="/moods" component={MoodsGenres} />
+                      <Route path="/moods/:params" component={MoodCategory} />
                     </Switch>
                   </div>
                   <VideoOverlay />

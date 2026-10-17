@@ -44,6 +44,10 @@ export const PyBridge = {
   getLibrarySongs: (limit: number = 5000, forceRefresh: boolean = false) => callPython("get_library_songs", limit, forceRefresh),
   /** Lyrics for a song, with per-line timings when YouTube Music has them. */
   getLyrics: (videoId: string) => callPython("get_lyrics", videoId),
+  /** Return YouTube Music's mood and genre sections and their categories. */
+  getMoodCategories: (forceRefresh: boolean = false) => callPython("get_mood_categories", forceRefresh),
+  /** Return the playlists YouTube Music groups under one mood or genre. */
+  getMoodPlaylists: (params: string, forceRefresh: boolean = false) => callPython("get_mood_playlists", params, forceRefresh),
   /** Every track of a playlist, in order. */
   getPlaylistAllTracks: (playlistId: string) => callPython("get_playlist_all_tracks", playlistId),
   /** Read a playlist's header and its first page of tracks. */

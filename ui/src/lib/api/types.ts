@@ -136,6 +136,30 @@ export interface HomeFeed {
   fromCache?: boolean;
 }
 
+/** One category tile on the Moods & genres page. `params` opens its playlists. */
+export interface MoodCategory {
+  title: string;
+  params: string;
+  /** YouTube's own color for the tile, `#rrggbb`, or null when the page sends none. */
+  color: string | null;
+}
+
+/** One of YouTube's groupings: "For you", "Moods & moments", "Genres". */
+export interface MoodSection {
+  title: string;
+  categories: MoodCategory[];
+}
+
+export interface MoodCategories {
+  sections: MoodSection[];
+  fromCache?: boolean;
+}
+
+export interface MoodPlaylists {
+  playlists: PlaylistSummary[];
+  fromCache?: boolean;
+}
+
 export interface Track {
   videoId: string;
   title: string;

@@ -44,6 +44,8 @@ from contract.cache import (
     LIBRARY_SONGS,
     LYRICS,
     LYRICS_TRANSLATED,
+    MOOD_PLAYLISTS,
+    MOODS,
     PLAYLIST,
     THUMB,
     TUNER,
@@ -52,6 +54,7 @@ from contract.cache import (
 
 from features.music.normalize import _album_home_subtitle, _album_track, _artist_track, _as_int, _as_text, _dominant_color, _empty_home, _empty_quick_picks, _fill_missing_song_durations, _home_item, _home_layout, _home_shelves, _inline_items, _inline_thumbnail, _inline_thumbnail_field, _joined_names, _landscape_thumbnail, _named_album, _normalize_album, _normalize_artist, _optional_str, _other_version, _people, _playlist_subtitle, _related_artists, _release_item, _release_shelf, _search_count_label, _search_people, _search_playlist_id, _search_result, _song_subtitle, _songs_shelf, _thumbnails, _videos_shelf  # moved out of this module
 from features.music.lyrics import _lyrics_browse_id, _normalize_lyrics, _query_batches, _signed_out_client, _split_blocks, _timed_lyrics, _translate_block, _translate_lines_individually, _translate_lyric_lines, _translate_request  # moved out of this module
+from features.music.moods import _empty_mood_categories, _mood_fallback_sections, _mood_playlists, _mood_sections, MOODS_BROWSE_ID  # the moods and genres browse page
 from features.music.playlists import _PlaylistDateCapture, _apply_added_dates, _date_sink, _fetch_all_playlist_tracks, _find_playlist_shelf, _forget_playlist_stat, _install_date_recorder, _load_playlist_stats, _playlist_first_page, _playlist_stat_score, _playlist_track_page, _record_playlist_stat, _save_playlist_stats, _token_sink, _walk_playlist_item_data  # moved out of this module
 
 logger = logging.getLogger(__name__)
@@ -1219,6 +1222,116 @@ class MusicApi:
                 )
             return {"title": shelf.get("title") or "Quick picks", "tracks": tracks}
         return _empty_quick_picks()
+
+    @api.read(returns="MoodCategories", cache="moods")
+    def get_mood_categories(self, force_refresh: bool = False) -> dict[str, Any]:
+        """Return YouTube Music's mood and genre sections and their categories.
+
+        A section is YouTube's own grouping (``For you``, ``Moods & moments``,
+        ``Genres``). A category carries the params its playlists are read with
+        and the color YouTube draws its tile in; the page has no cover image per
+        category, so the color is what the UI can show. Pass force_refresh to
+        fetch a new copy instead of the cached one.
+
+        Returns:
+            ``{"sections": [...], "fromCache": bool}``. Raises when the read
+            fails and nothing is cached to serve.
+        """
+        empty = _empty_mood_categories()
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return mood categories")
+                return empty
+
+            if not force_refresh:
+                cached = store.read(MOODS, "all")
+                if cached is not None and isinstance(cached.get("sections"), list):
+                    logger.info("Returning cached mood categories (sections: %d)", len(cached["sections"]))
+                    return cached
+
+            logger.info("Fetching moods and genres from API...")
+            ytmusic = self._get_ytmusic()
+            try:
+                # _send_request is ytmusicapi's own browse seam, used because
+                # get_mood_categories drops the renderer that carries the tile
+                # color. A shape YouTube renames falls through to the public
+                # call, which still lists every category.
+                raw = ytmusic._send_request("browse", {"browseId": MOODS_BROWSE_ID})
+                sections = _mood_sections(raw)
+            except Exception as exc:
+                logger.warning("Moods browse parse failed (%s); falling back to get_mood_categories", exc)
+                sections = []
+            if not sections:
+                sections = _mood_fallback_sections(ytmusic.get_mood_categories())
+            if not sections:
+                logger.warning("Moods and genres returned no section this app can show")
+                return empty
+
+            payload: dict[str, Any] = {"sections": sections}
+            store.write(MOODS, "all", payload)
+            logger.info(
+                "Mood categories fetched (%s)",
+                ", ".join(f"{section['title']}: {len(section['categories'])}" for section in sections),
+            )
+            return payload
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            raise
+        except Exception as e:
+            # A cached payload is returned above, so reaching here means there
+            # is nothing to serve. Returning empty would paint the UI's honest
+            # empty state over a failed read; raise so the page shows the error.
+            logger.exception("Failed to fetch mood categories: %s", e)
+            raise
+
+    @api.read(returns="MoodPlaylists", cache="mood_playlists")
+    def get_mood_playlists(self, params: str, force_refresh: bool = False) -> dict[str, Any]:
+        """Return the playlists YouTube Music groups under one mood or genre.
+
+        ``params`` is a category's own token, from ``get_mood_categories``.
+        Rows share the library's playlist shape, so the same card renders them
+        and the playlist route opens them; a category is usually a few hundred
+        rows, all YouTube's own. Pass force_refresh to fetch a new copy.
+
+        Returns:
+            ``{"playlists": [...], "fromCache": bool}``. Raises when the read
+            fails and nothing is cached to serve.
+        """
+        empty: dict[str, Any] = {"playlists": []}
+        token = params.strip() if isinstance(params, str) else ""
+        if not token:
+            return empty
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return mood playlists")
+                return empty
+
+            if not force_refresh:
+                cached = store.read(MOOD_PLAYLISTS, token)
+                if cached is not None and isinstance(cached.get("playlists"), list):
+                    logger.info("Returning cached mood playlists (count: %d)", len(cached["playlists"]))
+                    return cached
+
+            logger.info("Fetching mood playlists from API...")
+            playlists = self._get_ytmusic().get_mood_playlists(token)
+            rows = _mood_playlists(playlists)
+            # Above MAX_INLINE_ITEMS this is a no-op, and a category is usually
+            # that big: its covers stay remote and the card inlines a failure.
+            _inline_playlist_thumbnails(rows)
+
+            payload: dict[str, Any] = {"playlists": rows}
+            store.write(MOOD_PLAYLISTS, token, payload)
+            logger.info("Mood playlists fetched (count: %d)", len(rows))
+            return payload
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            raise
+        except Exception as e:
+            # A cached payload is returned above, so reaching here means there
+            # is nothing to serve. Returning empty would paint the UI's honest
+            # empty state over a failed read; raise so the page shows the error.
+            logger.exception("Failed to fetch mood playlists: %s", e)
+            raise
 
     @api.read(returns="SearchResult[]", params={"filter": 'SearchFilter | ""', "scope": 'SearchScope | ""'})
     def search(self, query: str, filter: str = "", scope: str = "", limit: int = 30) -> list[dict[str, Any]]:
