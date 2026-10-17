@@ -1234,7 +1234,8 @@ class MusicApi:
         fetch a new copy instead of the cached one.
 
         Returns:
-            ``{"sections": [...], "fromCache": bool}``, empty on error.
+            ``{"sections": [...], "fromCache": bool}``. Raises when the read
+            fails and nothing is cached to serve.
         """
         empty = _empty_mood_categories()
         try:
@@ -1275,14 +1276,13 @@ class MusicApi:
             return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
-            if force_refresh:
-                raise
-            return empty
+            raise
         except Exception as e:
+            # A cached payload is returned above, so reaching here means there
+            # is nothing to serve. Returning empty would paint the UI's honest
+            # empty state over a failed read; raise so the page shows the error.
             logger.exception("Failed to fetch mood categories: %s", e)
-            if force_refresh:
-                raise
-            return empty
+            raise
 
     @api.read(returns="MoodPlaylists", cache="mood_playlists")
     def get_mood_playlists(self, params: str, force_refresh: bool = False) -> dict[str, Any]:
@@ -1294,7 +1294,8 @@ class MusicApi:
         rows, all YouTube's own. Pass force_refresh to fetch a new copy.
 
         Returns:
-            ``{"playlists": [...], "fromCache": bool}``, empty on error.
+            ``{"playlists": [...], "fromCache": bool}``. Raises when the read
+            fails and nothing is cached to serve.
         """
         empty: dict[str, Any] = {"playlists": []}
         token = params.strip() if isinstance(params, str) else ""
@@ -1324,14 +1325,13 @@ class MusicApi:
             return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
-            if force_refresh:
-                raise
-            return empty
+            raise
         except Exception as e:
+            # A cached payload is returned above, so reaching here means there
+            # is nothing to serve. Returning empty would paint the UI's honest
+            # empty state over a failed read; raise so the page shows the error.
             logger.exception("Failed to fetch mood playlists: %s", e)
-            if force_refresh:
-                raise
-            return empty
+            raise
 
     @api.read(returns="SearchResult[]", params={"filter": 'SearchFilter | ""', "scope": 'SearchScope | ""'})
     def search(self, query: str, filter: str = "", scope: str = "", limit: int = 30) -> list[dict[str, Any]]:
