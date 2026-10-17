@@ -28,6 +28,8 @@ export const PyBridge = {
   getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),
   /** Direct audio URL for a song on the signed-in account. */
   getAudioStream: (videoId: string, refresh: boolean = false) => callPython("get_audio_stream", videoId, refresh),
+  /** Return YouTube Music's charts for one country. */
+  getCharts: (country: string = "ZZ", forceRefresh: boolean = false) => callPython("get_charts", country, forceRefresh),
   /** Vibrant cover color for the queue wash. */
   getCoverColor: (imageUrl: string) => callPython("get_cover_color", imageUrl),
   /** Whether Discord rich presence is on, and if the desktop app is connected. */

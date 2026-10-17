@@ -24,6 +24,7 @@ export const Sidebar = () => {
           <SidebarItem icon="icon-[solar--library-linear]" path="/library" text="Library" />
           <SidebarItem icon="icon-[solar--history-linear]" path="/history" text="History" />
           <SidebarItem icon="icon-[solar--widget-5-linear]" path="/moods" text="Moods & genres" nested />
+          <SidebarItem icon="icon-[solar--chart-2-linear]" path="/charts" text="Charts" nested />
           {searchOpen ? (
             <SidebarSearch
               query={searchQuery}
