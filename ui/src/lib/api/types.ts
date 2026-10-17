@@ -416,6 +416,9 @@ export interface SearchResult {
   resultType: string;
 }
 
+/** One YouTube Music search suggestion: the plain text the flyout completes with. */
+export type SearchSuggestion = string;
+
 /** One renderer console entry, forwarded to Python in dev through dev_log. */
 export interface DevLogEntry {
   level: "log" | "warn" | "error";

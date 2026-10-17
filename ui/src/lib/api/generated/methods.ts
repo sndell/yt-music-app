@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, DevLogEntry, DiscordPresenceStatus, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, DevLogEntry, DiscordPresenceStatus, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -23,6 +23,8 @@ export interface ApiMethods {
   get_quick_picks: { params: []; response: QuickPicks };
   /** Search YouTube Music. */
   search: { params: [query: string, filter?: SearchFilter | "", scope?: SearchScope | "", limit?: number]; response: SearchResult[] };
+  /** YouTube Music's own completions for a partially typed query. */
+  get_search_suggestions: { params: [query: string]; response: SearchSuggestion[] };
   /** Return the given track ids in a true-random order. */
   shuffle_tracks: { params: [videoIds: string[]]; response: string[] };
   /** Read a playlist's header and its first page of tracks. */
