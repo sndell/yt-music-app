@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Link, useLocation } from "wouter";
-import { PyBridge, type LikeStatus, type Track } from "@/lib/api";
+import type { LikeStatus, Track } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
+import { CoverFrame } from "@/components/ui/CoverFrame";
 import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { ScrollingText } from "@/components/ui/ScrollingText";
@@ -455,12 +456,6 @@ const PlaylistTrackItem = memo(({
 }) => {
   const { playFromPlaylist, rateTrack } = usePlayer();
   const [, navigate] = useLocation();
-  const thumbnailUrl = track.thumbnails[0]?.url;
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const [inlined, setInlined] = useState<{ from: string; url: string } | null>(null);
-  const inlinedUrl = inlined?.from === thumbnailUrl ? inlined.url : null;
-  const coverSrc = inlinedUrl ?? thumbnailUrl;
-  const showCover = Boolean(thumbnailUrl) && failedUrl !== thumbnailUrl;
   const likeStatus = track.likeStatus ?? "INDIFFERENT";
   const albumName = track.album?.name || "Unknown Album";
   const albumId = track.album?.id;
@@ -477,21 +472,6 @@ const PlaylistTrackItem = memo(({
 
   const handleRate = (rating: LikeStatus) => {
     void rateTrack(track.videoId, likeStatus, rating);
-  };
-
-  const handleCoverError = () => {
-    if (!thumbnailUrl) return;
-    if (inlined?.from === thumbnailUrl) {
-      setFailedUrl(thumbnailUrl);
-      return;
-    }
-    void PyBridge.inlineThumbnail(thumbnailUrl).then((result) => {
-      if (result.success && typeof result.data === "string" && result.data.startsWith("data:")) {
-        setInlined({ from: thumbnailUrl, url: result.data });
-      } else {
-        setFailedUrl(thumbnailUrl);
-      }
-    });
   };
 
   return (
@@ -543,26 +523,13 @@ const PlaylistTrackItem = memo(({
           {index != null && (
             <span className="w-5 shrink-0 text-right text-sm text-primary-dark tabular-nums">{index}</span>
           )}
-          <div className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary-light">
-            {showCover && coverSrc ? (
-              <img
-                src={coverSrc}
-                alt=""
-                draggable={false}
-                onError={handleCoverError}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="grid h-full w-full place-items-center bg-primary-light">
-                <span className="icon-[solar--music-note-linear] text-primary-dark" />
-              </div>
-            )}
+          <CoverFrame thumbnails={track.thumbnails} size="md" className="bg-primary-light">
             {available && (
               <span className={mediaScrimClass}>
                 <RevealIcon iconClassName="icon-[solar--play-bold] text-lg" />
               </span>
             )}
-          </div>
+          </CoverFrame>
           <div className="flex min-w-0 flex-col items-start overflow-hidden text-start">
             <span className="flex w-full min-w-0 items-center gap-1">
               <ScrollingText className="font-medium">{track.title}</ScrollingText>

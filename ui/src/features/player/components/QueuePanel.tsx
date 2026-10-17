@@ -1,5 +1,5 @@
 import { PyBridge, type WatchTrack, type WatchTunerChip } from "@/lib/api";
-import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
+import { TrackRow } from "@/components/ui/TrackRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { cn } from "@/util/cn";
@@ -834,7 +834,6 @@ const QueueItem = ({
   onPlay: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) => {
-  const thumbnailUrl = track.thumbnail?.[0]?.url;
   const artists = (track.artists ?? []).map((artist) => artist.name).join(", ");
   const tone = accent ? readableAccent(accent) : null;
   const toneChannels = tone ? parseHex(tone) : null;
@@ -844,25 +843,25 @@ const QueueItem = ({
   );
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (consumeDragClick()) return;
-        onPlay();
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        if (!track.videoId) return;
-        onOpenMenu(event.clientX, event.clientY);
-      }}
-      className={cn(
-        "group flex w-full cursor-pointer items-center gap-2.5 rounded-lg p-1.5 text-left transition-[background-color,box-shadow,color] duration-700",
-        isCurrent ? "text-primary" : "text-primary-dark hover:bg-primary-light hover:text-primary",
-        "data-[menu-open=true]:bg-primary-light data-[menu-open=true]:text-primary",
+    <TrackRow
+      title={track.title}
+      subtitle={artists}
+      thumbnails={track.thumbnail}
+      density="panel"
+      current={isCurrent}
+      menuOpen={menuOpen}
+      reveal
+      trailing={<span className="shrink-0 text-xs text-primary-dark">{track.length}</span>}
+      shouldActivate={consumeDragClick}
+      onActivate={onPlay}
+      onContextMenu={track.videoId ? onOpenMenu : undefined}
+      coverClassName="bg-primary-light"
+      rowClassName={cn(
+        "duration-700",
+        isCurrent ? "text-primary" : "text-primary-dark hover:text-primary",
         isCurrent && !tone && "bg-primary-light"
       )}
-      data-menu-open={menuOpen ? "true" : undefined}
-      style={
+      rowStyle={
         isCurrent && tone
           ? {
               backgroundColor: hexToRgba(tone, pale ? 0.4 : 0.2),
@@ -870,24 +869,6 @@ const QueueItem = ({
             }
           : undefined
       }
-    >
-      <span className="relative size-10 shrink-0 overflow-hidden rounded-md">
-        {thumbnailUrl ? (
-          <img src={thumbnailUrl} alt="" draggable={false} className="h-full w-full object-cover" />
-        ) : (
-          <span className="grid h-full w-full place-items-center bg-primary-light">
-            <span className="icon-[solar--music-note-linear] text-primary-dark" />
-          </span>
-        )}
-        <span className={mediaScrimClass}>
-          <RevealIcon iconClassName="icon-[solar--play-bold] text-base" />
-        </span>
-      </span>
-      <span className="flex flex-col flex-1 min-w-0">
-        <span className="text-sm truncate">{track.title}</span>
-        <span className="text-xs truncate text-primary-dark">{artists}</span>
-      </span>
-      <span className="text-xs shrink-0 text-primary-dark">{track.length}</span>
-    </button>
+    />
   );
 };
