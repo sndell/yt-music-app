@@ -8,9 +8,9 @@ These notes are good defaults, not hard rules. The developer's request wins over
 
 - **window** is the pywebview process running `app/main.py`.
 - **UI** is the React app in `ui`, loaded from Vite in dev and from `ui/dist` in a frozen build.
-- **bridge** is `ui/src/lib/api/bridge.ts`. It calls Python through `window.pywebview.api` and wraps the result in `{ success, data }`.
-- **API method** is a public Python method on `MusicApi` or `Api`. The UI reaches it only when it is also in the contract and in the bridge.
-- **contract** is `ui/src/lib/api/types.ts`, the one place method params and responses are typed.
+- **bridge** is `ui/src/lib/api/transport.ts` plus the generated `ui/src/lib/api/generated/bridge.ts`. The transport calls Python through `window.pywebview.api` and wraps the result in `{ success, data }`; the wrapper list is generated.
+- **API method** is a public Python method on `MusicApi` or `Api` that carries an `@api.read`, `@api.write` or `@api.internal` declaration. The UI reaches it only when the declaration says so.
+- **contract** is those declarations, generated into `ui/src/lib/api/generated/` and paired with the hand-written payload shapes in `ui/src/lib/api/types.ts`.
 - **event** is a Python-to-UI push through `WebViewController.dispatch_event`, which calls `window.pythonEvent`.
 - **data_dir()** is where state lives: `app/` in dev, `%LOCALAPPDATA%\YTMusic` in a frozen build.
 - **frozen build** is the PyInstaller exe. It serves the packaged UI and starts no dev server.
@@ -53,7 +53,7 @@ The most common defect here is a change that works on the one path you tried and
 
 - **A new API method.** It needs the Python method, an entry in `ApiMethods` in `ui/src/lib/api/types.ts`, and a wrapper in `PyBridge` in `ui/src/lib/api/bridge.ts`. `.\check.ps1` names whichever one is missing, and `tsc -b` fails on a wrong name in the bridge.
 - **A Python to UI event.** It needs `WebViewController.dispatch_event` on the Python side and a name in `ui/src/features/player/lib/appEvents.ts` on the UI side, which `.\check.ps1` compares against the media-key map. Only the player listens today.
-- **Cached data.** Python caches payloads in `diskcache`. Change a payload's shape and raise the cache key version (`playlist:v4:` today), or the old shape is served from the cache.
+- **Cached data.** One payload family per cache kind lives in `app/contract/cache.py`: its name, its TTL, and the shape of what it stores. The version in every key is a hash of that shape, so adding a field changes the key with no bump to remember, and `store.write` refuses a payload that does not match. Never build a key or touch `diskcache` anywhere else; `.\check.ps1` fails on both.
 - **The frozen build.** The packaged page runs without Vite and without `import.meta.env.DEV`. A change that only works under Vite is not finished.
 - **Reverse states.** Every way in needs a way out and a way to see it. Like needs unlike, add needs remove, open needs close.
 - **The account.** A read that is fine in dev is still a read of the user's real library. A write needs the conversation to have asked for it.
@@ -197,7 +197,7 @@ The same variable works for the Vite window. Set it in the shell before `app\mai
 
 ## App notes
 
-Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`), keyed `playlist:v4:<playlistId>` with a 7 day expiry. The payload's `id` field is `None` for a playlist the user does not own, such as `LM`; the id is only in the key. Each track carries `addedAt`, the Unix second it was added, from `playlistItemData.voteSortValue` in the browse response `get_playlist_items` already fetches. ytmusicapi drops it, so `_PlaylistDateCapture` records it during that call and `_apply_added_dates` joins it by `setVideoId`, or by `videoId` order for a playlist owned by someone else. Albums have no add time.
+Where the data lives: opened playlists are cached on disk by Python (`diskcache` under `app/.cache`) through one payload family in `app/contract/cache.py`, keyed `playlist:<shape-hash>:<playlistId>` with a 7 day expiry, so the version is the hash of the shape that family declares. The payload's `id` field is `None` for a playlist the user does not own, such as `LM`; the id is only in the key. Each track carries `addedAt`, the Unix second it was added, from `playlistItemData.voteSortValue` in the browse response `get_playlist_items` already fetches. ytmusicapi drops it, so `_PlaylistDateCapture` records it during that call and `_apply_added_dates` joins it by `setVideoId`, or by `videoId` order for a playlist owned by someone else. Albums have no add time.
 
 Release dates: YouTube Music publishes a year for a song and never a day, and no list payload carries it. The year is the last run of the song's byline in the playlist panel ("artist • album • year"), which comes back with the `next` request `get_song_info` already sends when a song starts, so the player bar's year costs no extra call. Music videos, uploads and mixes put views or likes in that run instead, so they have none. The one exact date available is `get_song`'s microformat `uploadDate`, and that is when the video was uploaded to YouTube rather than the album's release (Numb uploads 2007, album 2003).
 
@@ -225,7 +225,7 @@ A `useCallback` that reads `ref.current` fails `react-hooks/preserve-manual-memo
 
 A music video's thumbnail is drawn in a 16:9 frame only on Home, for the shelf cards and the quick picks rows, so the video shelves read as video. Every other list keeps square art in one column. `isVideoMedia` in `ui/src/components/ui/mediaFrame.ts` decides it and Home is its only caller.
 
-Home shows every shelf `get_home` returns, in feed order. Quick picks is the one vertical list and every other shelf is a row. The shelf set is not stable: the same account returned "Shows for you", then "Live performances", then "IVAN VALEEV" within minutes, so the app cannot decide what to show from a shelf title. A shelf is dropped when none of its items map to a song, album, artist or playlist. Podcast shows are the case that matters, since `get_playlist` raises `KeyError: contents` on a show id (`MPSPPL…`) and the playlist route cannot open one. The payload is cached under `home:shelves:v4`.
+Home shows every shelf `get_home` returns, in feed order. Quick picks is the one vertical list and every other shelf is a row. The shelf set is not stable: the same account returned "Shows for you", then "Live performances", then "IVAN VALEEV" within minutes, so the app cannot decide what to show from a shelf title. A shelf is dropped when none of its items map to a song, album, artist or playlist. Podcast shows are the case that matters, since `get_playlist` raises `KeyError: contents` on a show id (`MPSPPL…`) and the playlist route cannot open one. The payload is cached under the `home` family in `app/contract/cache.py`.
 
 Playlists load a page at a time and cache as they go. `get_playlist(playlistId, limit=0)` returns the header plus the first page, about 99 tracks, and `get_playlist_items` returns that page with a `nextToken`. ytmusicapi drops the continuation token, so `_PlaylistDateCapture` reads it from the same browse response with `get_continuation_token`. `get_playlist_page` replays it as a `{"continuation": token}` browse request, takes the next token from `onResponseReceivedActions[0].appendContinuationItemsAction.continuationItems`, and appends the rows to the cached playlist. The view drives the rest itself: a cold open streams pages into the list as they arrive, and a warm open paints the whole cached list then swaps in a fresh read when it finishes, so the painted list never shrinks mid-refresh.
 

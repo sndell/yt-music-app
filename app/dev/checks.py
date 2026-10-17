@@ -66,6 +66,23 @@ def ui_events() -> set[str]:
     return set(PY_EVENT_LITERAL.findall(APP_EVENTS.read_text(encoding="utf-8")))
 
 
+def cache_discipline() -> list[str]:
+    """The disk cache has one owner; a second key composer is the old bug."""
+    allowed = {ROOT / "app/contract/cache.py", ROOT / "app/dev/checks.py"}
+    problems: list[str] = []
+    for path in sorted((ROOT / "app").rglob("*.py")):
+        if path in allowed:
+            continue
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(ROOT).as_posix()
+        if "import diskcache" in text:
+            problems.append(f"{rel}: imports diskcache; go through app/contract/cache.py")
+        for token in ("cache.get(", "cache.set(", "cache.delete(", "cache.iterkeys("):
+            if token in text:
+                problems.append(f"{rel}: calls {token}...) directly; go through the payload store")
+    return problems
+
+
 def pywebview_uses() -> list[str]:
     found: list[str] = []
     for path in sorted(UI_SRC.rglob("*.ts*")):
@@ -85,6 +102,7 @@ def main(argv: list[str]) -> int:
     problems: list[str] = []
 
     problems.extend(generated())
+    problems.extend(cache_discipline())
 
     dispatched = python_events()
     handled = ui_events()

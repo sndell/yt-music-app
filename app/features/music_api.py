@@ -23,7 +23,6 @@ from urllib.request import Request, urlopen
 
 from PIL import Image
 
-import diskcache
 import ytmusicapi
 from ytmusicapi.continuations import CONTINUATION_ITEMS, get_continuation_token
 from ytmusicapi.exceptions import YTMusicUserError
@@ -32,49 +31,38 @@ from ytmusicapi.navigation import nav
 from ytmusicapi.parsers.playlists import parse_playlist_items
 from ytmusicapi.parsers.songs import parse_song_runs
 
-from util.app_paths import cache_dir, data_dir
+from util.app_paths import data_dir
 from util.audio_stream import audio_stream
 from util.get_dominant_color import get_dominant_color_hex
 from contract.registry import api
+from contract.cache import (
+    ALBUM,
+    ARTIST,
+    HOME,
+    LIBRARY_ALBUMS,
+    LIBRARY_ARTISTS,
+    LIBRARY_SONGS,
+    LYRICS,
+    LYRICS_TRANSLATED,
+    PLAYLIST,
+    THUMB,
+    TUNER,
+    store,
+)
 
 logger = logging.getLogger(__name__)
 
 _BROWSER_JSON_PATH = data_dir() / "browser.json"
-_CACHE_DIR = cache_dir()
 
-# Initialize persistent disk cache
-cache = diskcache.Cache(str(_CACHE_DIR))
-
-# Cached home, playlist, album, and artist payloads. Callers show this copy
-# immediately and fetch again with force_refresh once a newer copy is ready.
-CACHE_DURATION = 7 * 24 * 60 * 60  # 7 days
-
-# Cache key prefixes
-CACHE_KEY_PLAYLIST_PREFIX = "playlist:v4:"
-CACHE_KEY_ALBUM_PREFIX = "album:"
-CACHE_KEY_ARTIST_PREFIX = "artist:"
-CACHE_KEY_HOME = "home:shelves:v5"
-# The saved library lists. Each is fetched in one large page and cached whole,
-# so opening the Library page paints from disk and refreshes in the background.
-CACHE_KEY_LIBRARY_SONGS = "library:songs:v1"
-CACHE_KEY_LIBRARY_ALBUMS = "library:albums:v1"
-CACHE_KEY_LIBRARY_ARTISTS = "library:artists:v2"
-# YouTube Music has no offset for these lists, only a limit, and paging re-fetches
-# from the top. One large page plus virtualization beats repeated refetches.
+# Cached payloads live behind app/contract/cache.py: one family per payload
+# kind, each with its TTL and the shape whose hash becomes the version in its
+# key. Adding a field to a payload is one edit there, not a version bump here.
+# YouTube Music has no offset for these lists, only a limit, and paging
+# re-fetches from the top. One large page plus virtualization beats repeated
+# refetches.
 LIBRARY_SONGS_LIMIT = 5000
 LIBRARY_ALBUMS_LIMIT = 1000
 LIBRARY_ARTISTS_LIMIT = 2000
-CACHE_KEY_THUMB_PREFIX = "thumb:v2:"
-THUMB_CACHE_SECONDS = 60 * 60 * 24
-# Genre tuner chips for a song's automix. Stable for hours, so cache the
-# network call; empty results are not cached so a transient miss can retry.
-CACHE_KEY_TUNER_PREFIX = "tuner:v1:"
-TUNER_CACHE_SECONDS = 60 * 60 * 12
-# Lyrics do not change for a song, so a read is cached per video id, including
-# the "no lyrics" answer. The ``MPLYt...`` browse id the lookup needs comes from
-# the watch-playlist response, which ytmusicapi drops from its track parse.
-CACHE_KEY_LYRICS_PREFIX = "lyrics:v4:"
-LYRICS_CACHE_SECONDS = 7 * 24 * 60 * 60
 # Covers are inlined inline with a request. Past this many items the request is
 # left with remote URLs and the frontend inlines failures on demand.
 MAX_INLINE_ITEMS = 150
@@ -100,16 +88,6 @@ _SEARCH_FILTERS = (
 )
 _SEARCH_SCOPES = ("library", "uploads")
 _MAX_SEARCH_LIMIT = 100
-
-
-def _cached_hit(key: str) -> dict[str, Any] | None:
-    """Return a shallow copy of a cached payload marked for a background refresh."""
-    cached = cache.get(key)
-    if not isinstance(cached, dict):
-        return None
-    payload = dict(cached)
-    payload["fromCache"] = True
-    return payload
 
 
 _LIKE_STATUSES = {"LIKE", "DISLIKE", "INDIFFERENT"}
@@ -167,13 +145,9 @@ def _year_in_payload(payload: Any, video_id: str) -> str | None:
 
 
 def _update_cached_like_status(video_id: str, rating: str) -> None:
+    """Keep every cached playlist copy's like state in step with a rating."""
     try:
-        for key in list(cache.iterkeys()):
-            if not str(key).startswith(CACHE_KEY_PLAYLIST_PREFIX):
-                continue
-            playlist = cache.get(key)
-            if not isinstance(playlist, dict):
-                continue
+        for ident, playlist in store.entries(PLAYLIST):
             tracks = playlist.get("tracks")
             if not isinstance(tracks, list):
                 continue
@@ -183,7 +157,7 @@ def _update_cached_like_status(video_id: str, rating: str) -> None:
                     track["likeStatus"] = rating
                     changed = True
             if changed:
-                cache.set(key, playlist, expire=CACHE_DURATION)
+                store.write(PLAYLIST, ident, playlist)
     except Exception as e:
         logger.warning("Could not update cached like status: %s", e)
 
@@ -453,8 +427,9 @@ def _cache_created_playlist(playlist_id: str, title: str, description: str, priv
     already knows the header, so cache it here and let the next successful
     fetch replace it.
     """
-    cache.set(
-        f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}",
+    store.write(
+        PLAYLIST,
+        playlist_id,
         {
             "owned": True,
             "id": playlist_id,
@@ -472,7 +447,6 @@ def _cache_created_playlist(playlist_id: str, title: str, description: str, priv
             "nextToken": None,
             "dominantColor": None,
         },
-        expire=CACHE_DURATION,
     )
 
 
@@ -588,8 +562,7 @@ def _inline_thumbnail(url: str) -> str:
     if not url or url.startswith("data:"):
         return url
 
-    cache_key = f"{CACHE_KEY_THUMB_PREFIX}{url}"
-    cached = cache.get(cache_key)
+    cached = store.read(THUMB, url)
     if isinstance(cached, str):
         return cached
 
@@ -607,7 +580,7 @@ def _inline_thumbnail(url: str) -> str:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=85)
         data_url = "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
-        cache.set(cache_key, data_url, expire=THUMB_CACHE_SECONDS)
+        store.write(THUMB, url, data_url)
         return data_url
     except Exception as exc:
         # A cover that cannot be fetched keeps its remote URL. This is expected
@@ -2127,7 +2100,7 @@ class MusicApi:
                 return empty
 
             if not force_refresh:
-                cached = _cached_hit(CACHE_KEY_LIBRARY_ALBUMS)
+                cached = store.read(LIBRARY_ALBUMS, "all")
                 albums = cached.get("albums") if cached else None
                 if isinstance(albums, list):
                     logger.info("Returning cached library albums (count: %d)", len(albums))
@@ -2139,7 +2112,7 @@ class MusicApi:
             _inline_playlist_thumbnails(albums)
 
             payload: dict[str, Any] = {"albums": albums}
-            cache.set(CACHE_KEY_LIBRARY_ALBUMS, payload, expire=CACHE_DURATION)
+            store.write(LIBRARY_ALBUMS, "all", payload)
             logger.info("Library albums fetched (count: %d)", len(albums))
             return payload
         except FileNotFoundError as e:
@@ -2177,7 +2150,7 @@ class MusicApi:
                 return empty
 
             if not force_refresh:
-                cached = _cached_hit(CACHE_KEY_LIBRARY_SONGS)
+                cached = store.read(LIBRARY_SONGS, "all")
                 songs = cached.get("songs") if cached else None
                 if isinstance(songs, list):
                     logger.info("Returning cached library songs (count: %d)", len(songs))
@@ -2194,7 +2167,7 @@ class MusicApi:
                     songs.append(normalized)
 
             payload: dict[str, Any] = {"songs": songs}
-            cache.set(CACHE_KEY_LIBRARY_SONGS, payload, expire=CACHE_DURATION)
+            store.write(LIBRARY_SONGS, "all", payload)
             logger.info("Library songs fetched (count: %d)", len(songs))
             return payload
         except FileNotFoundError as e:
@@ -2232,7 +2205,7 @@ class MusicApi:
                 return empty
 
             if not force_refresh:
-                cached = _cached_hit(CACHE_KEY_LIBRARY_ARTISTS)
+                cached = store.read(LIBRARY_ARTISTS, "all")
                 artists = cached.get("artists") if cached else None
                 if isinstance(artists, list):
                     logger.info("Returning cached library artists (count: %d)", len(artists))
@@ -2266,7 +2239,7 @@ class MusicApi:
 
             _inline_items(artists)
             payload: dict[str, Any] = {"artists": artists}
-            cache.set(CACHE_KEY_LIBRARY_ARTISTS, payload, expire=CACHE_DURATION)
+            store.write(LIBRARY_ARTISTS, "all", payload)
             logger.info("Library artists fetched (count: %d)", len(artists))
             return payload
         except FileNotFoundError as e:
@@ -2295,7 +2268,7 @@ class MusicApi:
                 return empty
 
             if not force_refresh:
-                cached = _cached_hit(CACHE_KEY_HOME)
+                cached = store.read(HOME, "feed")
                 if cached is not None and isinstance(cached.get("shelves"), list):
                     logger.info("Returning cached home (shelves: %d)", len(cached["shelves"]))
                     return cached
@@ -2312,7 +2285,7 @@ class MusicApi:
                 return empty
 
             result = {"shelves": shelves}
-            cache.set(CACHE_KEY_HOME, result, expire=CACHE_DURATION)
+            store.write(HOME, "feed", result)
             logger.info(
                 "Home fetched (%s)",
                 ", ".join(f"{shelf['title']}: {len(shelf['items'])}" for shelf in shelves),
@@ -2428,7 +2401,6 @@ class MusicApi:
             A dictionary containing playlist details and the first tracks,
             or an empty dict on error.
         """
-        cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
 
         try:
             if not self._is_authenticated():
@@ -2436,7 +2408,7 @@ class MusicApi:
                 return {}
 
             if not force_refresh:
-                cached = _cached_hit(cache_key)
+                cached = store.read(PLAYLIST, playlist_id)
                 if cached is not None:
                     logger.info(
                         "Returning cached playlist '%s' (tracks: %d)",
@@ -2450,6 +2422,10 @@ class MusicApi:
             playlist, next_token = _playlist_first_page(ytmusic, playlist_id)
             if not playlist:
                 return {}
+            # ytmusicapi reports the header length as ``duration_seconds``; the
+            # contract the UI reads says ``durationSeconds``.
+            if playlist.get("durationSeconds") is None:
+                playlist["durationSeconds"] = _as_int(playlist.get("duration_seconds"))
             if playlist.get("trackCount") is None:
                 tracks = playlist.get("tracks")
                 playlist["trackCount"] = len(tracks) if isinstance(tracks, list) else 0
@@ -2472,7 +2448,7 @@ class MusicApi:
             _inline_playlist_thumbnails([playlist])
 
             # Store in cache
-            cache.set(cache_key, playlist, expire=CACHE_DURATION)
+            store.write(PLAYLIST, playlist_id, playlist)
             logger.info("Playlist cached: %s", playlist_id)
 
             return playlist
@@ -2512,8 +2488,7 @@ class MusicApi:
                 return result
 
             ytmusic = self._get_ytmusic()
-            cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
-            cached = cache.get(cache_key)
+            cached = store.read_raw(PLAYLIST, playlist_id)
             is_collaborative = bool(cached.get("collaborators")) if isinstance(cached, dict) else False
 
             with _PlaylistDateCapture(ytmusic) as capture:
@@ -2532,7 +2507,7 @@ class MusicApi:
             if isinstance(cached, dict) and cached.get("nextToken") == page_token:
                 cached["tracks"] = list(cached.get("tracks") or []) + tracks
                 cached["nextToken"] = next_token
-                cache.set(cache_key, cached, expire=CACHE_DURATION)
+                store.write(PLAYLIST, playlist_id, cached)
 
             return {"tracks": tracks, "nextToken": next_token}
         except Exception as e:
@@ -2583,9 +2558,8 @@ class MusicApi:
                 logger.info("Resolved album %s to %s", browse_id, resolved)
                 browse_id = resolved
 
-            cache_key = f"{CACHE_KEY_ALBUM_PREFIX}{browse_id}"
             if not force_refresh:
-                cached = _cached_hit(cache_key)
+                cached = store.read(ALBUM, browse_id)
                 if cached is not None:
                     logger.info(
                         "Returning cached album '%s' (tracks: %d)",
@@ -2600,7 +2574,7 @@ class MusicApi:
                 return {}
 
             payload = _normalize_album(album, browse_id)
-            cache.set(cache_key, payload, expire=CACHE_DURATION)
+            store.write(ALBUM, browse_id, payload)
             logger.info(
                 "Album '%s' fetched successfully (tracks: %d)",
                 payload.get("title", "Unknown"),
@@ -2639,9 +2613,8 @@ class MusicApi:
                 logger.warning("Not authenticated - cannot return artist")
                 return {}
 
-            cache_key = f"{CACHE_KEY_ARTIST_PREFIX}{channel_id}"
             if not force_refresh:
-                cached = _cached_hit(cache_key)
+                cached = store.read(ARTIST, channel_id)
                 if cached is not None:
                     logger.info("Returning cached artist '%s'", cached.get("name", "Unknown"))
                     return cached
@@ -2654,7 +2627,7 @@ class MusicApi:
 
             payload = _normalize_artist(artist, channel_id)
             _fill_missing_song_durations(ytmusic, payload.get("songs"))
-            cache.set(cache_key, payload, expire=CACHE_DURATION)
+            store.write(ARTIST, channel_id, payload)
             logger.info("Artist '%s' fetched successfully", payload.get("name", "Unknown"))
             logger.info("Artist cached: %s", channel_id)
             return payload
@@ -2760,10 +2733,9 @@ class MusicApi:
         if not isinstance(video_id, str) or not video_id.strip():
             return []
         vid = video_id.strip()
-        cache_key = f"{CACHE_KEY_TUNER_PREFIX}{vid}"
-        cached = cache.get(cache_key)
-        if isinstance(cached, list):
-            return cached
+        cached = store.read(TUNER, vid)
+        if isinstance(cached, dict) and isinstance(cached.get("chips"), list):
+            return cached["chips"]
         try:
             ytmusic = self._get_ytmusic()
         except FileNotFoundError:
@@ -2774,7 +2746,7 @@ class MusicApi:
             logger.exception("Failed to fetch queue tuner: %s", e)
             return []
         if chips:
-            cache.set(cache_key, chips, expire=TUNER_CACHE_SECONDS)
+            store.write(TUNER, vid, {"chips": chips})
         return chips
 
     @api.read(returns="Lyrics", cache="lyrics")
@@ -2795,8 +2767,7 @@ class MusicApi:
         if not isinstance(video_id, str) or not video_id.strip():
             raise ValueError("video id is required")
         ident = video_id.strip()
-        cache_key = f"{CACHE_KEY_LYRICS_PREFIX}{ident}"
-        cached = cache.get(cache_key)
+        cached = store.read(LYRICS, ident)
         if isinstance(cached, dict):
             return cached
 
@@ -2825,7 +2796,7 @@ class MusicApi:
                     payload["lines"] = timed["lines"]
                     payload["source"] = payload["source"] or timed["source"]
 
-        cache.set(cache_key, payload, expire=LYRICS_CACHE_SECONDS)
+        store.write(LYRICS, ident, payload)
         logger.info(
             "Lyrics for %s: %s",
             ident,
@@ -2854,8 +2825,7 @@ class MusicApi:
         if not isinstance(language, str) or not re.fullmatch(r"[a-zA-Z]{2}(-[a-zA-Z]{2,4})?", language.strip()):
             language = "en"
         language = language.strip()
-        cache_key = f"lyrics:{language}:v1:{ident}"
-        cached = cache.get(cache_key)
+        cached = store.read(LYRICS_TRANSLATED, f"{ident}:{language}")
         if isinstance(cached, dict):
             return cached
 
@@ -2897,7 +2867,7 @@ class MusicApi:
         # next press can try again. A song already in the target language is an
         # answer, and one that will not change.
         if payload["translated"] or payload["language"]:
-            cache.set(cache_key, payload, expire=LYRICS_CACHE_SECONDS)
+            store.write(LYRICS_TRANSLATED, f"{ident}:{language}", payload)
         logger.info("Lyrics translation for %s: %s -> %s", ident, payload["language"], language)
         return payload
 
@@ -3352,7 +3322,7 @@ class MusicApi:
             _BROWSER_JSON_PATH.with_suffix(".json.tmp").unlink(missing_ok=True)
             self._reset_ytmusic()
             cleared = len(cache)
-            cache.clear()
+            store.clear()
             logger.info("Signed out and cleared %d cached items", cleared)
         except Exception as exc:
             logger.exception("Sign-out failed")
@@ -3382,8 +3352,7 @@ class MusicApi:
         return {"status": text}
 
     def _reorder_cached_playlist(self, playlist_id: str, set_video_id: str, before: str | None) -> None:
-        cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
-        cached = cache.get(cache_key)
+        cached = store.read_raw(PLAYLIST, playlist_id)
         if not isinstance(cached, dict):
             return
         tracks = cached.get("tracks")
@@ -3405,7 +3374,7 @@ class MusicApi:
             to_index = len(tracks)
         tracks.insert(to_index, item)
         cached["tracks"] = tracks
-        cache.set(cache_key, cached, expire=CACHE_DURATION)
+        store.write(PLAYLIST, playlist_id, cached)
 
     @api.write(returns="{ status: string; /** New setVideoId per added video, for position-restoring undo. */ setVideoIds: Record<string, string>; /** True when YouTube rejected the edit because the songs were already there. */ duplicate?: boolean; }")
     def add_playlist_items(
@@ -3444,7 +3413,7 @@ class MusicApi:
                 logger.info("Playlist %s already has %s", playlist_id, ids)
                 return {"status": "DUPLICATE", "setVideoIds": {}, "duplicate": True}
             raise
-        cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        store.drop(PLAYLIST, playlist_id)
         _record_playlist_stat(playlist_id, "add")
         results: dict[str, str] = {}
         if isinstance(result, dict):
@@ -3463,7 +3432,7 @@ class MusicApi:
         The cached track list answers for free when it can; otherwise the
         playlist is fetched fresh rather than trusting a stale miss.
         """
-        cached = cache.get(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        cached = store.read_raw(PLAYLIST, playlist_id)
         if _playlist_contains_videos(cached, video_ids) is True:
             return True
         try:
@@ -3500,7 +3469,7 @@ class MusicApi:
         ytmusic = self._get_ytmusic()
         result = ytmusic.remove_playlist_items(playlist_id, rows)
         status = _edit_status(result, "Could not remove from the playlist")
-        cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        store.drop(PLAYLIST, playlist_id)
         return {"status": status}
 
     @api.write(returns="{ status: string; removed: number }")
@@ -3606,7 +3575,7 @@ class MusicApi:
         ytmusic = self._get_ytmusic()
         result = ytmusic.edit_playlist(playlist_id, title=title, description=description, privacyStatus=privacy)
         status = _edit_status(result, "Could not update the playlist")
-        cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
+        store.drop(PLAYLIST, playlist_id)
         return {"status": status}
 
     @api.write(returns="{ status: string }")
@@ -3722,8 +3691,7 @@ class MusicApi:
         not_found = []
         
         for playlist_id in playlist_ids:
-            cache_key = f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}"
-            if cache.delete(cache_key):
+            if store.drop(PLAYLIST, playlist_id):
                 invalidated.append(playlist_id)
                 logger.info("Cache invalidated for playlist: %s", playlist_id)
             else:
@@ -3740,6 +3708,6 @@ class MusicApi:
             A dict with 'cleared' count of items removed.
         """
         count = len(cache)
-        cache.clear()
+        store.clear()
         logger.info("All cache cleared (%d items)", count)
         return {"cleared": count}
