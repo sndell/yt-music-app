@@ -49,6 +49,7 @@ from contract.cache import (
     MOOD_PLAYLISTS,
     MOODS,
     PLAYLIST,
+    RELATED,
     THUMB,
     TUNER,
     store,
@@ -59,6 +60,7 @@ from features.music.charts import _chart_country_code, _charts_payload, _empty_c
 from features.music.lyrics import _lyrics_browse_id, _normalize_lyrics, _query_batches, _signed_out_client, _split_blocks, _timed_lyrics, _translate_block, _translate_lines_individually, _translate_lyric_lines, _translate_request  # moved out of this module
 from features.music.moods import _empty_mood_categories, _mood_fallback_sections, _mood_playlists, _mood_sections, MOODS_BROWSE_ID  # the moods and genres browse page
 from features.music.explore import _explore_sections  # the explore feed
+from features.music.related import _related_sections  # the watch playlist's Related tab
 from features.music.playlists import _PlaylistDateCapture, _apply_added_dates, _date_sink, _fetch_all_playlist_tracks, _find_playlist_shelf, _forget_playlist_stat, _install_date_recorder, _load_playlist_stats, _playlist_first_page, _playlist_stat_score, _playlist_track_page, _record_playlist_stat, _save_playlist_stats, _token_sink, _walk_playlist_item_data  # moved out of this module
 
 logger = logging.getLogger(__name__)
@@ -1879,6 +1881,48 @@ class MusicApi:
         if chips:
             store.write(TUNER, vid, {"chips": chips})
         return chips
+
+    @api.read(returns="RelatedSection[]", cache="related")
+    def get_song_related(self, related_id: str) -> list[dict[str, Any]]:
+        """YouTube Music's Related tab for the song that started the queue.
+
+        ``related_id`` is the ``related`` browse id that already comes back on
+        the watch playlist response the queue is built from, so obtaining the id
+        costs no extra lookup. The answer is YouTube's sections in its own
+        order, each a title with the rows under it: a song plays, an album,
+        playlist or artist opens its own page, and an about-the-artist block is
+        one text row.
+
+        Returns:
+            The sections, or an empty list when YouTube Music shows none for
+            this song. Raises when the read fails and nothing is cached.
+        """
+        ident = related_id.strip() if isinstance(related_id, str) else ""
+        if not ident:
+            return []
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return related songs")
+                return []
+
+            cached = store.read(RELATED, ident)
+            if cached is not None and isinstance(cached.get("sections"), list):
+                logger.info("Returning cached related songs (%s)", ident)
+                return cached["sections"]
+
+            logger.info("Fetching related songs for %s...", ident)
+            sections = _related_sections(self._get_ytmusic().get_song_related(ident))
+            # An answer of no sections is an answer, and a stable one, so it is
+            # cached; a failed read is raised below and left uncached.
+            store.write(RELATED, ident, {"sections": sections})
+            logger.info("Related songs fetched (%s: %d sections)", ident, len(sections))
+            return sections
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            raise
+        except Exception as e:
+            logger.exception("Failed to fetch related songs: %s", e)
+            raise
 
     @api.read(returns="Lyrics", cache="lyrics")
     def get_lyrics(self, video_id: str) -> dict[str, Any]:

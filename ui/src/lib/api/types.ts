@@ -200,6 +200,33 @@ export interface ExploreFeed {
   fromCache?: boolean;
 }
 
+/**
+ * One row of the watch playlist's Related tab. A song plays; an album, playlist
+ * or artist opens its own page; a `text` row is YouTube's about-the-artist
+ * paragraph, which has nothing to open. Rows share the Home item's field set.
+ */
+export type RelatedItemKind = "song" | "album" | "playlist" | "artist" | "text";
+
+export interface RelatedItem {
+  kind: RelatedItemKind;
+  title: string;
+  subtitle: string;
+  artists: Artist[];
+  thumbnails: Thumbnail[];
+  videoId: string | null;
+  playlistId: string | null;
+  browseId: string | null;
+  explicit: boolean;
+  /** Set on playable rows, so the player knows a video rendition from a track. */
+  videoType?: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | null;
+}
+
+/** One Related section: YouTube's title and the rows under it, in its order. */
+export interface RelatedSection {
+  title: string;
+  items: RelatedItem[];
+}
+
 /** One of YouTube's chart lists: its daily, weekly, or a country's own shelves. */
 export interface ChartSection {
   /** YouTube's own list key, e.g. "daily", "weekly", "genres". */
