@@ -252,6 +252,8 @@ YouTube gates the Google Video Server per account in rolling experiments (yt-dlp
 
 History is written from the audio element's `playing` event, not `play`: `play` fires the moment `play()` is accepted, before any byte arrives, which added every refused song to the account's history (about 40 entries on the reported machine in a day). The player toast now carries the Python error message, so a remote user can report the reason from a screenshot.
 
+A dev window is a real window on the desktop, so anyone can click a song in it while an agent works; that plays it and writes the history row, and the log line reads as if the agent did it. Verified once: a history entry appeared in a verifier's instance that no command in the record played. Stop every instance when a run ends, and read a history line with that in mind before blaming the run.
+
 ## Music video overlay
 
 The player bar's video button toggles a video overlay when the playing song has a music video. `currentVideoId` in `PlayerContext` decides this with `musicVideoId`: the row's own id when its `videoType` is `MUSIC_VIDEO_TYPE_OMV`, or the watch playlist's `counterpart` id when the counterpart is an OMV. Library songs are all `MUSIC_VIDEO_TYPE_ATV`, so the counterpart is the usual path.
