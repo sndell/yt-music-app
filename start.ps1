@@ -168,5 +168,9 @@ $env:YTM_INSTANCE = $Id
 if ($Label) { $env:YTM_INSTANCE_LABEL = $Label }
 if ($IsolatedCache) { $env:YTM_ISOLATE_CACHE = "1" }
 if ($Reseed) { $env:YTM_RESEED = "1" }
+# Python logs to stderr. Under ErrorActionPreference=Stop, PowerShell 5.1 turns
+# a native stderr line into a terminating error, so the window died on its first
+# log line. Continue keeps it alive and the exit code still reaches the caller.
+$ErrorActionPreference = "Continue"
 & $Python $MainPy
 exit $LASTEXITCODE

@@ -3522,23 +3522,6 @@ class MusicApi:
         result = self.remove_playlist_items(playlist_id, items)
         return {"status": result.get("status", "SUCCEEDED"), "removed": len(items)}
 
-    def rename_playlist(self, playlist_id: str, title: str) -> dict[str, str]:
-        """Rename one of the user's playlists."""
-        if not isinstance(playlist_id, str) or not playlist_id:
-            raise ValueError("playlist id is required")
-        if not isinstance(title, str) or not title.strip():
-            raise ValueError("title is required")
-        return self._edit_playlist(playlist_id, title=title.strip())
-
-    def set_playlist_privacy(self, playlist_id: str, privacy: str) -> dict[str, str]:
-        """Change the visibility of one of the user's playlists."""
-        if not isinstance(playlist_id, str) or not playlist_id:
-            raise ValueError("playlist id is required")
-        value = privacy.upper() if isinstance(privacy, str) else ""
-        if value not in _PRIVACY_STATUSES:
-            raise ValueError("privacy must be PUBLIC, PRIVATE or UNLISTED")
-        return self._edit_playlist(playlist_id, privacy=value)
-
     def edit_playlist(self, playlist_id: str, patch: dict[str, Any] | None = None) -> dict[str, str]:
         """Apply any mix of title, description and privacy changes at once.
 

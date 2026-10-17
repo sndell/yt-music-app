@@ -30,6 +30,11 @@ function Resolve-Python {
 
 $Python = Resolve-Python
 
+# The seams first: they are seconds and they explain a type error before tsc
+# has to. The frozen page ships the same contract the checks prove.
+& (Join-Path $Root "check.ps1")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 Push-Location (Join-Path $Root "ui")
 try {
     pnpm exec tsc -b

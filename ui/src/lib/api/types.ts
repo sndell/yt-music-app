@@ -498,7 +498,7 @@ export interface ApiMethods {
     ];
     response: void;
   };
-    get_watch_playlist: {
+  get_watch_playlist: {
     params: [videoId: string, playlistId: string, radio?: boolean, shuffle?: boolean];
     response: WatchPlaylist;
   };
