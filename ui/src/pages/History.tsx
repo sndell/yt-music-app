@@ -51,6 +51,10 @@ export const History = () => {
   }, [load]);
 
   const list = songs ?? [];
+  // History repeats a song once per play, so the app-wide videoId match would
+  // light every copy at once. Highlight only the first (newest) occurrence so
+  // the list keeps the shared convention but lights one row.
+  const playingIndex = currentSong ? list.findIndex((track) => track.videoId === currentSong.videoId) : -1;
   const virtualizer = useVirtualizer({
     count: list.length,
     getScrollElement: () => scrollRef.current,
@@ -104,7 +108,7 @@ export const History = () => {
                 >
                   <LibraryTrackRow
                     track={track}
-                    playing={currentSong?.videoId === track.videoId}
+                    playing={row.index === playingIndex}
                     onPlay={() => playTracks([track])}
                   />
                 </div>
