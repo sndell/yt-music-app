@@ -54,30 +54,32 @@ TRACK_SHAPE: Shape = (
     "year?",
 )
 
-# Playlist rows are ytmusicapi's own track dicts with this app's addedAt on top,
-# measured from a live payload: they carry ``duration_seconds`` rather than
-# ``durationSeconds`` and have no ``year``. The UI's Track type already lies
-# about those two fields for playlist rows; normalizing them is its own change.
+# Playlist rows are ytmusicapi's own track dicts with this app's addedAt on top.
+# Measured against a live read: fields come and go by row (a non-editable list
+# has no setVideoId; a row with no like target has no feedbackTokens; some rows
+# carry creditsBrowseId), so only the four a row cannot render without stay
+# required. The UI's Track type also claims durationSeconds and year for these
+# rows, which they do not carry; normalizing them is its own change.
 PLAYLIST_TRACK_SHAPE: Shape = (
-    "addedAt?",
-    "album",
-    "artists",
-    "communityVoteStatus",
-    "duration",
-    "duration_seconds",
-    "feedbackTokens",
-    "inLibrary",
-    "isAvailable",
-    "isExplicit",
-    "likeStatus",
-    "listenAgainFeedbackTokens",
-    "pinnedToListenAgain",
-    "setVideoId?",
-    "thumbnails",
-    "title",
     "videoId",
-    "videoType",
-    "views",
+    "title",
+    "artists",
+    "thumbnails",
+    "addedAt?",
+    "album?",
+    "communityVoteStatus?",
+    "duration?",
+    "duration_seconds?",
+    "feedbackTokens?",
+    "inLibrary?",
+    "isAvailable?",
+    "isExplicit?",
+    "likeStatus?",
+    "listenAgainFeedbackTokens?",
+    "pinnedToListenAgain?",
+    "setVideoId?",
+    "videoType?",
+    "views?",
 )
 
 HOME_ITEM_SHAPE: Shape = (
