@@ -222,6 +222,8 @@ A track row's context menu has no visible button; it opens on `contextmenu`. Dis
 
 The app uses wouter's hash router, so setting `window.location.hash = "#/album/<browseId>"` moves the window to a route. Pushing a pathname does not, and a reload then drops back to Home.
 
+A route param that must reach Python unchanged needs `decodeURIComponent` on read. wouter's `useLocation` runs `decodeURI`, which leaves reserved escapes (`%2B`, `%3D`, `%2F`) encoded, so a `params` token a tile wrote with `encodeURIComponent` arrives at `useParams` still encoded. `MoodCategory` pairs the two.
+
 A `useCallback` that reads `ref.current` fails `react-hooks/preserve-manual-memoization` when the ref is a derived value such as `propRef ?? localRef`, because the compiler infers `ref.current` as a dependency. Move that function into the effect that uses it. A ref received as a prop does not trip it, which is why `useEdgeFade` passes lint.
 
 A music video's thumbnail is drawn in a 16:9 frame only on Home, for the shelf cards and the quick picks rows, so the video shelves read as video. A shelf card holds the square card's height and takes the 16:9 width for that height (`CARD_WIDTH` in `ui/src/pages/home/HomeShelf.tsx`), so the titles share a baseline across a row. Every other list keeps square art in one column. `isVideoMedia` in `ui/src/components/ui/mediaFrame.ts` decides it and Home is its only caller.
