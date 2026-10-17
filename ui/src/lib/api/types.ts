@@ -160,6 +160,46 @@ export interface MoodPlaylists {
   fromCache?: boolean;
 }
 
+/**
+ * One Explore row. A song or a video plays; an album, playlist or artist opens
+ * its own page. The kind is the section's, not the id's: a chart row and a
+ * new-video row are both `videoId` rows, and only the section tells them apart.
+ */
+export type ExploreItemKind = "song" | "video" | "album" | "playlist" | "artist";
+
+export interface ExploreItem {
+  kind: ExploreItemKind;
+  title: string;
+  subtitle: string;
+  artists: Artist[];
+  thumbnails: Thumbnail[];
+  videoId: string | null;
+  playlistId: string | null;
+  browseId: string | null;
+  explicit: boolean;
+  /** Set on playable items, so the player knows a video rendition from a track. */
+  videoType?: "MUSIC_VIDEO_TYPE_ATV" | "MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | null;
+}
+
+/** How one Explore section draws its contents. */
+export type ExploreSectionLayout = "cards" | "songs" | "moods";
+
+export interface ExploreSection {
+  /** YouTube's carousel id (`new_releases`, `trending`, ...). */
+  key: string;
+  title: string;
+  layout: ExploreSectionLayout;
+  /** The rows of a `cards` or `songs` section; empty for `moods`. */
+  items: ExploreItem[];
+  /** The tiles of a `moods` section; empty for every other layout. */
+  categories: MoodCategory[];
+}
+
+export interface ExploreFeed {
+  sections: ExploreSection[];
+  fromCache?: boolean;
+}
+
 export interface Track {
   videoId: string;
   title: string;

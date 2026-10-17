@@ -20,6 +20,7 @@ export const Sidebar = () => {
       <div className="rounded-xl bg-primary p-1.5">
         <div className="flex flex-col gap-1.5">
           <SidebarItem icon="icon-[solar--home-2-linear]" path="/" text="Home" />
+          <SidebarItem icon="icon-[solar--compass-linear]" path="/explore" text="Explore" />
           <SidebarItem icon="icon-[solar--library-linear]" path="/library" text="Library" />
           <SidebarItem icon="icon-[solar--history-linear]" path="/history" text="History" />
           <SidebarItem icon="icon-[solar--widget-5-linear]" path="/moods" text="Moods & genres" nested />

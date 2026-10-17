@@ -105,6 +105,34 @@ HOME_ITEM_SHAPE: Shape = (
 
 HOME_SHELF_SHAPE: Shape = ("title", "layout", ("items", HOME_ITEM_SHAPE))
 
+# An Explore row is the same field set as a Home item, but its kind may also be
+# "video": a new-videos row is a card that plays, where Home would call the same
+# row a song. Declared apart from HOME_ITEM_SHAPE so the two can drift.
+EXPLORE_ITEM_SHAPE: Shape = (
+    "kind",
+    "title",
+    "subtitle",
+    "artists",
+    "thumbnails",
+    "videoId",
+    "playlistId",
+    "browseId",
+    "explicit",
+    "videoType?",
+)
+
+# An Explore section carries its own layout, so the UI picks the card without
+# reading YouTube's carousel title. The moods section fills `categories` (tiles
+# that link into /moods) and leaves `items` empty; every other section does the
+# reverse.
+EXPLORE_SECTION_SHAPE: Shape = (
+    "key",
+    "title",
+    "layout",
+    ("items", EXPLORE_ITEM_SHAPE),
+    ("categories", MOOD_CATEGORY_SHAPE),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Family:
@@ -164,6 +192,9 @@ PLAYLIST = Family(
     strict_extra=False,
 )
 HOME = Family(name="home", ttl=WEEK, shape=(("shelves", HOME_SHELF_SHAPE),))
+# YouTube Music's Explore page: one family for the whole feed, keyed by a single
+# id, because every section comes from the one browse request.
+EXPLORE = Family(name="explore", ttl=WEEK, shape=(("sections", EXPLORE_SECTION_SHAPE),))
 # The moods and genres page, and the one category a user opened. A category
 # payload is keyed by the category's own params token, the same one the page's
 # route carries.
