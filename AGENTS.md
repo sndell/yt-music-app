@@ -63,7 +63,8 @@ The most common defect here is a change that works on the one path you tried and
 | Path | What it is |
 | --- | --- |
 | `app/main.py` | Startup, the window, and `Api` (media controls, Discord, volume) on top of `MusicApi` |
-| `app/features/music_api.py` | The YouTube Music surface the UI calls |
+| `app/features/music_api.py` | The YouTube Music surface the UI calls, and the writes |
+| `app/features/music/` | The helpers behind it: payload builders (`normalize.py`), lyrics and translation (`lyrics.py`), playlist paging, date capture and stats (`playlists.py`) |
 | `app/util/` | Window helpers: paths, audio, media keys, Discord, preferences, the packaged UI server, the event dispatcher |
 | `app/dev/` | Dev-only tooling: `vite.py` starts the dev server, `control.py` serves the dev HTTP surface, `logs.py` captures logs, `cli.py` talks to a running instance |
 | `ui/src/features/<name>/` | One folder per feature: album, artist, library, player, playlist, search, settings |

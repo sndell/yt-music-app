@@ -50,6 +50,10 @@ from contract.cache import (
     store,
 )
 
+from features.music.normalize import _album_home_subtitle, _album_track, _artist_track, _as_int, _as_text, _dominant_color, _empty_home, _empty_quick_picks, _fill_missing_song_durations, _home_item, _home_layout, _home_shelves, _inline_items, _inline_thumbnail, _inline_thumbnail_field, _joined_names, _landscape_thumbnail, _named_album, _normalize_album, _normalize_artist, _optional_str, _other_version, _people, _playlist_subtitle, _related_artists, _release_item, _release_shelf, _search_count_label, _search_people, _search_playlist_id, _search_result, _song_subtitle, _songs_shelf, _thumbnails, _videos_shelf  # moved out of this module
+from features.music.lyrics import _lyrics_browse_id, _normalize_lyrics, _query_batches, _signed_out_client, _split_blocks, _timed_lyrics, _translate_block, _translate_lines_individually, _translate_lyric_lines, _translate_request  # moved out of this module
+from features.music.playlists import _PlaylistDateCapture, _apply_added_dates, _date_sink, _fetch_all_playlist_tracks, _find_playlist_shelf, _forget_playlist_stat, _install_date_recorder, _load_playlist_stats, _playlist_first_page, _playlist_stat_score, _playlist_track_page, _record_playlist_stat, _save_playlist_stats, _token_sink, _walk_playlist_item_data  # moved out of this module
+
 logger = logging.getLogger(__name__)
 
 _BROWSER_JSON_PATH = data_dir() / "browser.json"
@@ -195,42 +199,8 @@ def _playlist_contains_videos(playlist: Any, video_ids: list[str]) -> bool | Non
     return all(video_id in present for video_id in video_ids)
 
 
-def _walk_playlist_item_data(response: Any):
-    """Yield every ``playlistItemData`` in a browse response, in page order.
-
-    Each playlist item carries its add time here. The dict sits under
-    ``musicResponsiveListItemRenderer``, but that wrapper moves between app
-    versions, so walk the whole response rather than hard-code the path.
-    """
-    if isinstance(response, dict):
-        data = response.get("playlistItemData")
-        if isinstance(data, dict):
-            yield data
-        for value in response.values():
-            yield from _walk_playlist_item_data(value)
-    elif isinstance(response, list):
-        for value in response:
-            yield from _walk_playlist_item_data(value)
 
 
-def _find_playlist_shelf(response: Any) -> dict[str, Any] | None:
-    """The first ``musicPlaylistShelfRenderer`` in a browse response.
-
-    A playlist page keeps its first tracks and its continuation token here. The
-    wrapper that holds it moves between app versions, so walk the response
-    rather than hard-code the path.
-    """
-    stack: list[Any] = [response]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, dict):
-            shelf = node.get("musicPlaylistShelfRenderer")
-            if isinstance(shelf, dict):
-                return shelf
-            stack.extend(node.values())
-        elif isinstance(node, list):
-            stack.extend(node)
-    return None
 
 
 # Sinks the recorder writes into, one per thread and stack-shaped. A list at
@@ -239,183 +209,20 @@ def _find_playlist_shelf(response: Any) -> dict[str, Any] | None:
 _date_sinks = threading.local()
 
 
-def _date_sink() -> list[dict[str, Any]] | None:
-    stack = getattr(_date_sinks, "stack", None)
-    return stack[-1] if stack else None
 
 
-def _token_sink() -> list[str] | None:
-    stack = getattr(_date_sinks, "tokens", None)
-    return stack[-1] if stack else None
 
 
-def _install_date_recorder(ytmusic: Any) -> None:
-    """Route this client's browse responses through the add-time recorder.
-
-    Installed once per client. The wrapper only forwards and writes to the
-    calling thread's sink, so a fetch cannot leave the client patched or
-    unpatched for another, and overlapping fetches keep their own items.
-    """
-    if getattr(ytmusic, "_date_recorder", None) is not None:
-        return
-    original = ytmusic._send_request
-
-    def send(endpoint: str, body: Any, additional_params: Any = "") -> Any:
-        response = original(endpoint, body, additional_params)
-        sink = _date_sink()
-        if sink is not None:
-            sink.extend(_walk_playlist_item_data(response))
-        tokens = _token_sink()
-        if tokens is not None and not tokens:
-            shelf = _find_playlist_shelf(response)
-            contents = shelf.get("contents") if isinstance(shelf, dict) else None
-            if isinstance(contents, list) and contents:
-                token = get_continuation_token(contents)
-                if token:
-                    tokens.append(token)
-        return response
-
-    ytmusic._send_request = send
-    ytmusic._date_recorder = send
 
 
-class _PlaylistDateCapture:
-    """Collects add times and the next-page token while a playlist is fetched.
-
-    The playlist browse response carries ``playlistItemData.voteSortValue``,
-    the Unix second a track was added, which is the value YouTube Music's own
-    "Date added" sort orders by. ytmusicapi parses that same response but drops
-    the field, so recording it while ``get_playlist`` runs keeps the timestamps
-    without a second request. The response also carries the continuation token
-    for the page after the first, which ytmusicapi drops too.
-    """
-
-    def __init__(self, ytmusic: Any) -> None:
-        _install_date_recorder(ytmusic)
-        self.items: list[dict[str, Any]] = []
-        self.tokens: list[str] = []
-
-    @property
-    def next_token(self) -> str | None:
-        return self.tokens[0] if self.tokens else None
-
-    def __enter__(self) -> "_PlaylistDateCapture":
-        stack = getattr(_date_sinks, "stack", None)
-        if stack is None:
-            stack = _date_sinks.stack = []
-        stack.append(self.items)
-        tokens = getattr(_date_sinks, "tokens", None)
-        if tokens is None:
-            tokens = _date_sinks.tokens = []
-        tokens.append(self.tokens)
-        return self
-
-    def __exit__(self, *_exc: Any) -> None:
-        stack = getattr(_date_sinks, "stack", None)
-        if stack:
-            stack.pop()
-        tokens = getattr(_date_sinks, "tokens", None)
-        if tokens:
-            tokens.pop()
 
 
-def _apply_added_dates(tracks: Any, items: list[dict[str, Any]]) -> int:
-    """Stamp ``addedAt`` (Unix seconds) onto parsed playlist tracks.
-
-    Owned playlists keep a ``setVideoId`` per track, which matches the raw item
-    exactly. Playlists owned by anyone else come back without one, so those
-    tracks take the remaining raw items in the order both lists share. Returns
-    how many tracks got an add time.
-    """
-    if not isinstance(tracks, list):
-        return 0
-
-    by_set_video: dict[str, int] = {}
-    by_video: dict[str, list[int]] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        value = item.get("voteSortValue")
-        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-            continue
-        set_video_id = item.get("playlistSetVideoId")
-        if isinstance(set_video_id, str) and set_video_id:
-            by_set_video[set_video_id] = value
-        video_id = item.get("videoId")
-        if isinstance(video_id, str) and video_id:
-            by_video.setdefault(video_id, []).append(value)
-
-    stamped = 0
-    for track in tracks:
-        if not isinstance(track, dict):
-            continue
-        set_video_id = track.get("setVideoId")
-        value = by_set_video.get(set_video_id) if isinstance(set_video_id, str) and set_video_id else None
-        if value is None:
-            queue = by_video.get(track.get("videoId"))
-            if queue:
-                value = queue.pop(0)
-        if value is not None:
-            track["addedAt"] = value
-            stamped += 1
-    return stamped
 
 
-def _playlist_first_page(ytmusic: Any, playlist_id: str) -> tuple[dict[str, Any], str | None]:
-    """Read a playlist header and its first page of tracks, plus the next token.
-
-    ``limit=0`` stops ytmusicapi from following continuations, so one request
-    returns the header, about a hundred tracks, and the token for the page
-    after them. That token is not in the parsed result, so the recorder picks
-    it out of the same response.
-    """
-    with _PlaylistDateCapture(ytmusic) as capture:
-        playlist = ytmusic.get_playlist(playlist_id, limit=0)
-    if not isinstance(playlist, dict):
-        return {}, None
-    _apply_added_dates(playlist.get("tracks"), capture.items)
-    return playlist, capture.next_token
 
 
-def _playlist_track_page(
-    ytmusic: Any, page_token: str, is_collaborative: bool
-) -> tuple[list[dict[str, Any]], str | None]:
-    """Read one page of playlist tracks from a continuation token.
-
-    Returns the page and the token after it, or ``None`` when this was the last
-    page. The response carries the page's playlist item data, so the caller can
-    stamp add times from the same request.
-    """
-    response = ytmusic._send_request("browse", {"continuation": page_token})
-    items = nav(response, CONTINUATION_ITEMS, True)
-    if not isinstance(items, list) or not items:
-        return [], None
-    return parse_playlist_items(items, is_collaborative=is_collaborative), get_continuation_token(items)
 
 
-def _fetch_all_playlist_tracks(ytmusic: Any, playlist_id: str) -> list[dict[str, Any]]:
-    """Every track of a playlist, in one call.
-
-    Used by the callers that cannot work from a page: the duplicate check on an
-    add, a row lookup on a removal, queueing, and true shuffle. A list whose
-    header reports no size is a generated mix that never ends, so it is left at
-    its first page, the same guard `get_playlist_items` uses.
-    """
-    playlist, token = _playlist_first_page(ytmusic, playlist_id)
-    tracks = list(playlist.get("tracks") or [])
-    if playlist.get("trackCount") is None:
-        return tracks
-    is_collaborative = bool(playlist.get("collaborators"))
-    seen: set[str] = set()
-    while token and token not in seen:
-        seen.add(token)
-        with _PlaylistDateCapture(ytmusic) as capture:
-            page, token = _playlist_track_page(ytmusic, token, is_collaborative)
-        if not page:
-            break
-        _apply_added_dates(page, capture.items)
-        tracks.extend(page)
-    return tracks
 
 
 def _cache_created_playlist(playlist_id: str, title: str, description: str, privacy: str) -> None:
@@ -475,159 +282,18 @@ _PLAYLIST_STAT_WEIGHTS = {"add": 1.5, "play": 1.0}
 _PLAYLIST_STAT_HALF_LIFE_DAYS = 3.0
 
 
-def _load_playlist_stats() -> dict[str, dict[str, list[float]]]:
-    try:
-        with _PLAYLIST_STATS_PATH.open(encoding="utf-8") as handle:
-            raw = json.load(handle)
-    except FileNotFoundError:
-        return {kind: {} for kind in _PLAYLIST_STAT_KINDS}
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning("Playlist stats unreadable, starting fresh: %s", e)
-        return {kind: {} for kind in _PLAYLIST_STAT_KINDS}
-    if not isinstance(raw, dict):
-        return {kind: {} for kind in _PLAYLIST_STAT_KINDS}
-    stats: dict[str, dict[str, list[float]]] = {}
-    for kind in _PLAYLIST_STAT_KINDS:
-        entries = raw.get(kind)
-        if not isinstance(entries, dict):
-            entries = {}
-        stats[kind] = {}
-        for playlist_id, events in entries.items():
-            if not isinstance(playlist_id, str) or not isinstance(events, list):
-                continue
-            timestamps = [float(ts) for ts in events if isinstance(ts, (int, float)) and ts > 0]
-            if timestamps:
-                stats[kind][playlist_id] = timestamps
-    return stats
 
 
-def _save_playlist_stats(stats: dict[str, dict[str, list[float]]]) -> None:
-    tmp_path = _PLAYLIST_STATS_PATH.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(stats), encoding="utf-8")
-    tmp_path.replace(_PLAYLIST_STATS_PATH)
 
 
-def _record_playlist_stat(playlist_id: str, kind: str) -> None:
-    """Append one usage event for a playlist. Best effort; never fails the caller."""
-    if not playlist_id or kind not in _PLAYLIST_STAT_KINDS:
-        return
-    try:
-        with _PLAYLIST_STATS_LOCK:
-            stats = _load_playlist_stats()
-            events = stats.setdefault(kind, {}).setdefault(playlist_id, [])
-            events.append(time.time())
-            stats[kind][playlist_id] = events[-_PLAYLIST_STAT_MAX_EVENTS:]
-            if len(stats[kind]) > 500:
-                cutoff = time.time() - 60 * 60 * 24 * 30
-                stats[kind] = {
-                    pid: kept for pid, kept in stats[kind].items() if kept and kept[-1] >= cutoff
-                }
-            _save_playlist_stats(stats)
-    except Exception as e:
-        logger.warning("Could not record playlist stat: %s", e)
 
 
-def _forget_playlist_stat(playlist_id: str) -> None:
-    try:
-        with _PLAYLIST_STATS_LOCK:
-            stats = _load_playlist_stats()
-            changed = False
-            for kind in _PLAYLIST_STAT_KINDS:
-                if playlist_id in stats.get(kind, {}):
-                    stats[kind].pop(playlist_id, None)
-                    changed = True
-            if changed:
-                _save_playlist_stats(stats)
-    except Exception as e:
-        logger.warning("Could not forget playlist stat: %s", e)
 
 
-def _playlist_stat_score(stats: dict[str, dict[str, list[float]]], playlist_id: str) -> float:
-    """Blend recent adds (dominant) and plays with exponential time decay."""
-    now = time.time()
-    decay = 86400.0 * _PLAYLIST_STAT_HALF_LIFE_DAYS
-    score = 0.0
-    for kind, weight in _PLAYLIST_STAT_WEIGHTS.items():
-        for ts in stats.get(kind, {}).get(playlist_id, []):
-            score += weight * 2 ** (-(now - ts) / decay)
-    return score
 
 
-def _inline_thumbnail(url: str) -> str:
-    """Fetch a cover and return a data URL the webview can show without a third-party request.
-
-    Some yt3.googleusercontent.com covers load in a normal browser and fail in the
-    desktop window, which then shows the broken-image icon.
-    """
-    if not url or url.startswith("data:"):
-        return url
-
-    cached = store.read(THUMB, url)
-    if isinstance(cached, str):
-        return cached
-
-    try:
-        request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(request, timeout=10) as response:
-            content = response.read(MAX_THUMB_BYTES + 1)
-        if len(content) > MAX_THUMB_BYTES:
-            return url
-        # Re-encode. The webview fails to decode some of the original files and
-        # shows the broken-image icon even though a normal browser can open them.
-        image = Image.open(io.BytesIO(content))
-        image = image.convert("RGB")
-        image.thumbnail((256, 256))
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=85)
-        data_url = "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
-        store.write(THUMB, url, data_url)
-        return data_url
-    except Exception as exc:
-        # A cover that cannot be fetched keeps its remote URL. This is expected
-        # for expired links and on a throttled network, so keep it out of the log.
-        logger.debug("Could not inline cover %s: %s", url, exc)
-        return url
 
 
-def _inline_thumbnail_field(items: list[dict[str, Any]], key: str) -> None:
-    """Replace the first thumbnail with a re-encoded cover the webview can decode.
-
-    The largest file is tried first. If it is too big or cannot be re-encoded,
-    the next smaller one is used. A failed attempt does not overwrite a URL.
-
-    A list longer than ``MAX_INLINE_ITEMS`` is skipped. Fetching and re-encoding
-    hundreds of covers inline stalls the request for minutes on a slow or
-    throttled network. Those covers stay as remote URLs, and the frontend calls
-    ``inline_thumbnail`` for the ones the webview cannot decode.
-    """
-    if len(items) > MAX_INLINE_ITEMS:
-        return
-
-    def apply(item: dict[str, Any]) -> None:
-        if not isinstance(item, dict):
-            return
-        thumbnails = item.get(key)
-        if not isinstance(thumbnails, list) or not thumbnails:
-            return
-        ordered = sorted(
-            (thumb for thumb in thumbnails if isinstance(thumb, dict)),
-            key=lambda thumb: thumb.get("width") or 0,
-            reverse=True,
-        )
-        target = thumbnails[0] if isinstance(thumbnails[0], dict) else None
-        if target is None:
-            return
-        for thumb in ordered:
-            url = thumb.get("url")
-            if not isinstance(url, str) or not url:
-                continue
-            inlined = _inline_thumbnail(url)
-            if inlined.startswith("data:"):
-                target["url"] = inlined
-                return
-
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(apply, items))
 
 
 def _radio_playlist_id(playlist_id: str) -> str:
@@ -696,92 +362,16 @@ def _queue_tuner_chips(ytmusic: "ytmusicapi.YTMusic", video_id: str) -> list[dic
     return chips
 
 
-def _lyrics_browse_id(ytmusic: Any, video_id: str) -> str | None:
-    """The ``MPLYt...`` lyrics id for a video, or ``None`` when it has none.
-
-    ytmusicapi resolves lyrics only from that browse id, and a track the queue
-    carries has no lyrics id of its own, so read it from the watch-playlist
-    response, which exposes it next to the tracks. A request that fails raises,
-    so the caller can tell "no lyrics" from "could not ask".
-    """
-    data = ytmusic.get_watch_playlist(videoId=video_id, limit=1)
-    browse_id = data.get("lyrics") if isinstance(data, dict) else None
-    return browse_id if isinstance(browse_id, str) and browse_id else None
 
 
 _lyrics_lock = threading.Lock()
 _signed_out_ytmusic: ytmusicapi.YTMusic | None = None
 
 
-def _signed_out_client() -> ytmusicapi.YTMusic:
-    """A second client that never signs in, for the timed lyrics request.
-
-    YouTube Music serves timed lyrics only to its mobile client, and that client
-    answers a request carrying both the web cookie and its SAPISIDHASH with HTTP
-    400 ("Request contains an invalid argument"). The identical request without
-    either header returns the timed lines, so this client carries no account at
-    all. It is used for nothing else, which also keeps `as_mobile()`'s in-place
-    client swap off the signed-in client every other call shares.
-    """
-    global _signed_out_ytmusic
-    if _signed_out_ytmusic is None:
-        _signed_out_ytmusic = ytmusicapi.YTMusic()
-    return _signed_out_ytmusic
 
 
-def _timed_lyrics(browse_id: str) -> dict[str, Any] | None:
-    """Timed lyrics for a lyrics browse id, read signed out.
-
-    Returns the normalized payload, or ``None`` when the song has no timings.
-    The client is shared, so the read holds a lock for the length of the call.
-    """
-    with _lyrics_lock:
-        try:
-            result = _signed_out_client().get_lyrics(browse_id, timestamps=True)
-        except Exception:
-            logger.warning("Timed lyrics read failed for %s", browse_id, exc_info=True)
-            return None
-    payload = _normalize_lyrics(result)
-    return payload if payload["hasTimestamps"] else None
 
 
-def _normalize_lyrics(result: Any) -> dict[str, Any]:
-    """Flatten a ytmusicapi ``get_lyrics`` result into the UI's shape.
-
-    Timed lyrics arrive as ``LyricLine`` dataclasses with millisecond cue
-    ranges; plain lyrics are one string. Both share the payload, so the UI can
-    highlight against ``lines`` when they are there and fall back to the text.
-    """
-    payload: dict[str, Any] = {"lyrics": None, "source": None, "hasTimestamps": False, "lines": []}
-    if not isinstance(result, dict):
-        return payload
-    attribution = result.get("source")
-    payload["source"] = attribution if isinstance(attribution, str) and attribution.strip() else None
-
-    raw = result.get("lyrics")
-    if result.get("hasTimestamps") and isinstance(raw, list):
-        lines: list[dict[str, Any]] = []
-        for line in raw:
-            text = line.get("text") if isinstance(line, dict) else getattr(line, "text", None)
-            if not isinstance(text, str):
-                continue
-            start = line.get("start_time") if isinstance(line, dict) else getattr(line, "start_time", 0)
-            end = line.get("end_time") if isinstance(line, dict) else getattr(line, "end_time", 0)
-            lines.append(
-                {
-                    "text": text,
-                    "startMs": int(start) if isinstance(start, (int, float)) else 0,
-                    "endMs": int(end) if isinstance(end, (int, float)) else 0,
-                }
-            )
-        if lines:
-            payload["hasTimestamps"] = True
-            payload["lines"] = lines
-            payload["lyrics"] = "\n".join(line["text"] for line in lines)
-        return payload
-
-    payload["lyrics"] = raw if isinstance(raw, str) and raw.strip() else None
-    return payload
 
 
 # Google's public translate endpoints take form fields and answer JSON. No key,
@@ -799,723 +389,82 @@ _TRANSLATE_BLOCK_CHARS = 4000
 _TRANSLATE_QUERY_CHARS = 4000
 
 
-def _translate_request(url: str, fields: list[tuple[str, str]], post: bool = True) -> Any | None:
-    """Send ``fields`` and parse the JSON reply.
-
-    ``None`` means the request or the parse failed, which the caller reports as
-    a failed translation instead of caching one that never happened. ``post`` is
-    false for the endpoint that answers a POST with a redirect and then refuses
-    the GET it is followed by; the same fields as a query string are answered.
-    """
-    body = urlencode(fields)
-    request = (
-        Request(url, data=body.encode("utf-8"), headers={"User-Agent": "Mozilla/5.0"})
-        if post
-        else Request(f"{url}?{body}", headers={"User-Agent": "Mozilla/5.0"})
-    )
-    try:
-        with urlopen(request, timeout=_TRANSLATE_TIMEOUT) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except Exception:
-        logger.warning("Lyrics translation request failed", exc_info=True)
-        return None
 
 
-def _translate_block(text: str, target: str) -> tuple[str, str, str | None] | None:
-    """Translate one block into ``target``.
-
-    Returns ``(translated, original, language)``. The original text comes back
-    echoed beside each translation, which is what lets the caller check that the
-    reply is still split at the same line breaks it sent.
-    """
-    data = _translate_request(
-        _TRANSLATE_BLOCK_ENDPOINT,
-        [("client", "gtx"), ("sl", "auto"), ("tl", target), ("dt", "t"), ("q", text)],
-    )
-    if not isinstance(data, list) or not isinstance(data[0], list):
-        return None
-    segments = [segment for segment in data[0] if isinstance(segment, list)]
-    translated = "".join(
-        segment[0] for segment in segments if segment and isinstance(segment[0], str)
-    )
-    original = "".join(
-        segment[1] for segment in segments if len(segment) > 1 and isinstance(segment[1], str)
-    )
-    language = data[2] if len(data) > 2 and isinstance(data[2], str) else None
-    return translated, original, language
 
 
-def _translate_lines_individually(lines: list[str], target: str) -> list[str] | None:
-    """Translate lines one at a time, which cannot fall out of step.
-
-    Each line is its own ``q`` field and the reply carries one entry per ``q``,
-    so the count always matches. A line read without its neighbours translates
-    blunter than the same line inside the block, which is why this is only the
-    fallback for a block that came back split differently.
-    """
-    translated: list[str] = []
-    for batch in _query_batches(lines):
-        data = _translate_request(
-            _TRANSLATE_LINES_ENDPOINT,
-            [("client", "gtx"), ("sl", "auto"), ("tl", target)] + [("q", line) for line in batch],
-            post=False,
-        )
-        if not isinstance(data, list) or len(data) != len(batch):
-            return None
-        for entry in data:
-            text = entry[0] if isinstance(entry, list) and entry and isinstance(entry[0], str) else None
-            translated.append(text if text is not None else "")
-    return translated
 
 
-def _split_blocks(lines: list[str]) -> list[list[str]]:
-    """Group lines into blocks that fit one translate request each."""
-    blocks: list[list[str]] = []
-    current: list[str] = []
-    size = 0
-    for line in lines:
-        if current and size + len(line) + 1 > _TRANSLATE_BLOCK_CHARS:
-            blocks.append(current)
-            current, size = [], 0
-        current.append(line)
-        size += len(line) + 1
-    if current:
-        blocks.append(current)
-    return blocks
 
 
-def _query_batches(lines: list[str]) -> list[list[str]]:
-    """Group lines into batches whose encoded query stays a sane URL length.
-
-    A line of CJK encodes to nine times its own length, so the measure is the
-    encoded field rather than the lyric.
-    """
-    batches: list[list[str]] = []
-    current: list[str] = []
-    size = 0
-    for line in lines:
-        encoded = len(urlencode({"q": line}))
-        if current and size + encoded + 1 > _TRANSLATE_QUERY_CHARS:
-            batches.append(current)
-            current, size = [], 0
-        current.append(line)
-        size += encoded + 1
-    if current:
-        batches.append(current)
-    return batches
 
 
-def _translate_lyric_lines(lines: list[str], target: str) -> tuple[list[str], str | None] | None:
-    """Translate lyric lines into ``target``, one translation per line.
-
-    Returns the translations and the detected source language, or ``None`` when
-    the request failed. Each block is sent joined at the line breaks it came
-    with, because Google splits its reply back at those breaks. The echoed
-    original is checked line for line, and a block that came back split
-    differently is translated a line at a time instead, so a timing highlight
-    cannot end up on the wrong words.
-    """
-    translated: list[str] = []
-    language: str | None = None
-    for block in _split_blocks(lines):
-        result = _translate_block("\n".join(block), target)
-        if result is None:
-            return None
-        text, original, detected = result
-        language = language or detected
-        split = text.split("\n")
-        if len(original.split("\n")) == len(block) == len(split):
-            translated.extend(split)
-            continue
-        fallback = _translate_lines_individually(block, target)
-        if fallback is None:
-            return None
-        translated.extend(fallback)
-    return translated, language
 
 
 def _inline_playlist_thumbnails(playlists: list[dict[str, Any]]) -> None:
     _inline_thumbnail_field(playlists, "thumbnails")
 
 
-def _empty_quick_picks() -> dict[str, Any]:
-    return {"title": "Quick picks", "tracks": []}
 
 
-def _empty_home() -> dict[str, Any]:
-    return {"shelves": []}
 
 
-def _people(value: Any) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-    people: list[dict[str, str]] = []
-    for person in value:
-        if not isinstance(person, dict):
-            continue
-        name = person.get("name")
-        if not isinstance(name, str) or not name:
-            continue
-        person_id = person.get("id")
-        people.append({"name": name, "id": person_id if isinstance(person_id, str) else ""})
-    return people
 
 
-def _joined_names(people: Any) -> str:
-    return ", ".join(person["name"] for person in _people(people))
 
 
-def _song_subtitle(item: dict[str, Any]) -> str:
-    album = item.get("album")
-    album_name = album.get("name") if isinstance(album, dict) and isinstance(album.get("name"), str) else ""
-    views = item.get("views") if isinstance(item.get("views"), str) else ""
-    parts = [_joined_names(item.get("artists"))]
-    if views:
-        parts.append(f"{views} plays")
-    if album_name:
-        parts.append(album_name)
-    return " • ".join(part for part in parts if part)
 
 
-def _playlist_subtitle(item: dict[str, Any]) -> str:
-    count = item.get("count")
-    count_label = ""
-    if isinstance(count, str) and count.strip():
-        digits = count.replace(",", "").strip()
-        count_label = "1 song" if digits == "1" else f"{count} songs"
-    subtitle = " • ".join(part for part in (_joined_names(item.get("author")), count_label) if part)
-    if subtitle:
-        return subtitle
-    description = item.get("description")
-    return description if isinstance(description, str) else ""
 
 
-def _optional_str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
 
 
-def _as_text(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
-        return str(value)
-    return ""
 
 
-def _as_int(value: Any) -> int:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    return 0
 
 
-def _thumbnails(value: Any) -> list[Any]:
-    if not isinstance(value, list):
-        return []
-    return [dict(thumb) if isinstance(thumb, dict) else thumb for thumb in value]
 
 
 _cover_color_cache: dict[str, str | None] = {}
 _cover_color_lock = threading.Lock()
 
 
-def _dominant_color(thumbnails: Any) -> str | None:
-    if not isinstance(thumbnails, list) or not thumbnails:
-        return None
-    largest_thumb = max(thumbnails, key=lambda thumb: thumb.get("width", 0) if isinstance(thumb, dict) else 0)
-    if not isinstance(largest_thumb, dict):
-        return None
-    thumbnail_url = largest_thumb.get("url")
-    if not thumbnail_url:
-        return None
-    logger.info("Extracting dominant color from thumbnail...")
-    dominant_color = get_dominant_color_hex(thumbnail_url)
-    if dominant_color:
-        logger.info("Dominant color extracted: %s", dominant_color)
-        return dominant_color
-    return None
 
 
-def _inline_items(items: list[dict[str, Any]]) -> None:
-    if items:
-        _inline_thumbnail_field(items, "thumbnails")
 
 
-def _album_home_subtitle(item: dict[str, Any], artists: list[dict[str, str]]) -> str:
-    album_type = item.get("type") if isinstance(item.get("type"), str) and item["type"] else "Album"
-    return " • ".join(part for part in (album_type, _joined_names(artists)) if part)
 
 
-def _named_album(album: Any, string_id: str) -> dict[str, str] | None:
-    if isinstance(album, str):
-        return {"name": album, "id": string_id} if album else None
-    if isinstance(album, dict):
-        name = album.get("name")
-        if isinstance(name, str) and name:
-            album_id = album.get("id")
-            return {"name": name, "id": album_id if isinstance(album_id, str) else ""}
-    return None
 
 
-def _album_track(
-    track: Any,
-    album_title: str,
-    album_browse_id: str,
-    album_thumbnails: list[Any],
-) -> dict[str, Any] | None:
-    if not isinstance(track, dict):
-        return None
-    video_id = track.get("videoId") if isinstance(track.get("videoId"), str) else ""
-    album = _named_album(track.get("album"), album_browse_id)
-    if album is None and album_title:
-        album = {"name": album_title, "id": album_browse_id}
-    like_status = track.get("likeStatus")
-    if like_status not in _LIKE_STATUSES:
-        like_status = "INDIFFERENT"
-    own_thumbnails = track.get("thumbnails")
-    if isinstance(own_thumbnails, list) and own_thumbnails:
-        thumbnails = _thumbnails(own_thumbnails)
-    else:
-        thumbnails = _thumbnails(album_thumbnails)
-    video_type = track.get("videoType")
-    if video_type not in {_SONG_VIDEO_TYPE, "MUSIC_VIDEO_TYPE_OMV"}:
-        video_type = _SONG_VIDEO_TYPE
-    set_video_id = track.get("setVideoId") if isinstance(track.get("setVideoId"), str) else ""
-    return {
-        "videoId": video_id,
-        "title": track.get("title") if isinstance(track.get("title"), str) else "",
-        "artists": _people(track.get("artists")),
-        "album": album,
-        "likeStatus": like_status,
-        "inLibrary": bool(track.get("inLibrary")),
-        "thumbnails": thumbnails,
-        "isAvailable": bool(track.get("isAvailable")),
-        "isExplicit": bool(track.get("isExplicit")),
-        "videoType": video_type,
-        "views": None,
-        "duration": track.get("duration") if isinstance(track.get("duration"), str) else "",
-        "durationSeconds": _as_int(track.get("duration_seconds")),
-        "setVideoId": set_video_id,
-    }
 
 
-def _artist_track(track: Any, channel_id: str) -> dict[str, Any] | None:
-    if not isinstance(track, dict):
-        return None
-    video_id = track.get("videoId") if isinstance(track.get("videoId"), str) else ""
-    artists = _people(track.get("artists"))
-    if not artists:
-        artist = track.get("artist")
-        if isinstance(artist, str) and artist:
-            artists = [{"name": artist, "id": channel_id}]
-        elif isinstance(artist, dict):
-            artists = _people([artist])
-            if len(artists) == 1 and not artists[0]["id"]:
-                artists[0]["id"] = channel_id
-    set_video_id = track.get("setVideoId") if isinstance(track.get("setVideoId"), str) else ""
-    return {
-        "videoId": video_id,
-        "title": track.get("title") if isinstance(track.get("title"), str) else "",
-        "artists": artists,
-        "album": _named_album(track.get("album"), ""),
-        "likeStatus": "INDIFFERENT",
-        "inLibrary": bool(track.get("inLibrary")),
-        "thumbnails": _thumbnails(track.get("thumbnails")),
-        "isAvailable": bool(video_id),
-        "isExplicit": bool(track.get("isExplicit")),
-        "videoType": _SONG_VIDEO_TYPE,
-        "views": None,
-        "duration": track.get("duration") if isinstance(track.get("duration"), str) else "",
-        "durationSeconds": _as_int(track.get("duration_seconds")),
-        "setVideoId": set_video_id,
-    }
 
 
-def _other_version(item: Any) -> dict[str, Any] | None:
-    if not isinstance(item, dict):
-        return None
-    browse_id = item.get("browseId")
-    if not isinstance(browse_id, str) or not browse_id:
-        return None
-    return {
-        "title": item.get("title") if isinstance(item.get("title"), str) else "",
-        "year": _as_text(item.get("year")),
-        "browseId": browse_id,
-        "thumbnails": _thumbnails(item.get("thumbnails")),
-        "explicit": bool(item.get("isExplicit")),
-    }
 
 
-def _release_item(item: Any, default_type: str) -> dict[str, Any] | None:
-    if not isinstance(item, dict):
-        return None
-    browse_id = item.get("browseId")
-    if not isinstance(browse_id, str) or not browse_id.startswith("MPRE"):
-        return None
-    item_type = item.get("type")
-    if not isinstance(item_type, str) or not item_type:
-        item_type = default_type
-    return {
-        "title": item.get("title") if isinstance(item.get("title"), str) else "",
-        "year": _as_text(item.get("year")),
-        "type": item_type,
-        "browseId": browse_id,
-        "thumbnails": _thumbnails(item.get("thumbnails")),
-        "explicit": bool(item.get("isExplicit")),
-    }
 
 
-def _release_shelf(shelf: Any, default_type: str) -> dict[str, Any] | None:
-    if not isinstance(shelf, dict) or not isinstance(shelf.get("results"), list):
-        return None
-    items: list[dict[str, Any]] = []
-    for result in shelf["results"]:
-        item = _release_item(result, default_type)
-        if item is not None:
-            items.append(item)
-    return {
-        "browseId": _optional_str(shelf.get("browseId")),
-        "params": _optional_str(shelf.get("params")),
-        "items": items,
-    }
 
 
-def _fill_missing_song_durations(ytmusic: Any, songs: Any) -> bool:
-    """Copy durations onto an artist song shelf from its Top songs playlist.
-
-    The artist browse shelf lists title and album only. Duration is on the
-    playlist that shelf links to, and the shelf items are that playlist's
-    first tracks.
-    """
-    if not isinstance(songs, dict):
-        return False
-    items = songs.get("items")
-    browse_id = songs.get("browseId")
-    if not isinstance(items, list) or not items or not isinstance(browse_id, str) or not browse_id:
-        return False
-    missing = [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("videoId") and not item.get("duration")
-    ]
-    if not missing:
-        return False
-    try:
-        playlist = ytmusic.get_playlist(browse_id, limit=len(items))
-    except Exception:
-        logger.exception("Failed to fetch top song durations for %s", browse_id)
-        return False
-    tracks = playlist.get("tracks") if isinstance(playlist, dict) else None
-    if not isinstance(tracks, list):
-        return False
-    by_id: dict[str, tuple[str, int]] = {}
-    for track in tracks:
-        if not isinstance(track, dict):
-            continue
-        video_id = track.get("videoId")
-        duration = track.get("duration")
-        if not isinstance(video_id, str) or not video_id:
-            continue
-        if not isinstance(duration, str) or not duration.strip():
-            continue
-        by_id[video_id] = (duration, _as_int(track.get("duration_seconds")))
-    filled = 0
-    for item in missing:
-        found = by_id.get(item["videoId"])
-        if not found:
-            continue
-        item["duration"] = found[0]
-        item["durationSeconds"] = found[1]
-        filled += 1
-    if filled:
-        logger.info("Filled durations for %d top songs from %s", filled, browse_id)
-    return filled > 0
 
 
-def _songs_shelf(shelf: Any, channel_id: str) -> dict[str, Any] | None:
-    if not isinstance(shelf, dict) or not isinstance(shelf.get("results"), list):
-        return None
-    items: list[dict[str, Any]] = []
-    for result in shelf["results"]:
-        track = _artist_track(result, channel_id)
-        if track is not None:
-            items.append(track)
-    return {
-        "browseId": _optional_str(shelf.get("browseId")),
-        "params": None,
-        "items": items,
-    }
 
 
-def _videos_shelf(shelf: Any) -> dict[str, Any] | None:
-    if not isinstance(shelf, dict) or not isinstance(shelf.get("results"), list):
-        return None
-    items: list[dict[str, Any]] = []
-    for result in shelf["results"]:
-        if not isinstance(result, dict):
-            continue
-        video_id = result.get("videoId")
-        if not isinstance(video_id, str) or not video_id:
-            continue
-        views = result.get("views")
-        items.append(
-            {
-                "title": result.get("title") if isinstance(result.get("title"), str) else "",
-                "videoId": video_id,
-                "views": views if isinstance(views, str) else "",
-                "thumbnails": _thumbnails(result.get("thumbnails")),
-                "playlistId": _optional_str(result.get("playlistId")),
-            }
-        )
-    return {
-        "browseId": _optional_str(shelf.get("browseId")),
-        "params": None,
-        "items": items,
-    }
 
 
-def _related_artists(shelf: Any) -> list[dict[str, Any]]:
-    results = shelf.get("results") if isinstance(shelf, dict) else None
-    if not isinstance(results, list):
-        return []
-    items: list[dict[str, Any]] = []
-    for result in results:
-        if not isinstance(result, dict):
-            continue
-        browse_id = result.get("browseId")
-        if not isinstance(browse_id, str) or not browse_id.startswith("UC"):
-            continue
-        subscribers = result.get("subscribers")
-        items.append(
-            {
-                "title": result.get("title") if isinstance(result.get("title"), str) else "",
-                "browseId": browse_id,
-                "subscribers": subscribers if isinstance(subscribers, str) else "",
-                "thumbnails": _thumbnails(result.get("thumbnails")),
-            }
-        )
-    return items
 
 
-def _normalize_album(raw: dict[str, Any], browse_id: str) -> dict[str, Any]:
-    title = raw.get("title") if isinstance(raw.get("title"), str) else ""
-    album_type = raw.get("type") if isinstance(raw.get("type"), str) and raw["type"] else "Album"
-    description = raw.get("description") if isinstance(raw.get("description"), str) else None
-    thumbnails = _thumbnails(raw.get("thumbnails"))
-    tracks_raw = raw.get("tracks") if isinstance(raw.get("tracks"), list) else []
-    tracks: list[dict[str, Any]] = []
-    for track in tracks_raw:
-        normalized = _album_track(track, title, browse_id, thumbnails)
-        if normalized is not None:
-            tracks.append(normalized)
-    versions_raw = raw.get("other_versions") if isinstance(raw.get("other_versions"), list) else []
-    other_versions: list[dict[str, Any]] = []
-    for version in versions_raw:
-        normalized = _other_version(version)
-        if normalized is not None:
-            other_versions.append(normalized)
-    duration = raw.get("duration") if isinstance(raw.get("duration"), str) else ""
-    payload = {
-        "browseId": browse_id,
-        "title": title,
-        "type": album_type,
-        "description": description,
-        "artists": _people(raw.get("artists")),
-        "year": _as_text(raw.get("year")),
-        "trackCount": _as_int(raw.get("trackCount")),
-        "duration": duration,
-        "durationSeconds": _as_int(raw.get("duration_seconds")),
-        "audioPlaylistId": _optional_str(raw.get("audioPlaylistId")),
-        "thumbnails": thumbnails,
-        "dominantColor": _dominant_color(thumbnails),
-        "tracks": tracks,
-        "otherVersions": other_versions,
-    }
-    _inline_items([payload])
-    _inline_items(tracks)
-    _inline_items(other_versions)
-    return payload
 
 
-def _normalize_artist(raw: dict[str, Any], channel_id: str) -> dict[str, Any]:
-    thumbnails = _thumbnails(raw.get("thumbnails"))
-    songs = _songs_shelf(raw.get("songs"), channel_id)
-    albums = _release_shelf(raw.get("albums"), "Album")
-    singles = _release_shelf(raw.get("singles"), "Single")
-    shows = _release_shelf(raw.get("shows"), "Show")
-    videos = _videos_shelf(raw.get("videos"))
-    related = _related_artists(raw.get("related"))
-    description = raw.get("description") if isinstance(raw.get("description"), str) else None
-    views = raw.get("views") if isinstance(raw.get("views"), str) else ""
-    subscribers = raw.get("subscribers") if isinstance(raw.get("subscribers"), str) else ""
-    monthly_listeners = raw.get("monthlyListeners") if isinstance(raw.get("monthlyListeners"), str) else ""
-    payload = {
-        "channelId": channel_id,
-        "name": raw.get("name") if isinstance(raw.get("name"), str) else "",
-        "description": description,
-        "views": views,
-        "subscribers": subscribers,
-        "monthlyListeners": monthly_listeners,
-        "thumbnails": thumbnails,
-        "dominantColor": _dominant_color(thumbnails),
-        "shuffleId": _optional_str(raw.get("shuffleId")),
-        "radioId": _optional_str(raw.get("radioId")),
-        "songs": songs,
-        "albums": albums,
-        "singles": singles,
-        "shows": shows,
-        "videos": videos,
-        "related": related,
-    }
-    _inline_items([payload])
-    for shelf in (songs, albums, singles, shows, videos):
-        if shelf is not None:
-            _inline_items(shelf["items"])
-    _inline_items(related)
-    return payload
 
 
-def _home_layout(title: str) -> str:
-    """Quick picks is the feed's one vertical list; every other shelf is a row.
-
-    YouTube Music returns carousels for everything else, so a shelf no longer
-    has to be named here to reach Home. Titles change between accounts and over
-    time, so an allowlist would drop shelves the UI can already render.
-    """
-    return "list" if title.strip().lower() == "quick picks" else "row"
 
 
-def _landscape_thumbnail(thumbnails: Any) -> bool:
-    """True when a thumbnail is wider than tall, the video-rendition tell.
-
-    Home's "Music videos for you" shelf reports ``MUSIC_VIDEO_TYPE_ATV`` for
-    items whose art is 16:9, so the shape is the only signal that they are
-    videos and not audio tracks.
-    """
-    if not isinstance(thumbnails, list):
-        return False
-    for thumb in thumbnails:
-        if not isinstance(thumb, dict):
-            continue
-        width, height = thumb.get("width"), thumb.get("height")
-        if isinstance(width, int) and isinstance(height, int) and height > 0:
-            return width > height
-    return False
 
 
-def _home_item(item: dict[str, Any]) -> dict[str, Any] | None:
-    title = item.get("title")
-    if not isinstance(title, str) or not title.strip():
-        return None
-    thumbnails = item.get("thumbnails") if isinstance(item.get("thumbnails"), list) else []
-    explicit = bool(item.get("isExplicit"))
-    video_id = _optional_str(item.get("videoId"))
-    browse_id = _optional_str(item.get("browseId"))
-    audio_playlist_id = _optional_str(item.get("audioPlaylistId"))
-    playlist_id = _optional_str(item.get("playlistId"))
-    if video_id:
-        video_type = item.get("videoType")
-        if video_type not in {_SONG_VIDEO_TYPE, "MUSIC_VIDEO_TYPE_OMV", "MUSIC_VIDEO_TYPE_UGC"}:
-            video_type = _SONG_VIDEO_TYPE
-        # Some video shelves report ATV, so fall back to the 16:9 art.
-        if video_type == _SONG_VIDEO_TYPE and _landscape_thumbnail(thumbnails):
-            video_type = "MUSIC_VIDEO_TYPE_OMV"
-        return {
-            "kind": "song",
-            "title": title,
-            "subtitle": _song_subtitle(item),
-            "artists": _people(item.get("artists")),
-            "thumbnails": thumbnails,
-            "videoId": video_id,
-            "playlistId": None,
-            "browseId": browse_id,
-            "explicit": explicit,
-            "videoType": video_type,
-        }
-
-    if browse_id and browse_id.startswith("MPRE"):
-        artists = _people(item.get("artists"))
-        return {
-            "kind": "album",
-            "title": title,
-            "subtitle": _album_home_subtitle(item, artists),
-            "artists": artists,
-            "thumbnails": thumbnails,
-            "videoId": None,
-            "playlistId": audio_playlist_id,
-            "browseId": browse_id,
-            "explicit": explicit,
-        }
-    if browse_id and browse_id.startswith("UC"):
-        subscribers = item.get("subscribers")
-        return {
-            "kind": "artist",
-            "title": title,
-            "subtitle": subscribers if isinstance(subscribers, str) else "",
-            "artists": _people(item.get("artists")),
-            "thumbnails": thumbnails,
-            "videoId": None,
-            "playlistId": None,
-            "browseId": browse_id,
-            "explicit": explicit,
-        }
-    if audio_playlist_id and audio_playlist_id.startswith("OLAK5uy_"):
-        artists = _people(item.get("artists"))
-        return {
-            "kind": "album",
-            "title": title,
-            "subtitle": _album_home_subtitle(item, artists),
-            "artists": artists,
-            "thumbnails": thumbnails,
-            "videoId": None,
-            "playlistId": audio_playlist_id,
-            "browseId": None,
-            "explicit": explicit,
-        }
-    if playlist_id:
-        return {
-            "kind": "playlist",
-            "title": title,
-            "subtitle": _playlist_subtitle(item),
-            "artists": _people(item.get("author")),
-            "thumbnails": thumbnails,
-            "videoId": None,
-            "playlistId": playlist_id,
-            "browseId": None,
-            "explicit": explicit,
-        }
-    return None
 
 
-def _home_shelves(home: list[Any]) -> list[dict[str, Any]]:
-    """Every shelf the feed returns, in feed order, minus the unrenderable ones.
-
-    A shelf is dropped when it carries no title, when its contents are not a
-    list (description shelves hold a string), or when none of its items map to
-    something the UI can open. Podcast shows are the common case for that last
-    one: the app has no podcast page and ``get_playlist`` cannot read a show, so
-    they have nowhere to go.
-    """
-    shelves: list[dict[str, Any]] = []
-    skipped: list[str] = []
-    for row in home:
-        if not isinstance(row, dict):
-            continue
-        title = row.get("title")
-        if not isinstance(title, str) or not title.strip():
-            continue
-        contents = row.get("contents")
-        if not isinstance(contents, list):
-            continue
-        items = [_home_item(item) for item in contents if isinstance(item, dict)]
-        shelf_items = [item for item in items if item is not None]
-        if not shelf_items:
-            skipped.append(title)
-            continue
-        _inline_thumbnail_field(shelf_items, "thumbnails")
-        shelves.append({"title": title, "layout": _home_layout(title), "items": shelf_items})
-    if skipped:
-        logger.info("Home shelves skipped (nothing openable): %s", ", ".join(skipped))
-    return shelves
 
 
 _SEARCH_KINDS = {
@@ -1530,102 +479,12 @@ _SEARCH_KINDS = {
 }
 
 
-def _search_people(item: dict[str, Any]) -> list[dict[str, str]]:
-    """Search artists, falling back to the single ``artist`` string some filters use."""
-    artists = _people(item.get("artists"))
-    if artists:
-        return artists
-    single = item.get("artist")
-    if isinstance(single, str) and single:
-        return [{"name": single, "id": ""}]
-    return []
 
 
-def _search_playlist_id(browse_id: str | None) -> str | None:
-    """A playlist browse id is ``VL`` prefixed; the app routes on the bare id."""
-    if not isinstance(browse_id, str) or not browse_id:
-        return None
-    return browse_id[2:] if browse_id.startswith("VL") else browse_id
 
 
-def _search_count_label(item_count: Any) -> str:
-    if isinstance(item_count, int):
-        return "1 song" if item_count == 1 else f"{item_count} songs"
-    if isinstance(item_count, str) and item_count.strip():
-        digits = item_count.replace(",", "").strip()
-        if digits.isdigit():
-            return "1 song" if digits == "1" else f"{item_count} songs"
-    return ""
 
 
-def _search_result(item: Any) -> dict[str, Any] | None:
-    """Flatten one ytmusicapi search row into the shared shape the UI renders."""
-    if not isinstance(item, dict):
-        return None
-
-    raw_type = item.get("resultType")
-    kind = _SEARCH_KINDS.get(raw_type if isinstance(raw_type, str) else "", "unknown")
-    browse_id = _optional_str(item.get("browseId"))
-    video_id = _optional_str(item.get("videoId"))
-    if kind == "unknown":
-        if video_id:
-            kind = "song"
-        elif isinstance(browse_id, str) and browse_id.startswith("MPRE"):
-            kind = "album"
-        elif isinstance(browse_id, str) and browse_id.startswith(("UC", "MPLA")):
-            kind = "artist"
-        elif isinstance(browse_id, str) and browse_id.startswith(("VL", "PL", "RD", "VM")):
-            kind = "playlist"
-        else:
-            return None
-
-    title = _optional_str(item.get("title"))
-    if not title and kind == "artist":
-        title = _optional_str(item.get("artist"))
-    if not title:
-        return None
-
-    artists = _search_people(item)
-    album = _named_album(item.get("album"), "")
-    year = _optional_str(item.get("year"))
-    video_type = item.get("videoType")
-    if video_type not in {_SONG_VIDEO_TYPE, "MUSIC_VIDEO_TYPE_OMV"}:
-        video_type = "MUSIC_VIDEO_TYPE_OMV" if kind == "video" else _SONG_VIDEO_TYPE
-
-    if kind in {"song", "video"}:
-        subtitle = _song_subtitle(item) or _joined_names(artists)
-    elif kind == "album":
-        album_type = _optional_str(item.get("type")) or "Album"
-        subtitle = " • ".join(part for part in (album_type, _joined_names(artists), year) if part)
-    elif kind == "artist":
-        subtitle = _optional_str(item.get("subscribers")) or ""
-    elif kind == "playlist":
-        author = item.get("author") if isinstance(item.get("author"), str) else ""
-        subtitle = " • ".join(part for part in (author, _search_count_label(item.get("itemCount"))) if part)
-    else:
-        subtitle = _optional_str(item.get("name")) or ""
-
-    return {
-        "kind": kind,
-        "title": title,
-        "subtitle": subtitle,
-        "artists": artists,
-        "album": album,
-        "thumbnails": _thumbnails(item.get("thumbnails")),
-        "videoId": video_id,
-        "browseId": browse_id,
-        "playlistId": _search_playlist_id(browse_id) if kind == "playlist" else None,
-        "duration": item.get("duration") if isinstance(item.get("duration"), str) else "",
-        "durationSeconds": _as_int(item.get("duration_seconds")),
-        "views": item.get("views") if isinstance(item.get("views"), str) else None,
-        "explicit": bool(item.get("isExplicit")),
-        "inLibrary": bool(item.get("inLibrary")),
-        "year": year,
-        "itemCount": item.get("itemCount") if isinstance(item.get("itemCount"), int) else None,
-        "videoType": video_type,
-        "category": _optional_str(item.get("category")),
-        "resultType": raw_type if isinstance(raw_type, str) else "",
-    }
 
 
 def _header_value(headers: dict[str, Any], name: str) -> str | None:
