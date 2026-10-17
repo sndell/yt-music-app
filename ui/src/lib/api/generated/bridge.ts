@@ -56,6 +56,8 @@ export const PyBridge = {
   getQuickPicks: () => callPython("get_quick_picks"),
   /** Playlist ids for the add-to-playlist flyout's recommended row, best first. */
   getRecommendedPlaylists: (limit: number = 4) => callPython("get_recommended_playlists", limit),
+  /** YouTube Music's own completions for a partially typed query. */
+  getSearchSuggestions: (query: string) => callPython("get_search_suggestions", query),
   /** Return the signed-in user's like status and the release year of a song. */
   getSongInfo: (videoId: string) => callPython("get_song_info", videoId),
   /** Saved player volume, 0-100 on the slider scale. */

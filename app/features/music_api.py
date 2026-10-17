@@ -1229,6 +1229,31 @@ class MusicApi:
             logger.exception("Search failed: %s", e)
             return []
 
+    @api.read(returns="SearchSuggestion[]")
+    def get_search_suggestions(self, query: str) -> list[str]:
+        """YouTube Music's own completions for a partially typed query.
+
+        Plain strings: ytmusicapi's detailed runs also carry a history flag and
+        a feedback token, and neither changes what the flyout renders, so they
+        stop here. YouTube has nothing to complete for an empty query, and a
+        failed request answers with an empty list rather than an error, so the
+        field keeps accepting typing and the search below it still runs.
+        """
+        try:
+            text = query.strip() if isinstance(query, str) else ""
+            if not text:
+                return []
+            raw = self._get_ytmusic().get_search_suggestions(text)
+            if not isinstance(raw, list):
+                return []
+            return [item for item in raw if isinstance(item, str) and item]
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            return []
+        except Exception as e:
+            logger.exception("Search suggestions failed: %s", e)
+            return []
+
     @api.read(returns="string[]")
     def shuffle_tracks(self, video_ids: list[str]) -> list[str]:
         """Return the given track ids in a true-random order.

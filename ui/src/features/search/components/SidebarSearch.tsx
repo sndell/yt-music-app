@@ -10,6 +10,9 @@ import { SearchRow } from "./SearchRow";
 
 const DEBOUNCE_MS = 280;
 const LIVE_LIMIT = 8;
+// YouTube completes most two-letter prefixes usefully; below that the flyout is
+// recent searches and live results only.
+const SUGGESTION_MIN_CHARS = 2;
 
 /** The floating panel. It owns its ref so it can place itself the moment it mounts. */
 const SearchFlyout = ({ anchor, children }: { anchor: DOMRect; children: ReactNode }) => {
@@ -68,11 +71,13 @@ export const SidebarSearch = ({
   onClose: () => void;
 }) => {
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
+  const suggestionRequestIdRef = useRef(0);
   const [, navigate] = useLocation();
   const { recent, add, remove, clear } = useRecentSearches();
   const { playTracks } = usePlayer();
@@ -118,6 +123,28 @@ export const SidebarSearch = ({
     const timer = window.setTimeout(() => run(query.trim()), DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [query, run]);
+
+  // YouTube's own completions, read alongside the live results and kept apart
+  // from them: a slow or failing suggestion call must not blank the results it
+  // already has, and a suggestion that lands after the query moved on is
+  // dropped by its request id. Typing is never awaited — the field renders the
+  // parent's query either way.
+  useEffect(() => {
+    const text = query.trim();
+    if (text.length < SUGGESTION_MIN_CHARS) {
+      suggestionRequestIdRef.current += 1;
+      setSuggestions([]);
+      return;
+    }
+    const requestId = ++suggestionRequestIdRef.current;
+    const timer = window.setTimeout(() => {
+      void PyBridge.getSearchSuggestions(text).then((result) => {
+        if (requestId !== suggestionRequestIdRef.current) return;
+        setSuggestions(result.success ? result.data : []);
+      });
+    }, DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   // A click outside the field or its flyout closes search and restores the nav.
   useEffect(() => {
@@ -209,6 +236,24 @@ export const SidebarSearch = ({
                   </span>
                 </button>
                 <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-1">
+                  {suggestions.length > 0 && (
+                    <div className="mb-1 border-b border-white/5 pb-1">
+                      <p className="px-2.5 pt-1.5 pb-1 text-xs font-medium tracking-wide text-primary-dark uppercase">
+                        Suggestions
+                      </p>
+                      {suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => submit(suggestion)}
+                          className="flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-primary transition-colors hover:bg-white/10"
+                        >
+                          <span className="icon-[solar--magnifer-linear] shrink-0 text-lg text-primary-dark" />
+                          <span className="min-w-0 truncate">{suggestion}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {loading && results.length === 0 ? (
                     <div className="grid place-items-center py-6" role="status">
                       <span className="icon-[solar--loader-linear] animate-spin text-xl text-primary-dark" />
