@@ -66,14 +66,16 @@ const RelatedRow = ({ item, playing, onActivate }: { item: RelatedItem; playing:
 /**
  * YouTube Music's Related tab for the queue's song. The id is the `related`
  * browse id the asker already has from the watch playlist response, so opening
- * this panel costs the one `get_song_related` read and nothing else.
+ * this panel costs the one `get_song_related` read and nothing else. The title
+ * comes from that same response and names the song, so the panel stays honest
+ * after Next moves the player to a different track.
  *
  * A failed read raises in Python and lands here as an error with a retry; an
  * answer of no sections is the empty state, and the two never share a face. The
  * request id is captured before the call and compared when it resolves, because
  * a flag cleared by the effect can be re-armed before the answer lands.
  */
-export const RelatedPanel = ({ relatedId }: { relatedId: string }) => {
+export const RelatedPanel = ({ relatedId, title }: { relatedId: string; title: string | null }) => {
   const [sections, setSections] = useState<RelatedSection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -143,6 +145,12 @@ export const RelatedPanel = ({ relatedId }: { relatedId: string }) => {
           <button type="button" onClick={retry} className="cursor-pointer text-primary hover:underline">
             Reload
           </button>
+        </p>
+      )}
+
+      {!error && sections !== null && sections.length > 0 && title && (
+        <p className="truncate px-1.5 pt-1 pb-0.5 text-sm font-semibold" title={`Related to ${title}`}>
+          Related to {title}
         </p>
       )}
 

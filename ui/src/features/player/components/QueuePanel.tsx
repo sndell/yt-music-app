@@ -184,6 +184,7 @@ export const QueuePanel = () => {
     currentSong,
     lyrics,
     relatedId,
+    relatedTitle,
     currentQueueIndex,
     queueRevision,
     queueFill,
@@ -481,7 +482,7 @@ export const QueuePanel = () => {
           </div>
         )}
         {activeTab === "lyrics" && lyrics && <LyricsPanel lyrics={lyrics} />}
-        {activeTab === "related" && relatedId && <RelatedPanel relatedId={relatedId} />}
+        {activeTab === "related" && relatedId && <RelatedPanel relatedId={relatedId} title={relatedTitle} />}
       </div>
       {menu && (
         <TrackMenu

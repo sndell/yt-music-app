@@ -60,6 +60,8 @@ export type PlayerContextType = {
   queueFill: number;
   /** The queue song's Related browse id, from the watch playlist response. */
   relatedId: string | null;
+  /** The seed song's title for the Related panel heading, from the same response. */
+  relatedTitle: string | null;
   /** Music video id for the current song, or null when it has none. */
   currentVideoId: string | null;
   /** Video overlay drawn over the routed content. */
