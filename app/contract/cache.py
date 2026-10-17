@@ -82,6 +82,14 @@ PLAYLIST_TRACK_SHAPE: Shape = (
     "views?",
 )
 
+# A category tile carries YouTube's own color for it instead of a cover; the
+# browse response has no image per category.
+MOOD_CATEGORY_SHAPE: Shape = ("title", "params", "color")
+
+MOOD_SECTION_SHAPE: Shape = ("title", ("categories", MOOD_CATEGORY_SHAPE))
+
+MOOD_PLAYLIST_SHAPE: Shape = ("title", "playlistId", "thumbnails", "description", "owned", "count?")
+
 HOME_ITEM_SHAPE: Shape = (
     "kind",
     "title",
@@ -156,6 +164,11 @@ PLAYLIST = Family(
     strict_extra=False,
 )
 HOME = Family(name="home", ttl=WEEK, shape=(("shelves", HOME_SHELF_SHAPE),))
+# The moods and genres page, and the one category a user opened. A category
+# payload is keyed by the category's own params token, the same one the page's
+# route carries.
+MOODS = Family(name="moods", ttl=WEEK, shape=(("sections", MOOD_SECTION_SHAPE),))
+MOOD_PLAYLISTS = Family(name="moods:playlists", ttl=WEEK, shape=(("playlists", MOOD_PLAYLIST_SHAPE),))
 LIBRARY_SONGS = Family(name="library:songs", ttl=WEEK, shape=(("songs", TRACK_SHAPE),), strict_extra=False)
 LIBRARY_ALBUMS = Family(
     name="library:albums",
