@@ -10,6 +10,17 @@ import { SnapRow } from "@/components/ui/SnapRow";
 import { cn } from "@/util/cn";
 import { albumOpenId, itemKey } from "./homeItem";
 
+/**
+ * Every card keeps one frame height so the titles below line up across a row.
+ * A video frame is 16:9 from that height, so its card is wider than a square
+ * one. The two heights are 9rem and 10rem, which makes a video card 16rem and
+ * 17.75rem wide.
+ */
+const CARD_WIDTH = {
+  square: "w-36 sm:w-40",
+  video: "w-64 sm:w-71",
+} as const;
+
 export const HomeRow = ({
   shelf,
   currentVideoId,
@@ -68,6 +79,7 @@ export const HomeCard = ({
 }) => {
   const [failed, setFailed] = useState(false);
   const thumbnailUrl = item.thumbnails?.[0]?.url;
+  const video = isVideoMedia(item.videoType);
   const isPlaylist = item.kind === "playlist" && Boolean(item.playlistId);
   const isAlbum = Boolean(albumOpenId(item));
   const canOpen =
@@ -86,12 +98,12 @@ export const HomeCard = ({
         if (isPlaylist || (item.kind === "song" && item.videoId)) onOpenMenu(event.clientX, event.clientY);
       }}
       data-menu-open={menuOpen ? "true" : undefined}
-      className="group w-36 shrink-0 sm:w-40"
+      className={cn("group shrink-0", video ? CARD_WIDTH.video : CARD_WIDTH.square)}
     >
       <div
         className={cn(
           "relative overflow-hidden rounded-md bg-secondary",
-          isVideoMedia(item.videoType) ? "aspect-video" : "aspect-square",
+          video ? "aspect-video" : "aspect-square",
           playing && "ring-2 ring-accent"
         )}
       >
