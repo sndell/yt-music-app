@@ -6,6 +6,7 @@ import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { IconButton } from "@/components/ui/IconButton";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
+import { TrackRow } from "@/components/ui/TrackRow";
 import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { SnapRow } from "@/components/ui/SnapRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
@@ -622,56 +623,27 @@ const QuickPickRow = ({
   menuOpen: boolean;
   onPlay: () => void;
   onOpenMenu: (x: number, y: number) => void;
-}) => {
-  const [failed, setFailed] = useState(false);
-  const thumbnailUrl = item.thumbnails?.[0]?.url;
-
-  return (
-    <div
-      onContextMenu={(event) => {
-        event.preventDefault();
-        if (!item.videoId) return;
-        onOpenMenu(event.clientX, event.clientY);
-      }}
-      className="min-w-0"
-    >
-      <button
-        type="button"
-        onClick={onPlay}
-        aria-label={`Play ${item.title}`}
-        data-menu-open={menuOpen ? "true" : undefined}
-        className={cn(
-          "group flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-light data-[menu-open=true]:bg-primary-light",
-          playing && "bg-primary-light"
-        )}
-      >
-        <div
-          className={cn(
-            "relative shrink-0 overflow-hidden rounded-md bg-secondary",
-            isVideoMedia(item.videoType) ? "h-11 aspect-video" : "size-11",
-          )}
-        >
-          {thumbnailUrl && !failed ? (
-            <img src={thumbnailUrl} alt="" draggable={false} onError={() => setFailed(true)} className="h-full w-full object-cover" />
-          ) : (
-            <div className="grid h-full w-full place-items-center">
-              <span className="icon-[solar--music-note-linear] text-primary-dark" />
-            </div>
-          )}
-          <span className={mediaScrimClass}>
-            <RevealIcon iconClassName="icon-[solar--play-bold] text-lg" />
-          </span>
-        </div>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{item.title}</span>
-          {item.subtitle && (
-            <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-primary-dark">
-              {item.explicit && <ExplicitBadge />}
-              <span className="truncate">{item.subtitle}</span>
-            </span>
-          )}
-        </span>
-      </button>
-    </div>
-  );
-};
+}) => (
+  <div
+    onContextMenu={(event) => {
+      event.preventDefault();
+      if (!item.videoId) return;
+      onOpenMenu(event.clientX, event.clientY);
+    }}
+    className="min-w-0"
+  >
+    <TrackRow
+      title={item.title}
+      subtitle={item.subtitle}
+      thumbnails={item.thumbnails}
+      coverShape={isVideoMedia(item.videoType) ? "video" : "square"}
+      coverSize="lg"
+      density="compact"
+      explicit={item.explicit}
+      explicitOnSubtitle
+      playing={playing}
+      menuOpen={menuOpen}
+      onActivate={onPlay}
+    />
+  </div>
+);
