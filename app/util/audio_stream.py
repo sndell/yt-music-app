@@ -3,6 +3,16 @@
 The player response lists audio files. Premium accounts include the
 256 kbps file. The URL is signed, so a small JavaScript solver (from
 yt-dlp-ejs) runs on the bundled QuickJS binary before playback.
+
+YouTube enforces proof-of-origin tokens on the Google Video Server in
+per-account rollouts (yt-dlp calls this GVS PO token enforcement): the
+player response still serves URLs, but fetching the bytes returns 403.
+The signed-in web client is hit first, so every URL is verified with two
+small ranged reads and, when the web client refuses, a VisionOS request
+to the www endpoint, a client YouTube does not currently gate, serves
+the file instead. android_vr is the second fallback; YouTube started
+serving it URLs that answer the first range and 403 the rest, which is
+why verification reads mid-file and not just the head.
 """
 
 from __future__ import annotations
@@ -19,6 +29,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+import requests
 import ytmusicapi
 from yt_dlp_ejs.yt.solver import core as solver_core
 from yt_dlp_ejs.yt.solver import lib as solver_lib
@@ -30,6 +41,70 @@ logger = logging.getLogger(__name__)
 _SOLVE_TIMEOUT_SECONDS = 25
 _CACHE_SKEW_SECONDS = 60
 _QUALITY_RANK = {"AUDIO_QUALITY_HIGH": 3, "AUDIO_QUALITY_MEDIUM": 2, "AUDIO_QUALITY_LOW": 1}
+_VERIFY_TIMEOUT_SECONDS = 8
+_VERIFY_BYTES = 2047
+# The bridge call times out at 30s, so the whole candidate chain stays under it.
+_STREAM_DEADLINE_SECONDS = 25
+
+# Clients whose player responses serve plain URLs and whose files YouTube does
+# not gate (as of October 2026). Requested anonymously on the www endpoint with
+# the browser session's headers but no cookies or authorization. android_vr is
+# kept last: its URLs pass the head read and 403 further in, so the mid-file
+# verification is what disqualifies it.
+_FALLBACK_CLIENTS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "VISIONOS",
+        "context": {
+            "clientName": "VISIONOS",
+            "clientVersion": "1.02",
+            "deviceMake": "Apple",
+            "deviceModel": "RealityDevice17,1",
+            "osName": "visionOS",
+            "osVersion": "26.5.23O471",
+        },
+        "clientNameHeader": ("101", "1.02"),
+        "userAgent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+        ),
+    },
+    {
+        "name": "ANDROID_VR",
+        "context": {
+            "clientName": "ANDROID_VR",
+            "clientVersion": "1.65.10",
+            "deviceMake": "Oculus",
+            "deviceModel": "Quest 3",
+            "androidSdkVersion": 32,
+            "osName": "Android",
+            "osVersion": "12L",
+        },
+        "clientNameHeader": ("28", "1.65.10"),
+        "userAgent": (
+            "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; "
+            "eureka-user Build/SQ3A.220605.009.A1) gzip"
+        ),
+    },
+)
+
+# Header names never sent to the www endpoint: the fallback presents itself as
+# a different client and stays anonymous, so the web session's identity headers
+# are dropped along with the ones the request itself defines.
+_DROPPED_HEADERS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "origin",
+        "referer",
+        "x-origin",
+        "x-youtube-client-name",
+        "x-youtube-client-version",
+        "content-length",
+        "content-type",
+        "host",
+        "user-agent",
+    }
+)
 
 _SOLVER_LOOP = r"""
 let solveN = null;
@@ -374,16 +449,63 @@ def _challenges(fmt: dict[str, Any]) -> tuple[str | None, str | None]:
     return throttle, signature if isinstance(signature, str) and signature else None
 
 
-def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = False) -> dict[str, Any]:
-    """Return the best direct audio URL for this account and song."""
-    now = time.time()
-    with _stream_lock:
-        if refresh:
-            _streams.pop(video_id, None)
-        cached = _streams.get(video_id)
-        if cached is not None and cached[0] > now:
-            return dict(cached[1])
+def _payload(chosen: dict[str, Any], url: str, expires: int) -> dict[str, Any]:
+    bitrate = chosen.get("bitrate")
+    quality = chosen.get("audioQuality")
+    itag = chosen.get("itag")
+    return {
+        "url": url,
+        "mimeType": chosen.get("mimeType") if isinstance(chosen.get("mimeType"), str) else "",
+        "bitrate": int(bitrate) if isinstance(bitrate, int) else 0,
+        "itag": int(itag) if isinstance(itag, int) else 0,
+        "audioQuality": quality if isinstance(quality, str) else "",
+        "expiresInSeconds": expires,
+    }
 
+
+def _verify(url: str, user_agent: str, size: int | None, deadline: float) -> tuple[bool, str]:
+    """Two small ranged reads: the head and the middle of the file.
+
+    A URL that answers the first range and refuses the rest is exactly what
+    YouTube serves gate-kept clients, so the head alone proves nothing.
+    """
+    headers = {"User-Agent": user_agent}
+    timeout = max(2.0, min(_VERIFY_TIMEOUT_SECONDS, deadline - time.time()))
+    try:
+        head = requests.get(
+            url, headers={**headers, "Range": f"bytes=0-{_VERIFY_BYTES}"}, timeout=timeout, stream=True
+        )
+        with head:
+            status = head.status_code
+            content_type = (head.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if status not in (200, 206) or not content_type.startswith("audio/"):
+            return False, f"HTTP {status} {content_type or 'without a content type'}"
+        middle = (size or 4_000_000) // 2
+        deep = requests.get(
+            url,
+            headers={**headers, "Range": f"bytes={middle}-{middle + _VERIFY_BYTES}"},
+            timeout=timeout,
+            stream=True,
+        )
+        with deep:
+            deep_status = deep.status_code
+        if deep_status not in (200, 206):
+            return False, f"HTTP {deep_status} on a mid-file range"
+    except requests.RequestException as exc:
+        return False, f"{exc.__class__.__name__}"
+    return True, f"HTTP {status} {content_type}"
+
+
+def _captured_headers(ytmusic: ytmusicapi.YTMusic) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in dict(ytmusic.headers).items()
+        if key.lower() not in _DROPPED_HEADERS
+    }
+
+
+def _web_music_stream(ytmusic: ytmusicapi.YTMusic, video_id: str) -> tuple[dict[str, Any], str]:
+    """The signed-in account's own client. Highest quality, but gated first."""
     player_url, player_js, timestamp = _player_source(ytmusic)
     song = ytmusic.get_song(video_id, timestamp)
     if not isinstance(song, dict):
@@ -399,34 +521,125 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
     chosen = _best_audio(formats)
     throttle, signature = _challenges(chosen)
     solved = _solver.solve(player_url, player_js, throttle, signature) if throttle or signature else {}
+    payload = _payload(chosen, _playback_url(chosen, solved), _expires(song))
+    agent = next(
+        (value for key, value in dict(ytmusic.headers).items() if key.lower() == "user-agent"),
+        "Mozilla/5.0",
+    )
+    return payload, agent
+
+
+def _fallback_stream(
+    video_id: str, client: dict[str, Any], session_headers: dict[str, str], timestamp: int, deadline: float
+) -> tuple[dict[str, Any], str]:
+    """One ungated client, requested anonymously on the www endpoint."""
+    name = client["name"]
+    timeout = max(2.0, min(_VERIFY_TIMEOUT_SECONDS, deadline - time.time()))
+    headers = dict(session_headers)
+    headers["Content-Type"] = "application/json"
+    headers["User-Agent"] = client["userAgent"]
+    client_name, client_version = client["clientNameHeader"]
+    headers["X-YouTube-Client-Name"] = client_name
+    headers["X-YouTube-Client-Version"] = client_version
+    headers["Origin"] = "https://www.youtube.com"
+    headers["X-Origin"] = "https://www.youtube.com"
+    response = requests.post(
+        "https://www.youtube.com/youtubei/v1/player",
+        params={"key": "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30", "prettyPrint": "false"},
+        json={
+            "context": {"client": client["context"]},
+            "video_id": video_id,
+            "playbackContext": {"contentPlaybackContext": {"signatureTimestamp": timestamp}},
+            "contentCheckOk": True,
+            "racyCheckOk": True,
+        },
+        headers=headers,
+        timeout=timeout,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}")
+    data = response.json()
+    playability = data.get("playabilityStatus")
+    status = playability.get("status") if isinstance(playability, dict) else None
+    if status != "OK":
+        reason = playability.get("reason") if isinstance(playability, dict) else None
+        raise RuntimeError(reason if isinstance(reason, str) and reason else f"{name} refused this song")
+    formats = _audio_formats(data)
+    if not formats:
+        raise RuntimeError(f"{name} served no audio formats")
+    chosen = _best_audio(formats)
+    # These clients answer with plain URLs. A signed format means YouTube
+    # changed the client again; the web candidate remains the solver's user.
+    if not chosen.get("url") or chosen.get("signatureCipher") or chosen.get("cipher"):
+        raise RuntimeError(f"{name} stopped serving plain URLs")
+    payload = _payload(chosen, chosen["url"], _expires(data))
+    return payload, client["userAgent"]
+
+
+def _expires(song: dict[str, Any]) -> int:
     streaming = song.get("streamingData")
     expires_raw = streaming.get("expiresInSeconds") if isinstance(streaming, dict) else None
     try:
-        expires = int(expires_raw)
+        return int(expires_raw)
     except (TypeError, ValueError):
-        expires = 6 * 60 * 60
-    bitrate = chosen.get("bitrate")
-    quality = chosen.get("audioQuality")
-    mime = chosen.get("mimeType")
-    itag = chosen.get("itag")
-    payload = {
-        "url": _playback_url(chosen, solved),
-        "mimeType": mime if isinstance(mime, str) else "",
-        "bitrate": int(bitrate) if isinstance(bitrate, int) else 0,
-        "itag": int(itag) if isinstance(itag, int) else 0,
-        "audioQuality": quality if isinstance(quality, str) else "",
-        "expiresInSeconds": expires,
-    }
-    logger.info(
-        "Audio stream %s itag=%s bitrate=%s quality=%s",
-        video_id,
-        payload["itag"],
-        payload["bitrate"],
-        payload["audioQuality"] or "unknown",
-    )
+        return 6 * 60 * 60
+
+
+def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = False) -> dict[str, Any]:
+    """Return the best direct audio URL for this account and song."""
+    now = time.time()
     with _stream_lock:
-        _streams[video_id] = (time.time() + max(30, expires - _CACHE_SKEW_SECONDS), dict(payload))
-        if len(_streams) > 32:
-            oldest = min(_streams, key=lambda key: _streams[key][0])
-            _streams.pop(oldest, None)
-    return payload
+        if refresh:
+            _streams.pop(video_id, None)
+        cached = _streams.get(video_id)
+        if cached is not None and cached[0] > now:
+            return dict(cached[1])
+
+    deadline = time.time() + _STREAM_DEADLINE_SECONDS
+    timestamp = _player_source(ytmusic)[2]
+    if not isinstance(timestamp, int):
+        timestamp = int(time.strftime("%Y%m%d"))
+    session_headers = _captured_headers(ytmusic)
+    candidates: list[tuple[str, Any]] = [
+        ("web", lambda: _web_music_stream(ytmusic, video_id))
+    ]
+    candidates.extend(
+        (
+            client["name"],
+            lambda client=client: _fallback_stream(video_id, client, session_headers, timestamp, deadline),
+        )
+        for client in _FALLBACK_CLIENTS
+    )
+
+    failures: list[str] = []
+    for name, attempt in candidates:
+        try:
+            payload, user_agent = attempt()
+        except Exception as exc:  # noqa: BLE001 - every candidate failure means the next one
+            failures.append(f"{name}: {exc}")
+            logger.warning("Audio stream %s: %s attempt failed: %s", video_id, name, exc)
+            continue
+        verified, detail = _verify(payload["url"], user_agent, None, deadline)
+        if not verified:
+            failures.append(f"{name}: {detail}")
+            logger.warning("Audio stream %s: %s URL refused: %s", video_id, name, detail)
+            continue
+        logger.info(
+            "Audio stream %s itag=%s bitrate=%s quality=%s (%s, %s)",
+            video_id,
+            payload["itag"],
+            payload["bitrate"],
+            payload["audioQuality"] or "unknown",
+            name,
+            detail,
+        )
+        with _stream_lock:
+            _streams[video_id] = (
+                time.time() + max(30, payload["expiresInSeconds"] - _CACHE_SKEW_SECONDS),
+                dict(payload),
+            )
+            if len(_streams) > 32:
+                oldest = min(_streams, key=lambda key: _streams[key][0])
+                _streams.pop(oldest, None)
+        return payload
+    raise RuntimeError("YouTube refused to stream this song. " + "; ".join(failures))

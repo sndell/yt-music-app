@@ -6,11 +6,29 @@
 $ErrorActionPreference = "Continue"
 
 $Root = Split-Path -Parent $PSScriptRoot
-$Python = Join-Path $Root "app\.venv\Scripts\python.exe"
 
-if (-not (Test-Path $Python)) {
-    throw "Python venv not found at $Python"
+# This checkout's venv first. A worktree has none of its own, so fall back to
+# the main checkout's venv, the same way start.ps1 resolves its Python.
+function Resolve-Python {
+    $candidates = @(Join-Path $Root "app\.venv\Scripts\python.exe")
+    try {
+        $common = & git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
+        if ($LASTEXITCODE -eq 0 -and $common) {
+            $mainRoot = Split-Path -Parent ($common.Trim())
+            $candidates += Join-Path $mainRoot "app\.venv\Scripts\python.exe"
+        }
+    } catch {
+        # Not a git checkout; skip the main-checkout fallback.
+    }
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) { return $candidate }
+    }
+    $onPath = Get-Command python -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    throw "No Python found. Create the venv at app\.venv (see the README)."
 }
+
+$Python = Resolve-Python
 
 Push-Location (Join-Path $Root "ui")
 try {
