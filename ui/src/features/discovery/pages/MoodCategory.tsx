@@ -53,16 +53,18 @@ export const MoodCategory = () => {
           </Link>
           <h1 className="mt-2 text-2xl font-bold">{category?.title ?? "Moods & genres"}</h1>
 
-          {error ? (
-            <LoadError message={error} onRetry={retry} />
-          ) : playlists === null ? (
-            <Loading label="Loading playlists" />
-          ) : playlists.length === 0 ? (
-            <Empty message="YouTube Music has no playlists in this category." onRetry={retry} />
-          ) : (
+          {/* Rows outrank an error: a stale one must never cover playlists that
+              did land. With nothing fetched, the error still speaks first. */}
+          {playlists !== null && playlists.length > 0 ? (
             <div className="mt-4">
               <PlaylistGrid playlists={playlists} />
             </div>
+          ) : error ? (
+            <LoadError message={error} onRetry={retry} />
+          ) : playlists === null ? (
+            <Loading label="Loading playlists" />
+          ) : (
+            <Empty message="YouTube Music has no playlists in this category." onRetry={retry} />
           )}
         </div>
       </div>
