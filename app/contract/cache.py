@@ -90,6 +90,13 @@ MOOD_SECTION_SHAPE: Shape = ("title", ("categories", MOOD_CATEGORY_SHAPE))
 
 MOOD_PLAYLIST_SHAPE: Shape = ("title", "playlistId", "thumbnails", "description", "owned", "count?")
 
+# Chart playlist cards are the mood cards' shape without a count (a chart list
+# reports none), and a chart artist carries YouTube's own rank and trend.
+# ``countries`` stays a bare field: it is a list of codes, not of objects.
+CHART_PLAYLIST_SHAPE: Shape = ("title", "playlistId", "thumbnails", "description", "owned")
+CHART_ARTIST_SHAPE: Shape = ("browseId", "name", "subscribers", "thumbnails", "rank", "trend")
+CHART_SECTION_SHAPE: Shape = ("key", "title", ("playlists", CHART_PLAYLIST_SHAPE))
+
 HOME_ITEM_SHAPE: Shape = (
     "kind",
     "title",
@@ -200,6 +207,19 @@ EXPLORE = Family(name="explore", ttl=WEEK, shape=(("sections", EXPLORE_SECTION_S
 # route carries.
 MOODS = Family(name="moods", ttl=WEEK, shape=(("sections", MOOD_SECTION_SHAPE),))
 MOOD_PLAYLISTS = Family(name="moods:playlists", ttl=WEEK, shape=(("playlists", MOOD_PLAYLIST_SHAPE),))
+# Charts are a dated list, so a day-old one is stale in a way a playlist is not;
+# the page paints the cached country and refreshes behind it either way.
+CHARTS = Family(
+    name="charts",
+    ttl=DAY,
+    shape=(
+        "country",
+        "countryName",
+        "countries",
+        ("sections", CHART_SECTION_SHAPE),
+        ("artists", CHART_ARTIST_SHAPE),
+    ),
+)
 LIBRARY_SONGS = Family(name="library:songs", ttl=WEEK, shape=(("songs", TRACK_SHAPE),), strict_extra=False)
 LIBRARY_ALBUMS = Family(
     name="library:albums",

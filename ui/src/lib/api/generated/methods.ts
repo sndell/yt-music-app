@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -29,6 +29,8 @@ export interface ApiMethods {
   get_mood_categories: { params: [forceRefresh?: boolean]; response: MoodCategories };
   /** Return the playlists YouTube Music groups under one mood or genre. */
   get_mood_playlists: { params: [params: string, forceRefresh?: boolean]; response: MoodPlaylists };
+  /** Return YouTube Music's charts for one country. */
+  get_charts: { params: [country?: string, forceRefresh?: boolean]; response: Charts };
   /** Search YouTube Music. */
   search: { params: [query: string, filter?: SearchFilter | "", scope?: SearchScope | "", limit?: number]; response: SearchResult[] };
   /** YouTube Music's own completions for a partially typed query. */

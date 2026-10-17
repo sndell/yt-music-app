@@ -200,6 +200,38 @@ export interface ExploreFeed {
   fromCache?: boolean;
 }
 
+/** One of YouTube's chart lists: its daily, weekly, or a country's own shelves. */
+export interface ChartSection {
+  /** YouTube's own list key, e.g. "daily", "weekly", "genres". */
+  key: string;
+  title: string;
+  playlists: PlaylistSummary[];
+}
+
+/** One artist on the chart, in YouTube's rank order. */
+export interface ChartArtist {
+  browseId: string;
+  name: string;
+  /** YouTube's short count ("2.29M"), or null when it sends none. */
+  subscribers: string | null;
+  thumbnails: Thumbnail[];
+  /** The number YouTube prints beside the row, or null on an unranked read. */
+  rank: string | null;
+  trend: "up" | "down" | "neutral" | null;
+}
+
+export interface Charts {
+  /** The country code YouTube served, "ZZ" for the global chart. */
+  country: string;
+  /** YouTube's own name for it ("Global", "United States"). Empty when it sends none. */
+  countryName: string;
+  /** ISO 3166-1 alpha-2 codes in YouTube's order. It names only the one it served. */
+  countries: string[];
+  sections: ChartSection[];
+  artists: ChartArtist[];
+  fromCache?: boolean;
+}
+
 export interface Track {
   videoId: string;
   title: string;

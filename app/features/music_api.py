@@ -38,6 +38,7 @@ from contract.registry import api
 from contract.cache import (
     ALBUM,
     ARTIST,
+    CHARTS,
     EXPLORE,
     HOME,
     LIBRARY_ALBUMS,
@@ -54,6 +55,7 @@ from contract.cache import (
 )
 
 from features.music.normalize import _album_home_subtitle, _album_track, _artist_track, _as_int, _as_text, _dominant_color, _empty_home, _empty_quick_picks, _fill_missing_song_durations, _home_item, _home_layout, _home_shelves, _inline_items, _inline_thumbnail, _inline_thumbnail_field, _joined_names, _landscape_thumbnail, _named_album, _normalize_album, _normalize_artist, _optional_str, _other_version, _people, _playlist_subtitle, _related_artists, _release_item, _release_shelf, _search_count_label, _search_people, _search_playlist_id, _search_result, _song_subtitle, _songs_shelf, _thumbnails, _videos_shelf  # moved out of this module
+from features.music.charts import _chart_country_code, _charts_payload, _empty_charts  # the charts browse page
 from features.music.lyrics import _lyrics_browse_id, _normalize_lyrics, _query_batches, _signed_out_client, _split_blocks, _timed_lyrics, _translate_block, _translate_lines_individually, _translate_lyric_lines, _translate_request  # moved out of this module
 from features.music.moods import _empty_mood_categories, _mood_fallback_sections, _mood_playlists, _mood_sections, MOODS_BROWSE_ID  # the moods and genres browse page
 from features.music.explore import _explore_sections  # the explore feed
@@ -1384,6 +1386,53 @@ class MusicApi:
             # is nothing to serve. Returning empty would paint the UI's honest
             # empty state over a failed read; raise so the page shows the error.
             logger.exception("Failed to fetch mood playlists: %s", e)
+            raise
+
+    @api.read(returns="Charts", cache="charts")
+    def get_charts(self, country: str = "ZZ", force_refresh: bool = False) -> dict[str, Any]:
+        """Return YouTube Music's charts for one country.
+
+        ``country`` is an ISO 3166-1 alpha-2 code from the payload's own country
+        list; ``ZZ`` is YouTube's global chart. A section is one of YouTube's
+        playlist charts (daily, weekly, and for some countries its own genres or
+        languages), each drawn as playlist cards; ``artists`` is the top-artist
+        chart with each artist's rank. Pass force_refresh to fetch a new copy
+        instead of the cached one.
+
+        Returns:
+            ``{"country", "countryName", "countries", "sections", "artists",
+            "fromCache"}``. Raises when the read fails and nothing is cached.
+        """
+        code = _chart_country_code(country)
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return charts")
+                return _empty_charts(code)
+
+            if not force_refresh:
+                cached = store.read(CHARTS, code)
+                if cached is not None and isinstance(cached.get("sections"), list):
+                    logger.info("Returning cached charts for %s (sections: %d)", code, len(cached["sections"]))
+                    return cached
+
+            logger.info("Fetching charts from API (%s)...", code)
+            payload = _charts_payload(self._get_ytmusic().get_charts(code), code)
+            store.write(CHARTS, code, payload)
+            logger.info(
+                "Charts fetched (%s: %d sections, %d artists)",
+                code,
+                len(payload["sections"]),
+                len(payload["artists"]),
+            )
+            return payload
+        except FileNotFoundError as e:
+            logger.error("Configuration error: %s", e)
+            raise
+        except Exception as e:
+            # A cached payload is returned above, so reaching here means there
+            # is nothing to serve. Returning empty would paint the UI's honest
+            # empty state over a failed read; raise so the page shows the error.
+            logger.exception("Failed to fetch charts: %s", e)
             raise
 
     @api.read(returns="SearchResult[]", params={"filter": 'SearchFilter | ""', "scope": 'SearchScope | ""'})
