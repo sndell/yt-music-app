@@ -4,6 +4,7 @@ import { usePlayer } from "../context/PlayerContext";
 import { playhead } from "../lib/playhead";
 import { IconButton } from "@/components/ui/IconButton";
 import { ScrollingText } from "@/components/ui/ScrollingText";
+import { useToast } from "@/components/ui/Toast";
 import { PyBridge } from "@/lib/api";
 import { cn } from "@/util/cn";
 import type { LikeStatus, Thumbnail, Track } from "@/lib/api/types";
@@ -65,6 +66,7 @@ export const Player = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const { showToast } = useToast();
   const [duration, setDuration] = useState(0);
   const playerRef = useRef<HTMLAudioElement | null>(null);
   const elapsedRef = useRef(0);
@@ -103,9 +105,16 @@ export const Player = () => {
       if (request !== requestRef.current) return;
       const node = playerRef.current;
       if (!node) return;
-      if (!result.success || !result.data.url) {
+      if (!result.success) {
         ignorePauseRef.current = false;
         setIsPlaying(false);
+        showToast(result.error.message || "Could not play this song", "error");
+        return;
+      }
+      if (!result.data.url) {
+        ignorePauseRef.current = false;
+        setIsPlaying(false);
+        showToast("Could not play this song", "error");
         return;
       }
       const level = sliderToGain(volumeRef.current);
@@ -115,7 +124,7 @@ export const Player = () => {
       ignorePauseRef.current = false;
       if (playingRef.current) playAudio(node);
     });
-  }, [playAudio]);
+  }, [playAudio, showToast]);
 
   const handleSeek = useCallback((time: number) => {
     const now = Date.now();
@@ -350,6 +359,11 @@ export const Player = () => {
           // The embed can resume the audio on its own, so follow it instead of
           // trusting only the app's own play button.
           setIsPlaying(true);
+        }}
+        onPlaying={() => {
+          // The play event fires before any byte has loaded, so a failed stream
+          // would still be written to the account's history. Playing means
+          // audio is actually flowing.
           if (currentSong) recordHistory(currentSong);
         }}
         onPause={() => {
@@ -374,6 +388,7 @@ export const Player = () => {
           if (!audio?.getAttribute("src") || !videoId) return;
           if (failedRef.current === videoId) {
             setIsPlaying(false);
+            showToast("Playback failed", "error");
             return;
           }
           failedRef.current = videoId;
