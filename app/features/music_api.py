@@ -1112,6 +1112,38 @@ class MusicApi:
                 raise
             return empty
 
+    @api.read(returns="{ songs: Track[] }")
+    def get_history(self) -> dict[str, Any]:
+        """Return the songs the account played recently, newest first.
+
+        Not cached: every play appends to the history, so a stored page would
+        leave out the song the user just heard. A failure raises instead of
+        returning an empty list, because an empty history is a real state the
+        page has to tell apart from a read that did not happen.
+
+        Returns:
+            ``{"songs": [...]}`` in the shared Track shape.
+        """
+        try:
+            ytmusic = self._get_ytmusic()
+        except FileNotFoundError as exc:
+            raise RuntimeError("Sign in from Settings to see your history.") from exc
+
+        try:
+            logger.info("Fetching history from API...")
+            raw = ytmusic.get_history()
+            songs: list[dict[str, Any]] = []
+            for item in raw if isinstance(raw, list) else []:
+                normalized = _album_track(item, "", "", [])
+                if normalized is not None and normalized["videoId"]:
+                    songs.append(normalized)
+        except Exception as exc:
+            logger.exception("Failed to fetch history: %s", exc)
+            raise RuntimeError("Could not read your history.") from exc
+
+        logger.info("History fetched (count: %d)", len(songs))
+        return {"songs": songs}
+
     @api.read(returns="HomeFeed", cache="home")
     def get_home(self, force_refresh: bool = False) -> dict[str, Any]:
         """Return every shelf YouTube Music puts on the home feed.

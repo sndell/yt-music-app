@@ -32,6 +32,8 @@ export const PyBridge = {
   getCoverColor: (imageUrl: string) => callPython("get_cover_color", imageUrl),
   /** Whether Discord rich presence is on, and if the desktop app is connected. */
   getDiscordPresence: () => callPython("get_discord_presence"),
+  /** Return the songs the account played recently, newest first. */
+  getHistory: () => callPython("get_history"),
   /** Return every shelf YouTube Music puts on the home feed. */
   getHome: (forceRefresh: boolean = false) => callPython("get_home", forceRefresh),
   /** Fetch the albums saved to the user's YouTube Music library. */
