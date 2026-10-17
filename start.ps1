@@ -43,38 +43,6 @@ function ConvertTo-InstanceId {
     return $cleaned
 }
 
-# instance.py derives an unset id the same way: a linked worktree is named after
-# its own directory, so an agent in a T3 checkout names nothing and still gets a
-# private instance. Only the checkout that owns `.git` is `default`. Keep the two
-# in step or the guard above watches a name main.py never writes.
-function Get-DerivedInstanceId {
-    try {
-        $common = & git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
-        if ($LASTEXITCODE -eq 0 -and $common) {
-            # Get-Item normalizes `/` to `\`, so the comparison is not fooled by
-            # git printing the path with forward slashes.
-            $mainRoot = (Get-Item -LiteralPath (Split-Path -Parent ($common.Trim()))).FullName
-            $here = (Get-Item -LiteralPath $Root).FullName
-            if ($mainRoot -ne $here) { return (Split-Path -Leaf $here) }
-        }
-    } catch {
-        # Not a git checkout; fall through to the default layout.
-    }
-    return "default"
-}
-
-if ($Instance -and $Instance.Trim()) {
-    $Id = ConvertTo-InstanceId $Instance
-} else {
-    $Id = ConvertTo-InstanceId (Get-DerivedInstanceId)
-}
-
-# Per instance. `default` also writes the legacy app\dev\.dev.json, so watch
-# that too when this instance is the default one, or a window started before
-# instances existed looks absent and a second one fights it for the profile.
-$Discovery = Join-Path $Root "app\dev\.instances\$Id.json"
-$LegacyDiscovery = Join-Path $Root "app\dev\.dev.json"
-
 # This checkout's venv first. A worktree has none of its own, so fall back to
 # the main checkout's venv, then to whatever python is on PATH.
 function Resolve-Python {
@@ -111,6 +79,22 @@ function Get-RunningInstance {
 }
 
 $Python = Resolve-Python
+
+# instance.py owns the derivation: a linked worktree is named after its own
+# directory, and only the checkout that owns `.git` is `default`. Asking it here
+# keeps this script from growing a second copy that drifts.
+if ($Instance -and $Instance.Trim()) {
+    $Id = ConvertTo-InstanceId $Instance
+} else {
+    $code = "import sys; sys.path.insert(0, r'$Root\app'); from dev import instance; print(instance.instance_id())"
+    $Id = ConvertTo-InstanceId (& $Python -c $code | Select-Object -Last 1)
+}
+
+# Per instance. `default` also writes the legacy app\dev\.dev.json, so watch
+# that too when this instance is the default one, or a window started before
+# instances existed looks absent and a second one fights it for the profile.
+$Discovery = Join-Path $Root "app\dev\.instances\$Id.json"
+$LegacyDiscovery = Join-Path $Root "app\dev\.dev.json"
 
 $running = Get-RunningInstance $Discovery
 if (-not $running -and $Id -eq "default") {
