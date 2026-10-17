@@ -5,6 +5,7 @@ import { useHashLocation } from "wouter/use-hash-location";
 import { Home } from "./pages/Home";
 import { Sidebar } from "./components/ui/Sidebar";
 import { Library } from "./pages/Library";
+import { History } from "./pages/History";
 import { Settings } from "./features/settings";
 import "./styles/globals.css";
 import { Playlist, PlaylistProvider } from "./features/playlist";
@@ -37,6 +38,7 @@ const App = () => {
                     <Switch>
                       <Route path="/" component={Home} />
                       <Route path="/library" component={Library} />
+                      <Route path="/history" component={History} />
                       <Route path="/settings" component={Settings} />
                       <Route path="/playlist/:id" component={Playlist} />
                       <Route path="/album/:id" component={Album} />

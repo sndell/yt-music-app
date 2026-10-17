@@ -17,6 +17,8 @@ export interface ApiMethods {
   get_library_songs: { params: [limit?: number, forceRefresh?: boolean]; response: LibrarySongs };
   /** Fetch the artists saved to the user's YouTube Music library. */
   get_library_artists: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryArtists };
+  /** Return the songs the account played recently, newest first. */
+  get_history: { params: []; response: { songs: Track[] } };
   /** Return every shelf YouTube Music puts on the home feed. */
   get_home: { params: [forceRefresh?: boolean]; response: HomeFeed };
   /** Return the Quick picks shelf in the older title-and-tracks shape. */
