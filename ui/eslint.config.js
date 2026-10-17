@@ -34,7 +34,7 @@ export default defineConfig([
     // The 16:9 video frame belongs to Home. Commit 1b49953 put it in five list
     // rows too and 37fe812 took it back out; this pins the decision.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/pages/Home.tsx'],
+    ignores: ['src/pages/Home.tsx', 'src/pages/home/**'],
     rules: {
       'no-restricted-imports': [
         'error',
