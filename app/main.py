@@ -41,25 +41,30 @@ from util.media_controls import media_controls, prepare_webview
 from util.preferences import preferences
 from util.ui_server import serve_ui
 from util.webview_controller import WebViewController
+from contract.registry import api
 
 
 class Api(MusicApi):
     """Main API class exposed to the webview frontend."""
 
+    @api.read(returns="void")
     def update_media_controls(
         self, title: str, artist: str, playing: bool, has_next: bool, artwork: str = ""
     ) -> None:
         """Publish the current song, including its cover, to Windows media keys."""
         media_controls.update(title or "", artist or "", bool(playing), bool(has_next), artwork or "")
 
+    @api.read(returns="DiscordPresenceStatus")
     def get_discord_presence(self) -> dict:
         """Whether Discord rich presence is on, and if the desktop app is connected."""
         return discord_presence.status()
 
+    @api.read(returns="DiscordPresenceStatus")
     def set_discord_presence(self, enabled: bool) -> dict:
         """Turn Discord rich presence on or off."""
         return discord_presence.configure(enabled)
 
+    @api.read(returns="void")
     def update_discord_presence(
         self,
         title: str,
@@ -74,14 +79,17 @@ class Api(MusicApi):
         """Show the current song on Discord, or clear it when nothing is playing."""
         discord_presence.update(title, artist, album, playing, elapsed, duration, artwork, video_id)
 
+    @api.read(returns="number")
     def get_volume(self) -> int:
         """Saved player volume, 0-100 on the slider scale."""
         return preferences.volume()
 
+    @api.read(returns="number")
     def set_volume(self, volume: int) -> int:
         """Save the player volume and return the stored value."""
         return preferences.set_volume(volume)
 
+    @api.internal(reason="dev renderer log forwarding", dev_only=True, returns="void", params={"entry": "DevLogEntry | null"})
     def dev_log(self, entry: dict | None = None) -> None:
         """Dev only: the page forwards renderer console output here.
 

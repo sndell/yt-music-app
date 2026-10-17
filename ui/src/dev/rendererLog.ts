@@ -7,32 +7,23 @@
  * so a failed report cannot break the app.
  */
 
-type Level = "log" | "warn" | "error";
-
-type Entry = {
-  level: Level;
-  message: string;
-  source?: string;
-  line?: number;
-};
-
-type DevApi = { dev_log?: (entry: Entry) => Promise<void> };
+import type { DevLogEntry } from "@/lib/api";
 
 const MAX_TEXT = 2000;
 const MAX_PENDING = 500;
 let installed = false;
-const pending: Entry[] = [];
+const pending: DevLogEntry[] = [];
 let flushTimer: number | undefined;
 
-function api(): DevApi | undefined {
-  return (window.pywebview as { api?: DevApi } | undefined)?.api;
+function api() {
+  return window.pywebview?.api;
 }
 
-function trySend(entry: Entry): boolean {
+function trySend(DevLogEntry: DevLogEntry): boolean {
   const target = api();
   if (!target?.dev_log) return false;
   try {
-    void target.dev_log(entry);
+    void target.dev_log(DevLogEntry);
     return true;
   } catch {
     return false;
@@ -57,15 +48,15 @@ function flush(): void {
   }
 }
 
-function send(entry: Entry): void {
+function send(DevLogEntry: DevLogEntry): void {
   // The bridge is injected around load, so early entries wait in a queue rather
   // than disappear. Reporting must never be the reason the app fails.
   if (pending.length > 0) {
-    if (pending.length < MAX_PENDING) pending.push(entry);
+    if (pending.length < MAX_PENDING) pending.push(DevLogEntry);
     return;
   }
-  if (!trySend(entry)) {
-    pending.push(entry);
+  if (!trySend(DevLogEntry)) {
+    pending.push(DevLogEntry);
     scheduleFlush();
   }
 }

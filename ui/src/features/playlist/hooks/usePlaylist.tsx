@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PyBridge } from "@/lib/api/bridge";
+import { PyBridge } from "@/lib/api";
 import type { PlaylistItemRef, PlaylistPatch, PlaylistPrivacy, PlaylistSummary } from "@/lib/api/types";
 import { useToast } from "@/components/ui/Toast";
 

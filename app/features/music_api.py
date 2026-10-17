@@ -35,6 +35,7 @@ from ytmusicapi.parsers.songs import parse_song_runs
 from util.app_paths import cache_dir, data_dir
 from util.audio_stream import audio_stream
 from util.get_dominant_color import get_dominant_color_hex
+from contract.registry import api
 
 logger = logging.getLogger(__name__)
 
@@ -2046,6 +2047,7 @@ class MusicApi:
             logger.warning("Authentication check failed: %s", e)
             return False
 
+    @api.read(returns="string | null")
     def get_cover_color(self, image_url: str) -> str | None:
         """Vibrant cover color for the queue wash.
 
@@ -2063,6 +2065,7 @@ class MusicApi:
             _cover_color_cache[image_url] = color
         return color
 
+    @api.read(returns="string | null", cache="thumb")
     def inline_thumbnail(self, image_url: str) -> str | None:
         """Return a data URL for a cover the webview cannot decode directly.
 
@@ -2075,6 +2078,7 @@ class MusicApi:
         result = _inline_thumbnail(image_url)
         return result if result.startswith("data:") else None
 
+    @api.read(returns="PlaylistSummary[]")
     def get_playlists(self) -> list[dict[str, Any]]:
         """Fetch all playlists from the user's YouTube Music library.
         
@@ -2100,6 +2104,7 @@ class MusicApi:
             logger.exception("Failed to fetch playlists: %s", e)
             return []
 
+    @api.read(returns="LibraryAlbums", cache="library_albums")
     def get_library_albums(
         self, limit: int = LIBRARY_ALBUMS_LIMIT, force_refresh: bool = False
     ) -> dict[str, Any]:
@@ -2148,6 +2153,7 @@ class MusicApi:
                 raise
             return empty
 
+    @api.read(returns="LibrarySongs", cache="library_songs")
     def get_library_songs(
         self, limit: int = LIBRARY_SONGS_LIMIT, force_refresh: bool = False
     ) -> dict[str, Any]:
@@ -2202,6 +2208,7 @@ class MusicApi:
                 raise
             return empty
 
+    @api.read(returns="LibraryArtists", cache="library_artists")
     def get_library_artists(
         self, limit: int = LIBRARY_ARTISTS_LIMIT, force_refresh: bool = False
     ) -> dict[str, Any]:
@@ -2273,6 +2280,7 @@ class MusicApi:
                 raise
             return empty
 
+    @api.read(returns="HomeFeed", cache="home")
     def get_home(self, force_refresh: bool = False) -> dict[str, Any]:
         """Return every shelf YouTube Music puts on the home feed.
 
@@ -2321,6 +2329,7 @@ class MusicApi:
                 raise
             return empty
 
+    @api.read(returns="QuickPicks", cache="home")
     def get_quick_picks(self) -> dict[str, Any]:
         """Return the Quick picks shelf in the older title-and-tracks shape."""
         home = self.get_home()
@@ -2347,6 +2356,7 @@ class MusicApi:
             return {"title": shelf.get("title") or "Quick picks", "tracks": tracks}
         return _empty_quick_picks()
 
+    @api.read(returns="SearchResult[]", params={"filter": 'SearchFilter | ""', "scope": 'SearchScope | ""'})
     def search(self, query: str, filter: str = "", scope: str = "", limit: int = 30) -> list[dict[str, Any]]:
         """Search YouTube Music.
 
@@ -2387,6 +2397,7 @@ class MusicApi:
             logger.exception("Search failed: %s", e)
             return []
 
+    @api.read(returns="string[]")
     def shuffle_tracks(self, video_ids: list[str]) -> list[str]:
         """Return the given track ids in a true-random order.
 
@@ -2399,6 +2410,7 @@ class MusicApi:
         random.SystemRandom().shuffle(ids)
         return ids
 
+    @api.read(returns="PlaylistDetails", cache="playlist")
     def get_playlist_items(self, playlist_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Read a playlist's header and its first page of tracks.
 
@@ -2475,6 +2487,7 @@ class MusicApi:
                 raise
             return {}
 
+    @api.read(returns="PlaylistPage", cache="playlist")
     def get_playlist_page(self, playlist_id: str, page_token: str) -> dict[str, Any]:
         """Read the page of playlist tracks after the one already loaded.
 
@@ -2526,6 +2539,7 @@ class MusicApi:
             logger.exception("Failed to fetch playlist page: %s", e)
             return result
 
+    @api.read(returns="{ tracks: Track[] }")
     def get_playlist_all_tracks(self, playlist_id: str) -> dict[str, Any]:
         """Every track of a playlist, in order.
 
@@ -2545,6 +2559,7 @@ class MusicApi:
             logger.exception("Failed to read playlist whole: %s", e)
             return {"tracks": []}
 
+    @api.read(returns="AlbumDetails", cache="album")
     def get_album(self, browse_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch an album by browse id.
 
@@ -2604,6 +2619,7 @@ class MusicApi:
                 raise
             return {}
 
+    @api.read(returns="ArtistDetails", cache="artist")
     def get_artist(self, channel_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch an artist page: header plus songs, releases, videos, and related artists.
 
@@ -2653,6 +2669,7 @@ class MusicApi:
                 raise
             return {}
 
+    @api.read(returns="ArtistRelease[]")
     def get_artist_albums(self, channel_id: str, params: str) -> list[dict[str, Any]]:
         """Fetch the rest of an artist release shelf.
 
@@ -2687,6 +2704,7 @@ class MusicApi:
             logger.exception("Failed to fetch artist albums: %s", e)
             return []
 
+    @api.read(returns="WatchPlaylist", params={"radio": "boolean", "shuffle": "boolean"})
     def get_watch_playlist(self, video_id: str | None = None, playlist_id: str | None = None, radio: bool = False, shuffle: bool = False) -> dict[str, Any]:
         """Get a watch playlist for a specific video or playlist.
         
@@ -2730,6 +2748,7 @@ class MusicApi:
             logger.exception("Failed to fetch watch playlist: %s", e)
             return {}
 
+    @api.read(returns="WatchTunerChip[]", cache="tuner")
     def get_queue_tuner(self, video_id: str) -> list[dict[str, str]]:
         """Genre chips that retune the mix around one song.
 
@@ -2758,6 +2777,7 @@ class MusicApi:
             cache.set(cache_key, chips, expire=TUNER_CACHE_SECONDS)
         return chips
 
+    @api.read(returns="Lyrics", cache="lyrics")
     def get_lyrics(self, video_id: str) -> dict[str, Any]:
         """Lyrics for a song, with per-line timings when YouTube Music has them.
 
@@ -2813,6 +2833,7 @@ class MusicApi:
         )
         return payload
 
+    @api.read(returns="TranslatedLyrics", cache="lyrics_translated")
     def translate_lyrics(self, video_id: str, language: str = "en") -> dict[str, Any]:
         """Lyrics for a song in another language, split like the original.
 
@@ -2880,6 +2901,7 @@ class MusicApi:
         logger.info("Lyrics translation for %s: %s -> %s", ident, payload["language"], language)
         return payload
 
+    @api.read(returns="AudioStream")
     def get_audio_stream(self, video_id: str, refresh: bool = False) -> dict[str, Any]:
         """Direct audio URL for a song on the signed-in account.
 
@@ -2894,6 +2916,7 @@ class MusicApi:
             raise RuntimeError("Sign in to play music.") from exc
         return audio_stream(ytmusic, video_id.strip(), refresh=bool(refresh))
 
+    @api.read(returns="{ likeStatus: LikeStatus; year: string | null }")
     def get_song_info(self, video_id: str) -> dict[str, Any]:
         """Return the signed-in user's like status and the release year of a song.
 
@@ -2926,6 +2949,7 @@ class MusicApi:
             status = "INDIFFERENT"
         return {"likeStatus": status, "year": _year_in_payload(response, video_id)}
 
+    @api.write(returns="{ likeStatus: LikeStatus }", params={"rating": "LikeStatus"})
     def rate_song(self, video_id: str, rating: str) -> dict[str, str]:
         """Set the signed-in user's rating for a song.
 
@@ -2946,6 +2970,7 @@ class MusicApi:
         logger.info("Rated %s as %s", video_id, rating)
         return {"likeStatus": rating}
 
+    @api.write(returns="{ added: boolean }")
     def add_song_to_history(self, video_id: str) -> dict[str, bool]:
         """Register one played song in the account history.
 
@@ -2987,6 +3012,7 @@ class MusicApi:
             logger.exception("Failed to add %s to history: %s", video_id, e)
             return {"added": False}
 
+    @api.write(returns="void")
     def sign_in(self) -> None:
         """Open YouTube Music, follow the signed-in page, and store its API headers.
 
@@ -3310,10 +3336,12 @@ class MusicApi:
         if state["error"]:
             raise ValueError(state["error"])
 
+    @api.read(returns="{ signedIn: boolean }")
     def is_signed_in(self) -> dict[str, bool]:
         """Return whether saved YouTube Music headers are on disk."""
         return {"signedIn": _BROWSER_JSON_PATH.is_file()}
 
+    @api.write(returns="void")
     def sign_out(self) -> None:
         """Remove saved headers and clear the WebView profile."""
         if not _auth_lock.acquire(blocking=False):
@@ -3332,6 +3360,7 @@ class MusicApi:
         finally:
             _auth_lock.release()
 
+    @api.write(returns="{ status: string }")
     def move_playlist_item(self, playlist_id: str, set_video_id: str, before_set_video_id: str = "") -> dict[str, str]:
         """Move one playlist row with YouTube Music's edit_playlist action.
 
@@ -3378,6 +3407,7 @@ class MusicApi:
         cached["tracks"] = tracks
         cache.set(cache_key, cached, expire=CACHE_DURATION)
 
+    @api.write(returns="{ status: string; /** New setVideoId per added video, for position-restoring undo. */ setVideoIds: Record<string, string>; /** True when YouTube rejected the edit because the songs were already there. */ duplicate?: boolean; }")
     def add_playlist_items(
         self,
         playlist_id: str,
@@ -3445,6 +3475,7 @@ class MusicApi:
             return False
         return _playlist_contains_videos(fresh, video_ids) is True
 
+    @api.write(returns="{ status: string }", params={"items": "PlaylistItemRef[]"})
     def remove_playlist_items(self, playlist_id: str, items: list[dict[str, str]]) -> dict[str, str]:
         """Remove rows from one of the user's playlists.
 
@@ -3472,6 +3503,7 @@ class MusicApi:
         cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
         return {"status": status}
 
+    @api.write(returns="{ status: string; removed: number }")
     def remove_playlist_videos(
         self,
         playlist_id: str,
@@ -3522,6 +3554,7 @@ class MusicApi:
         result = self.remove_playlist_items(playlist_id, items)
         return {"status": result.get("status", "SUCCEEDED"), "removed": len(items)}
 
+    @api.write(returns="{ status: string }", params={"patch": "PlaylistPatch | null"})
     def edit_playlist(self, playlist_id: str, patch: dict[str, Any] | None = None) -> dict[str, str]:
         """Apply any mix of title, description and privacy changes at once.
 
@@ -3576,6 +3609,7 @@ class MusicApi:
         cache.delete(f"{CACHE_KEY_PLAYLIST_PREFIX}{playlist_id}")
         return {"status": status}
 
+    @api.write(returns="{ status: string }")
     def delete_playlist(self, playlist_id: str) -> dict[str, str]:
         """Delete one of the user's playlists and forget its usage score."""
         if not isinstance(playlist_id, str) or not playlist_id:
@@ -3585,6 +3619,7 @@ class MusicApi:
         _forget_playlist_stat(playlist_id)
         return {"status": status}
 
+    @api.write(returns="{ playlistId: string }", params={"description": "string", "privacy": "PlaylistPrivacy", "videoIds": "string[]"})
     def create_playlist(
         self,
         title: str,
@@ -3621,6 +3656,7 @@ class MusicApi:
         logger.info("Created playlist %s (%d songs)", playlist_id, len(ids))
         return {"playlistId": playlist_id}
 
+    @api.write(returns="{ status: string }", params={"rating": "LikeStatus"})
     def rate_playlist(self, playlist_id: str, rating: str) -> dict[str, str]:
         """Like, remove from library, or dislike a playlist.
 
@@ -3635,6 +3671,7 @@ class MusicApi:
         logger.info("Rated playlist %s as %s", playlist_id, rating)
         return {"status": "OK"}
 
+    @api.read(returns="{ playlistIds: string[] }")
     def get_recommended_playlists(self, limit: int = 4) -> dict[str, Any]:
         """Playlist ids for the add-to-playlist flyout's recommended row, best first.
 
@@ -3670,6 +3707,7 @@ class MusicApi:
             ranked = [playlist.get("playlistId", "") for playlist in candidates]
         return {"playlistIds": [playlist_id for playlist_id in ranked[:limit] if playlist_id]}
 
+    @api.read(returns="{ invalidated: string[]; not_found: string[] }")
     def invalidate_playlist_cache(self, playlist_ids: list[str]) -> dict[str, Any]:
         """Invalidate cache for specific playlist IDs.
         
@@ -3694,6 +3732,7 @@ class MusicApi:
         
         return {"invalidated": invalidated, "not_found": not_found}
 
+    @api.read(returns="{ cleared: number }")
     def clear_all_cache(self) -> dict[str, Any]:
         """Clear all cached data.
         
