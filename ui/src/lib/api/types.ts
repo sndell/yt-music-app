@@ -416,103 +416,10 @@ export interface SearchResult {
   resultType: string;
 }
 
-/** API method signatures */
-export interface ApiMethods {
-  get_cover_color: { params: [imageUrl: string]; response: string | null };
-  inline_thumbnail: { params: [imageUrl: string]; response: string | null };
-  get_playlists: { params: []; response: PlaylistSummary[] };
-  get_library_albums: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryAlbums };
-  get_library_songs: { params: [limit?: number, forceRefresh?: boolean]; response: LibrarySongs };
-  get_library_artists: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryArtists };
-  get_quick_picks: { params: []; response: QuickPicks };
-  get_home: { params: [forceRefresh?: boolean]; response: HomeFeed };
-  search: {
-    params: [query: string, filter?: SearchFilter | "", scope?: SearchScope | "", limit?: number];
-    response: SearchResult[];
-  };
-  shuffle_tracks: { params: [videoIds: string[]]; response: string[] };
-  get_playlist_items: { params: [playlistId: string, forceRefresh?: boolean]; response: PlaylistDetails };
-  /** The tracks after the loaded page. `pageToken` is a `PlaylistDetails.nextToken`. */
-  get_playlist_page: { params: [playlistId: string, pageToken: string]; response: PlaylistPage };
-  /** Every track of a playlist, for queueing and true shuffle. */
-  get_playlist_all_tracks: { params: [playlistId: string]; response: { tracks: Track[] } };
-  move_playlist_item: {
-    params: [playlistId: string, setVideoId: string, beforeSetVideoId: string];
-    response: { status: string };
-  };
-  add_playlist_items: {
-    params: [playlistId: string, videoIds: string[], duplicates?: boolean];
-    response: {
-      status: string;
-      /** New setVideoId per added video, for position-restoring undo. */
-      setVideoIds: Record<string, string>;
-      /** True when YouTube rejected the edit because the songs were already there. */
-      duplicate?: boolean;
-    };
-  };
-  remove_playlist_items: {
-    params: [playlistId: string, items: PlaylistItemRef[]];
-    response: { status: string };
-  };
-  remove_playlist_videos: {
-    params: [playlistId: string, videoIds: string[], setVideoIds?: Record<string, string>];
-    response: { status: string; removed: number };
-  };
-  edit_playlist: {
-    params: [playlistId: string, patch: PlaylistPatch];
-    response: { status: string };
-  };
-  delete_playlist: { params: [playlistId: string]; response: { status: string } };
-  create_playlist: {
-    params: [title: string, description: string, privacy: PlaylistPrivacy, videoIds: string[]];
-    response: { playlistId: string };
-  };
-  rate_playlist: { params: [playlistId: string, rating: LikeStatus]; response: { status: string } };
-  get_recommended_playlists: { params: [limit?: number]; response: { playlistIds: string[] } };
-  get_album: { params: [browseId: string, forceRefresh?: boolean]; response: AlbumDetails };
-  get_artist: { params: [channelId: string, forceRefresh?: boolean]; response: ArtistDetails };
-  get_artist_albums: { params: [channelId: string, params: string]; response: ArtistRelease[] };
-  sign_in: { params: []; response: void };
-  is_signed_in: { params: []; response: { signedIn: boolean } };
-  sign_out: { params: []; response: void };
-  invalidate_playlist_cache: { params: [playlistIds: string[]]; response: { invalidated: string[]; not_found: string[] } };
-  clear_all_cache: { params: []; response: { cleared: number } };
-  update_media_controls: {
-    params: [title: string, artist: string, playing: boolean, hasNext: boolean, artwork: string];
-    response: void;
-  };
-  get_volume: { params: []; response: number };
-  set_volume: { params: [volume: number]; response: number };
-  get_discord_presence: { params: []; response: DiscordPresenceStatus };
-  set_discord_presence: { params: [enabled: boolean]; response: DiscordPresenceStatus };
-  update_discord_presence: {
-    params: [
-      title: string,
-      artist: string,
-      album: string,
-      playing: boolean,
-      elapsed: number,
-      duration: number,
-      artwork: string,
-      videoId: string,
-    ];
-    response: void;
-  };
-  get_watch_playlist: {
-    params: [videoId: string, playlistId: string, radio?: boolean, shuffle?: boolean];
-    response: WatchPlaylist;
-  };
-  get_queue_tuner: { params: [videoId: string]; response: WatchTunerChip[] };
-  /** Lyrics for the playing song. `videoId` is the track's video id. */
-  get_lyrics: { params: [videoId: string]; response: Lyrics };
-  /** Lyrics for the playing song in a target language. `videoId` is the track's video id; `language` is a code from Google's translate list, English by default. */
-  translate_lyrics: { params: [videoId: string, language?: string]; response: TranslatedLyrics };
-  get_audio_stream: { params: [videoId: string, refresh?: boolean]; response: AudioStream };
-  get_song_info: { params: [videoId: string]; response: { likeStatus: LikeStatus; year: string | null } };
-  rate_song: { params: [videoId: string, rating: LikeStatus]; response: { likeStatus: LikeStatus } };
-  add_song_to_history: { params: [videoId: string]; response: { added: boolean } };
+/** One renderer console entry, forwarded to Python in dev through dev_log. */
+export interface DevLogEntry {
+  level: "log" | "warn" | "error";
+  message: string;
+  source?: string;
+  line?: number;
 }
-
-export type ApiMethodName = keyof ApiMethods;
-export type ApiParams<M extends ApiMethodName> = ApiMethods[M]["params"];
-export type ApiResponse<M extends ApiMethodName> = ApiMethods[M]["response"];

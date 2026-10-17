@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { PageHeading } from "@/components/ui/PageHeading";
-import { PyBridge } from "@/lib/api/bridge";
+import { PyBridge } from "@/lib/api";
 import type { DiscordPresenceStatus } from "@/lib/api/types";
 
 const notifyAuthChanged = () => {
