@@ -9,6 +9,7 @@ import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { SnapRow } from "@/components/ui/SnapRow";
 import { cn } from "@/util/cn";
 import { albumOpenId, itemKey } from "./homeItem";
+import { HomeSection } from "./HomeSection";
 
 /**
  * Every card keeps one frame height so the titles below line up across a row.
@@ -38,8 +39,10 @@ export const HomeRow = ({
   onPlayAlbum: (item: HomeItem) => void;
   onPlayPlaylist: (playlistId: string) => void;
 }) => (
-  <section className="group/snap">
-    <h2 className="text-xl font-bold">{shelf.title}</h2>
+  <HomeSection
+    title={shelf.title}
+    art={shelf.items[0]?.thumbnails?.[0]?.url}
+  >
     <SnapRow>
       {shelf.items.map((item, index) => (
         <HomeCard
@@ -56,7 +59,7 @@ export const HomeRow = ({
         />
       ))}
     </SnapRow>
-  </section>
+  </HomeSection>
 );
 
 

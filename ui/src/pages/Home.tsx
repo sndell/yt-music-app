@@ -146,7 +146,7 @@ export const Home = () => {
         )}
 
         {hasContent && (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-10">
             {shelves.map((shelf) =>
               shelf.layout === "row" ? (
                 <HomeRow

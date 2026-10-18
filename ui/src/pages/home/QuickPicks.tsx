@@ -7,6 +7,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { TrackRow } from "@/components/ui/TrackRow";
 import { isVideoMedia } from "@/components/ui/mediaFrame";
 import { cn } from "@/util/cn";
+import { HomeSection } from "./HomeSection";
 
 const PAGE_SIZE = 12;
 const PAGE_SLIDE_FALLBACK_MS = 500;
@@ -116,10 +117,11 @@ export const QuickPicks = ({
   const shownItems = itemsFor(shownPage);
 
   return (
-    <section className="min-w-0">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-bold">{shelf.title}</h2>
-        {shelf.items.length > 0 && (
+    <HomeSection
+      title={shelf.title}
+      art={shelf.items[0]?.thumbnails?.[0]?.url}
+      actions={
+        shelf.items.length > 0 ? (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -145,8 +147,9 @@ export const QuickPicks = ({
               onClick={() => go(1)}
             />
           </div>
-        )}
-      </div>
+        ) : null
+      }
+    >
       {(slide || shownItems.length > 0) && (
         <div className="mt-4 overflow-hidden">
           {slide ? (
@@ -178,7 +181,7 @@ export const QuickPicks = ({
           )}
         </div>
       )}
-    </section>
+    </HomeSection>
   );
 };
 
