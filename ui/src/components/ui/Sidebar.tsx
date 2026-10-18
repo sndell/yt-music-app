@@ -23,8 +23,6 @@ export const Sidebar = () => {
           <SidebarItem icon="icon-[solar--compass-linear]" path="/explore" text="Explore" />
           <SidebarItem icon="icon-[solar--library-linear]" path="/library" text="Library" />
           <SidebarItem icon="icon-[solar--history-linear]" path="/history" text="History" />
-          <SidebarItem icon="icon-[solar--widget-5-linear]" path="/moods" text="Moods & genres" nested />
-          <SidebarItem icon="icon-[solar--chart-2-linear]" path="/charts" text="Charts" nested />
           {searchOpen ? (
             <SidebarSearch
               query={searchQuery}
@@ -54,19 +52,15 @@ const SidebarItem = ({
   path,
   text,
   onClick,
-  nested = false,
 }: {
   icon: string;
   path: string;
   text: string;
   /** Overrides navigation, for items that open something in place (Search). */
   onClick?: () => void;
-  /** True when the item's route has children, so its section stays lit on them. */
-  nested?: boolean;
 }) => {
   const [location, navigate] = useLocation();
-  const isActive =
-    location === path || (path === "/search" && location.startsWith("/search")) || (nested && location.startsWith(`${path}/`));
+  const isActive = location === path || (path === "/search" && location.startsWith("/search"));
 
   return (
     <button
