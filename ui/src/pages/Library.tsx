@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "wouter";
 import type { LibraryAlbum, LibraryArtist, PlaylistSummary, Track } from "@/lib/api";
 import { usePlayer } from "@/features/player";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
@@ -269,7 +270,18 @@ export const Library = () => {
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="scrollbar flex-1 overflow-y-auto">
         <div className="p-4 sm:p-6">
-          <h1 className="text-2xl font-bold">Library</h1>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-2xl font-bold">Library</h1>
+            {/* History is a page of its own, so this is a link rather than a
+                chip: the chips filter the library in place. */}
+            <Link
+              href="/history"
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-primary-dark transition-colors hover:bg-primary-light/60 hover:text-primary"
+            >
+              <span className="icon-[solar--history-linear]" aria-hidden="true" />
+              History
+            </Link>
+          </div>
           <div className="scrollbar-none mt-4 flex items-center gap-1 overflow-x-auto pb-1">
             {VIEWS.map((option) => (
               <Chip key={option.value} active={view === option.value} onClick={() => setView(option.value)}>
