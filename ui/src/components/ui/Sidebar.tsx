@@ -22,7 +22,6 @@ export const Sidebar = () => {
           <SidebarItem icon="icon-[solar--home-2-linear]" path="/" text="Home" />
           <SidebarItem icon="icon-[solar--compass-linear]" path="/explore" text="Explore" />
           <SidebarItem icon="icon-[solar--library-linear]" path="/library" text="Library" />
-          <SidebarItem icon="icon-[solar--history-linear]" path="/history" text="History" />
           {searchOpen ? (
             <SidebarSearch
               query={searchQuery}

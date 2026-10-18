@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "wouter";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { PyBridge, type Track } from "@/lib/api";
 import { usePlayer } from "@/features/player";
@@ -66,7 +67,14 @@ export const History = () => {
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-end justify-between gap-3 px-4 pt-4 pb-3 sm:px-6 sm:pt-6">
         <div>
-          <h1 className="text-2xl font-bold">History</h1>
+          <Link
+            href="/library"
+            className="inline-flex cursor-pointer items-center gap-1 text-sm text-primary-dark hover:text-primary"
+          >
+            <span className="icon-[solar--alt-arrow-left-linear]" aria-hidden="true" />
+            Library
+          </Link>
+          <h1 className="mt-2 text-2xl font-bold">History</h1>
           {list.length > 0 && (
             <p className="mt-1 text-sm text-primary-dark">
               {list.length} {list.length === 1 ? "song" : "songs"}
