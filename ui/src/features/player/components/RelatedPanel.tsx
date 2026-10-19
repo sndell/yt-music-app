@@ -16,6 +16,10 @@ const ROW_ICON: Record<RelatedItemKind, string> = {
   text: "",
 };
 
+/** YouTube's title for the song carousel. The panel heading already says the
+ * panel is related to this song, so that second label is dropped. */
+const HIDDEN_SECTION_TITLES = new Set(["you might also like"]);
+
 const toTrack = (item: RelatedItem): Track => ({
   videoId: item.videoId ?? "",
   title: item.title,
@@ -157,7 +161,9 @@ export const RelatedPanel = ({ relatedId, title }: { relatedId: string; title: s
       {!error &&
         sections?.map((section) => (
           <section key={section.title} className="pb-1">
-            <p className="px-1.5 pt-1.5 pb-1 text-xs font-semibold text-primary-dark">{section.title}</p>
+            {!HIDDEN_SECTION_TITLES.has(section.title.trim().toLowerCase()) && (
+              <p className="px-1.5 pt-1.5 pb-1 text-xs font-semibold text-primary-dark">{section.title}</p>
+            )}
             {section.items.map((item, index) =>
               item.kind === "text" ? (
                 <p key={`text-${index}`} className="px-1.5 py-1 text-xs leading-relaxed text-primary-dark">
