@@ -43,6 +43,9 @@ _CACHE_SKEW_SECONDS = 60
 _QUALITY_RANK = {"AUDIO_QUALITY_HIGH": 3, "AUDIO_QUALITY_MEDIUM": 2, "AUDIO_QUALITY_LOW": 1}
 _VERIFY_TIMEOUT_SECONDS = 8
 _VERIFY_BYTES = 2047
+# Only used when the head read reports no length at all. A real file shorter
+# than this answers 416 at that offset, which the retry turns into its middle.
+_FALLBACK_MIDDLE = 2_000_000
 # The bridge call times out at 30s, so the whole candidate chain stays under it.
 _STREAM_DEADLINE_SECONDS = 25
 
@@ -463,32 +466,53 @@ def _payload(chosen: dict[str, Any], url: str, expires: int) -> dict[str, Any]:
     }
 
 
-def _verify(url: str, user_agent: str, size: int | None, deadline: float) -> tuple[bool, str]:
+def _total_bytes(response: requests.Response) -> int | None:
+    """The whole file's size: the Content-Range of a 206, the Content-Length of a plain 200."""
+    content_range = response.headers.get("Content-Range") or ""
+    _, _, total = content_range.partition("/")
+    if total.isdigit():
+        return int(total)
+    length = response.headers.get("Content-Length") or ""
+    if response.status_code == 200 and length.isdigit():
+        return int(length)
+    return None
+
+
+def _range_read(
+    url: str, headers: dict[str, str], start: int, timeout: float
+) -> tuple[int, int | None, str]:
+    """One small ranged read: its status, the file's size when the answer names it, and its type."""
+    response = requests.get(
+        url,
+        headers={**headers, "Range": f"bytes={start}-{start + _VERIFY_BYTES}"},
+        timeout=timeout,
+        stream=True,
+    )
+    with response:
+        content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        return response.status_code, _total_bytes(response), content_type
+
+
+def _verify(url: str, user_agent: str, deadline: float) -> tuple[bool, str]:
     """Two small ranged reads: the head and the middle of the file.
 
     A URL that answers the first range and refuses the rest is exactly what
-    YouTube serves gate-kept clients, so the head alone proves nothing.
+    YouTube serves gate-kept clients, so the head alone proves nothing. The
+    middle comes from the file's own length, because a fixed offset is past the
+    end of a short song and YouTube answers that with 416.
     """
     headers = {"User-Agent": user_agent}
     timeout = max(2.0, min(_VERIFY_TIMEOUT_SECONDS, deadline - time.time()))
     try:
-        head = requests.get(
-            url, headers={**headers, "Range": f"bytes=0-{_VERIFY_BYTES}"}, timeout=timeout, stream=True
-        )
-        with head:
-            status = head.status_code
-            content_type = (head.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        status, total, content_type = _range_read(url, headers, 0, timeout)
         if status not in (200, 206) or not content_type.startswith("audio/"):
             return False, f"HTTP {status} {content_type or 'without a content type'}"
-        middle = (size or 4_000_000) // 2
-        deep = requests.get(
-            url,
-            headers={**headers, "Range": f"bytes={middle}-{middle + _VERIFY_BYTES}"},
-            timeout=timeout,
-            stream=True,
-        )
-        with deep:
-            deep_status = deep.status_code
+        middle = total // 2 if total else _FALLBACK_MIDDLE
+        deep_status, deep_total, _ = _range_read(url, headers, middle, timeout)
+        # A 416 still names the file's length, so it means the offset was wrong
+        # and not that the URL is refused: retry at the middle of the real file.
+        if deep_status == 416 and deep_total and 0 < deep_total // 2 < middle:
+            deep_status, _, _ = _range_read(url, headers, deep_total // 2, timeout)
         if deep_status not in (200, 206):
             return False, f"HTTP {deep_status} on a mid-file range"
     except requests.RequestException as exc:
@@ -619,7 +643,7 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
             failures.append(f"{name}: {exc}")
             logger.warning("Audio stream %s: %s attempt failed: %s", video_id, name, exc)
             continue
-        verified, detail = _verify(payload["url"], user_agent, None, deadline)
+        verified, detail = _verify(payload["url"], user_agent, deadline)
         if not verified:
             failures.append(f"{name}: {detail}")
             logger.warning("Audio stream %s: %s URL refused: %s", video_id, name, detail)
