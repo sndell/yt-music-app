@@ -311,7 +311,7 @@ export const Player = () => {
 
   return (
     <>
-      <div className="relative p-1.5 pt-2 bg-primary">
+      <div data-player-bar className="relative p-1.5 pt-2 bg-primary">
         <PlayerProgress currentTime={elapsedTime} duration={duration} onSeek={handleSeek} />
         <PlayerControls
           currentSong={currentSong}

@@ -84,6 +84,16 @@ class Api(MusicApi):
         """Saved player volume, 0-100 on the slider scale."""
         return preferences.volume()
 
+    @api.read(returns="boolean")
+    def get_horizontal_nav(self) -> bool:
+        """Whether the experimental horizontal icon nav is on."""
+        return preferences.horizontal_nav()
+
+    @api.read(returns="boolean")
+    def set_horizontal_nav(self, enabled: bool) -> bool:
+        """Save the horizontal icon nav choice and return the stored value."""
+        return preferences.set_horizontal_nav(enabled)
+
     @api.read(returns="number")
     def set_volume(self, volume: int) -> int:
         """Save the player volume and return the stored value."""
