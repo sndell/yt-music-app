@@ -74,12 +74,16 @@ export const PyBridge = {
   getSongInfo: (videoId: string) => callPython("get_song_info", videoId),
   /** YouTube Music's Related tab for the song that started the queue. */
   getSongRelated: (relatedId: string) => callPython("get_song_related", relatedId),
+  /** The running version and the newest published release. */
+  getUpdateStatus: () => callPython("get_update_status"),
   /** Saved player volume, 0-100 on the slider scale. */
   getVolume: () => callPython("get_volume"),
   /** Get a watch playlist for a specific video or playlist. */
   getWatchPlaylist: (videoId: string | null = null, playlistId: string | null = null, radio: boolean = false, shuffle: boolean = false) => callPython("get_watch_playlist", videoId, playlistId, radio, shuffle),
   /** Return a data URL for a cover the webview cannot decode directly. */
   inlineThumbnail: (imageUrl: string) => callPython("inline_thumbnail", imageUrl),
+  /** Download the newest release, replace this exe with it, and restart. */
+  installUpdate: () => callPython("install_update"),
   /** Invalidate cache for specific playlist IDs. */
   invalidatePlaylistCache: (playlistIds: string[]) => callPython("invalidate_playlist_cache", playlistIds),
   /** Return whether saved YouTube Music headers are on disk. */

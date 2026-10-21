@@ -162,7 +162,7 @@ The window serves `ui/dist` at `http://localhost:<port>/index.html`. It does not
 
 Releases are GitHub releases on this repo, tagged `vX.Y.Z` (example: `v0.1.0`), each with a `YTMusic.exe` built by `build/build.ps1` and never marked a prerelease unless said.
 
-1. Build with `.\build\build.ps1`; the exe lands in `build\dist\<date>_<time>\`. Commit and push first, so the tag sits on the commit the exe came from. Don't pass `version=` to the spec's EXE: PyInstaller reads it as a path to a version-info file, not a string.
+1. Build with `.\build\build.ps1`; the exe lands in `build\dist\<date>_<time>\`. Commit and push first, so the tag sits on the commit the exe came from. Bump `app/version.py` with the tag in that commit; the update check compares it with the newest release. Don't pass `version=` to the spec's EXE: PyInstaller reads it as a path to a version-info file, not a string.
 2. `git tag vX.Y.Z; git push origin vX.Y.Z`, then
    `gh release create vX.Y.Z build\dist\<stamp>\YTMusic.exe --title "YTMusic X.Y.Z" --notes-file <notes.md> --latest`.
    Write the notes as "What's new since <last tag>" with PR links, like the Alpha 2 notes.
@@ -257,6 +257,14 @@ YouTube gates the Google Video Server per account in rolling experiments (yt-dlp
 History is written from the audio element's `playing` event, not `play`: `play` fires the moment `play()` is accepted, before any byte arrives, which added every refused song to the account's history (about 40 entries on the reported machine in a day). The player toast now carries the Python error message, so a remote user can report the reason from a screenshot.
 
 A dev window is a real window on the desktop, so anyone can click a song in it while an agent works; that plays it and writes the history row, and the log line reads as if the agent did it. Verified once: a history entry appeared in a verifier's instance that no command in the record played. Stop every instance when a run ends, and read a history line with that in mind before blaming the run.
+
+## Updates
+
+`app/version.py` is the number the check compares with GitHub, so a release tag without a bump ships an exe that thinks it is the previous one. `app/features/updates.py` reads `/releases?per_page=30` and skips drafts, prereleases and tags that do not parse as `vX.Y.Z` (`alpha-1` and `alpha-2` do not), then verifies the asset's `size` and `digest` before anything can replace the exe.
+
+Windows will not delete or overwrite a running image; a onefile exe runs as a bootloader plus the app process, so no single PID wait is safe. The swap is a generated `%LOCALAPPDATA%\YTMusic\update\install-update.cmd` that retries a rename (the only reliable "both processes let go" test), keeps `YTMusic.exe.old`, moves the download in and starts it. The next start deletes the `.old`, which is the proof the new build runs. The helper has no console, so `timeout` refuses its input and `ping` is the sleep. The exe's folder must be writable: Program Files fails before the download, naming the folder. A dev window checks but refuses to install, because its `sys.executable` is python.exe.
+
+Settings shows the version and, when frozen and newer, the button. The check is warmed at startup and cached in memory for six hours; a failed check is retried after a minute.
 
 ## Music video overlay
 

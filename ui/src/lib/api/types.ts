@@ -549,3 +549,21 @@ export interface DevLogEntry {
   source?: string;
   line?: number;
 }
+
+/** The running build and the newest release the updater found. */
+export interface UpdateStatus {
+  current: string;
+  latest: string;
+  available: boolean;
+  /** False in a dev window, where there is no exe to replace. */
+  frozen: boolean;
+  url: string;
+  /** Empty when the check worked; a sentence the row can show when it did not. */
+  error: string;
+}
+
+/** What the helper is doing after a download, so the row can say so. */
+export interface UpdateInstall {
+  version: string;
+  restarting: boolean;
+}

@@ -2,10 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeading } from "@/components/ui/PageHeading";
 import { PyBridge } from "@/lib/api";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
-import type { DiscordPresenceStatus } from "@/lib/api/types";
+import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
 
 const notifyAuthChanged = () => {
   window.dispatchEvent(new Event("ytmusic-auth-changed"));
+};
+
+const updateDetail = (update: UpdateStatus | null, stage: "idle" | "installing" | "restarting") => {
+  if (stage === "restarting") return "Restarting with the new version. The window reopens on its own.";
+  if (stage === "installing") return "Downloading and checking the new build...";
+  if (!update) return "Checking for updates...";
+  if (update.error) return "Could not check for updates.";
+  if (!update.available) return "Up to date.";
+  if (!update.frozen) return `${update.latest} is available. Updates install in the packaged YTMusic.exe.`;
+  return `${update.latest} is available. The window closes and reopens to finish.`;
 };
 
 const applyStatus = (
@@ -32,6 +42,36 @@ export const Settings = () => {
   const [discordState, setDiscordState] = useState<DiscordPresenceStatus["state"]>("off");
   const [discordMessage, setDiscordMessage] = useState("");
   const holdLocalStatus = useRef(false);
+  const [update, setUpdate] = useState<UpdateStatus | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateStage, setUpdateStage] = useState<"idle" | "installing" | "restarting">("idle");
+
+  useEffect(() => {
+    let cancelled = false;
+    PyBridge.getUpdateStatus().then((result) => {
+      if (cancelled) return;
+      if (result.success) {
+        setUpdate(result.data);
+      } else {
+        setUpdateError(result.error.message);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const installUpdate = async () => {
+    setUpdateError(null);
+    setUpdateStage("installing");
+    const result = await PyBridge.installUpdate();
+    if (!result.success) {
+      setUpdateStage("idle");
+      setUpdateError(result.error.message);
+      return;
+    }
+    setUpdateStage("restarting");
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -192,6 +232,26 @@ export const Settings = () => {
               {navWorking ? "Working..." : horizontalNav ? "Turn off" : "Turn on"}
             </button>
           </div>
+        </div>
+
+        <div className="mt-8 space-y-3 border-t border-white/10 pt-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1.5">
+              <div>Version {update?.current ?? "..."}</div>
+              <p className="text-sm text-primary-dark">{updateDetail(update, updateStage)}</p>
+            </div>
+            {update?.available && update.frozen && (
+              <button
+                type="button"
+                onClick={() => void installUpdate()}
+                disabled={updateStage !== "idle"}
+                className="h-8 shrink-0 cursor-pointer rounded-full border border-white/40 px-3 text-sm text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {updateStage === "installing" ? "Downloading..." : updateStage === "restarting" ? "Restarting..." : "Update"}
+              </button>
+            )}
+          </div>
+          {updateError && <p className="text-sm text-red-500">{updateError}</p>}
         </div>
       </div>
     </div>

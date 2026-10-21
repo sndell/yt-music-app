@@ -46,3 +46,12 @@ class WebViewController:
             window: The pywebview Window instance.
         """
         cls._window = window
+
+    @classmethod
+    def close(cls) -> None:
+        """Close the window, so `webview.start()` returns and the app exits.
+
+        Safe from another thread: pywebview posts the close to the UI thread.
+        """
+        if cls._window is not None:
+            cls._window.destroy()
