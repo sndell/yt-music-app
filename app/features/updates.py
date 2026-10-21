@@ -296,14 +296,27 @@ def _spawn(script: Path, target: Path, downloaded: Path, version: str) -> None:
 
     The paths go through the environment because cmd expands `%` inside a
     quoted argument too, and a folder name may contain one.
+
+    PyInstaller's onefile bootloader tells its child where the extraction
+    folder is with `_PYI_APPLICATION_HOME_DIR`. Inherited by the helper and
+    then by the new exe, that path is the folder this process's bootloader is
+    deleting, and the new build dies in "Failed to load Python DLL" before it
+    extracts anything. The helper clears the same names again, since it is the
+    process that hands its environment to the exe.
     """
     env = {
-        **os.environ,
-        "YTM_EXE": str(target),
-        "YTM_NEW": str(downloaded),
-        "YTM_LOG": str(script.parent / "install.log"),
-        "YTM_VERSION": version,
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("_PYI_") and key != "_MEIPASS2"
     }
+    env.update(
+        {
+            "YTM_EXE": str(target),
+            "YTM_NEW": str(downloaded),
+            "YTM_LOG": str(script.parent / "install.log"),
+            "YTM_VERSION": version,
+        }
+    )
     flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
     subprocess.Popen(
         ["cmd.exe", "/c", str(script)],
@@ -360,6 +373,16 @@ set "EXE=%YTM_EXE%"
 set "NEW=%YTM_NEW%"
 set "LOG=%YTM_LOG%"
 set "TRIES=0"
+
+rem This script runs from the old onefile build, whose bootloader left its
+rem extraction folder in the environment. The new exe would inherit it, look
+rem for python3xx.dll in a folder that is being deleted, and fail before it
+rem extracts its own. Clear them so `start` hands the exe a clean one.
+set "_PYI_APPLICATION_HOME_DIR="
+set "_PYI_ARCHIVE_FILE="
+set "_PYI_PARENT_PROCESS_LEVEL="
+set "_PYI_SPLASH_IPC="
+set "_MEIPASS2="
 
 :rename
 rem Windows refuses to delete or overwrite a running image but allows a rename,

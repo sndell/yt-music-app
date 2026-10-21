@@ -264,6 +264,8 @@ A dev window is a real window on the desktop, so anyone can click a song in it w
 
 Windows will not delete or overwrite a running image; a onefile exe runs as a bootloader plus the app process, so no single PID wait is safe. The swap is a generated `%LOCALAPPDATA%\YTMusic\update\install-update.cmd` that retries a rename (the only reliable "both processes let go" test), keeps `YTMusic.exe.old`, moves the download in and starts it. The next start deletes the `.old`, which is the proof the new build runs. The helper has no console, so `timeout` refuses its input and `ping` is the sleep. The exe's folder must be writable: Program Files fails before the download, naming the folder. A dev window checks but refuses to install, because its `sys.executable` is python.exe.
 
+PyInstaller's onefile bootloader puts `_PYI_APPLICATION_HOME_DIR` and `_PYI_ARCHIVE_FILE` in the child's environment. A relaunched exe that inherits them looks for python3xx.dll in the extraction folder the old bootloader is deleting, and dies in "Failed to load Python DLL" before it extracts its own. `_spawn` strips every `_PYI_*` (and `_MEIPASS2`), and the helper clears the same names again because it is the process that hands its environment to the new exe.
+
 Settings shows the version and, when frozen and newer, the button. The check is warmed at startup and cached in memory for six hours; a failed check is retried after a minute.
 
 ## Music video overlay
