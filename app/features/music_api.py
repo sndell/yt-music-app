@@ -60,7 +60,7 @@ from features.music.charts import _chart_country_code, _charts_payload, _empty_c
 from features.music.lyrics import _lyrics_browse_id, _normalize_lyrics, _query_batches, _signed_out_client, _split_blocks, _timed_lyrics, _translate_block, _translate_lines_individually, _translate_lyric_lines, _translate_request  # moved out of this module
 from features.music.moods import _empty_mood_categories, _mood_fallback_sections, _mood_playlists, _mood_sections, MOODS_BROWSE_ID  # the moods and genres browse page
 from features.music.explore import _explore_sections  # the explore feed
-from features.music.related import _related_sections  # the watch playlist's Related tab
+from features.music.related import _song_related_sections  # the watch playlist's Related tab
 from features.music.playlists import _PlaylistDateCapture, _apply_added_dates, _date_sink, _fetch_all_playlist_tracks, _find_playlist_shelf, _forget_playlist_stat, _install_date_recorder, _load_playlist_stats, _playlist_first_page, _playlist_stat_score, _playlist_track_page, _record_playlist_stat, _save_playlist_stats, _token_sink, _walk_playlist_item_data  # moved out of this module
 
 logger = logging.getLogger(__name__)
@@ -1911,7 +1911,7 @@ class MusicApi:
                 return cached["sections"]
 
             logger.info("Fetching related songs for %s...", ident)
-            sections = _related_sections(self._get_ytmusic().get_song_related(ident))
+            sections = _song_related_sections(self._get_ytmusic(), ident)
             # An answer of no sections is an answer, and a stable one, so it is
             # cached; a failed read is raised below and left uncached.
             store.write(RELATED, ident, {"sections": sections})
