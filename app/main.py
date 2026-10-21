@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
 
 from util.app_paths import data_dir, is_frozen
@@ -35,6 +36,7 @@ if ENV == "dev":
 
 import webview
 
+from features import updates
 from features.music_api import MusicApi
 from util.discord_presence import discord_presence
 from util.media_controls import media_controls, prepare_webview
@@ -99,6 +101,21 @@ class Api(MusicApi):
         """Save the player volume and return the stored value."""
         return preferences.set_volume(volume)
 
+    @api.read(returns="UpdateStatus")
+    def get_update_status(self) -> dict:
+        """The running version and the newest published release."""
+        return updates.status()
+
+    @api.read(returns="UpdateInstall")
+    def install_update(self) -> dict:
+        """Download the newest release, replace this exe with it, and restart."""
+        result = updates.install()
+        # Let the answer reach the page so it can say it is restarting.
+        timer = threading.Timer(updates.RESTART_DELAY, WebViewController.close)
+        timer.daemon = True
+        timer.start()
+        return result
+
     @api.internal(reason="dev renderer log forwarding", dev_only=True, returns="void", params={"entry": "DevLogEntry | null"})
     def dev_log(self, entry: dict | None = None) -> None:
         """Dev only: the page forwards renderer console output here.
@@ -143,6 +160,10 @@ def _disable_browser_context_menu(window: webview.Window) -> None:
 if __name__ == "__main__":
     prepare_webview()
     api = Api()
+    # A build that has opened a window is the proof the previous swap worked,
+    # so the exe it replaced can go. The check runs before Settings asks for it.
+    updates.cleanup()
+    updates.warm()
     title = "YTMusic"
     # Dev loads Vite. This process starts it in its own console and stops it
     # when the window closes, so the server never outlives the window. It also
