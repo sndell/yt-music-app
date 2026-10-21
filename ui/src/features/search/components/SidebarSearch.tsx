@@ -1,105 +1,105 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import { PyBridge, type SearchResult } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
+import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { useRecentSearches } from "../hooks/useRecentSearches";
 import { isPlayable, searchHref, searchResultToTrack } from "../lib/searchTarget";
 import { SearchRow } from "./SearchRow";
 
 const DEBOUNCE_MS = 280;
 const LIVE_LIMIT = 8;
-// YouTube completes most two-letter prefixes usefully; below that the flyout is
+// YouTube completes most two-letter prefixes usefully; below that the panel is
 // recent searches and live results only.
 const SUGGESTION_MIN_CHARS = 2;
-
-/** The floating panel. It owns its ref so it can place itself the moment it mounts. */
-const SearchFlyout = ({ anchor, children }: { anchor: DOMRect; children: ReactNode }) => {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const panel = ref.current;
-    if (!panel) return;
-    const place = () => {
-      const rect = panel.getBoundingClientRect();
-      let left = anchor.right + 8;
-      if (left + rect.width > window.innerWidth - 8) left = Math.max(8, anchor.left - 8 - rect.width);
-      let top = anchor.top;
-      if (top + rect.height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - rect.height);
-      panel.style.left = `${left}px`;
-      panel.style.top = `${top}px`;
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(panel);
-    return () => observer.disconnect();
-  }, [anchor]);
-
-  return (
-    <div
-      ref={ref}
-      data-search-flyout=""
-      onMouseDown={(event) => event.preventDefault()}
-      style={{ width: 384 }}
-      className={cn(
-        "fixed z-[55] flex max-h-[min(70vh,560px)] flex-col overflow-hidden rounded-2xl bg-black shadow-[0_14px_36px_rgb(0_0_0/0.7)]",
-        "transition-[opacity,translate,scale] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
-        "starting:-translate-x-1 starting:scale-95 starting:opacity-0",
-      )}
-    >
-      {children}
-    </div>
-  );
-};
+// How long the exit transition runs before the sidebar unmounts the panel.
+const CLOSE_ANIMATION_MS = 140;
 
 /**
- * The sidebar's search field. Clicking the Search nav item swaps that section
- * for this field; a flyout opens to its right with recent terms and live
- * results. Enter opens the dedicated search page. The field stays open with the
- * term in it while the results are on screen, and the term lives in the parent
- * so it is also there the next time the field opens. Escape or a click outside
- * collapses it back to the nav item.
+ * Search opens as one floating black panel at a fixed position in both nav
+ * modes: to the right of the sidebar, with gaps at the left, the top and the
+ * bottom, so it never reads as a plain black section. The input is its top
+ * edge; suggestions and live results scroll below, recent searches show while
+ * the box is empty. Enter opens the dedicated search page and closes the
+ * panel. Escape or a click outside collapses it back to the icon.
  */
-export const SidebarSearch = ({
-  query,
-  onQueryChange,
-  onClose,
-}: {
-  query: string;
-  onQueryChange: (value: string) => void;
-  onClose: () => void;
-}) => {
+export const SidebarSearch = ({ query, onQueryChange, onClose }: { query: string; onQueryChange: (value: string) => void; onClose: () => void }) => {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
   const suggestionRequestIdRef = useRef(0);
   const [, navigate] = useLocation();
   const { recent, add, remove, clear } = useRecentSearches();
   const { playTracks } = usePlayer();
 
-  useEffect(() => {
-    inputRef.current?.focus();
+  const place = useCallback(() => {
+    const panel = containerRef.current;
+    if (!panel) return;
+    const GAP = 8;
+    // The sidebar box carries its own padding, which visually widens the left
+    // gap beyond the 8px offset. Read it and give the top and the bottom the
+    // same total, so all three gaps match.
+    const sidebar = document.querySelector("[data-sidebar]") as HTMLElement | null;
+    const sidebarPadding = sidebar ? parseFloat(getComputedStyle(sidebar).paddingRight) || 0 : 0;
+    const edgeGap = GAP + sidebarPadding;
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const bar = document.querySelector("[data-player-bar]");
+    // With a song playing the panel stops above the player bar; idle, the bar
+    // is not in the tree and the panel runs to the window's bottom edge.
+    const bottomLimit = bar ? bar.getBoundingClientRect().top : window.innerHeight;
+    panel.style.top = `${edgeGap}px`;
+    panel.style.height = `${Math.max(240, bottomLimit - edgeGap * 2)}px`;
+    panel.style.left = `${sidebarRect ? sidebarRect.right + GAP : GAP}px`;
   }, []);
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const update = () => setAnchor(container.getBoundingClientRect());
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(container);
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
+  useLayoutEffect(() => {
+    const panel = containerRef.current;
+    if (!panel) return;
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(panel);
+    window.addEventListener("resize", place);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", place);
     };
+  }, [place]);
+
+  // The scroll area runs to the player bar, so its clipped edges fade instead
+  // of cutting a row off mid-pixels.
+  useEdgeFade(scrollRef, { top: true, bottom: true }, [query, suggestions.length, results.length, recent.length, loading]);
+
+  // The panel animates out instead of vanishing: the first close request
+  // starts the exit transition, and the sidebar's unmount follows it.
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
+  const closeWithAnimation = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosing(true);
+    window.setTimeout(() => onClose(), CLOSE_ANIMATION_MS);
+  }, [onClose]);
+
+  // A click outside the panel collapses it back to the Search icon.
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (containerRef.current?.contains(target as Node)) return;
+      if (target instanceof Element && target.closest("[data-search-flyout]")) return;
+      closeWithAnimation();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [closeWithAnimation]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
   }, []);
 
   const run = useCallback((text: string) => {
@@ -146,26 +146,15 @@ export const SidebarSearch = ({
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  // A click outside the field or its flyout closes search and restores the nav.
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (containerRef.current?.contains(target as Node)) return;
-      if (target instanceof Element && target.closest("[data-search-flyout]")) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [onClose]);
-
   const submit = useCallback(
     (value: string) => {
       const text = value.trim();
       if (!text) return;
       add(text);
       navigate(`/search?q=${encodeURIComponent(text)}`);
+      closeWithAnimation();
     },
-    [add, navigate],
+    [add, navigate, closeWithAnimation],
   );
 
   const openResult = (result: SearchResult) => {
@@ -184,133 +173,132 @@ export const SidebarSearch = ({
   };
 
   const text = query.trim();
-  const showFlyout = Boolean(anchor) && (text.length > 0 || recent.length > 0);
 
-  return (
-    <div ref={containerRef} className="relative">
-      <div className="flex items-center gap-2 rounded-lg bg-primary-light px-3 py-1.5 transition-[box-shadow] focus-within:ring-2 focus-within:ring-white/15">
-        <span className="icon-[solar--magnifer-linear] shrink-0 text-lg text-primary-dark" />
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") submit(query);
-            else if (event.key === "Escape") {
-              if (query) onQueryChange("");
-              else onClose();
-            }
-          }}
-          placeholder="Search"
-          aria-label="Search"
-          spellCheck={false}
-          className="min-w-0 flex-1 bg-transparent text-sm text-primary outline-none placeholder:text-primary-dark"
-        />
-        {/* With a term in the box the X clears it, the same as Escape; with an
-            empty box it closes search, so both ways out stay reachable. */}
-        <button
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => (query ? onQueryChange("") : onClose())}
-          aria-label={query ? "Clear search" : "Close search"}
-          className="shrink-0 cursor-pointer text-primary-dark transition-colors hover:text-primary"
-        >
-          <span className="icon-[solar--close-linear] text-lg" />
-        </button>
+  return createPortal(
+    <div
+      ref={containerRef}
+      data-search-flyout=""
+      style={{ width: 520 }}
+      className={cn(
+        "fixed z-[55] flex flex-col overflow-hidden rounded-2xl bg-black shadow-[0_10px_28px_rgb(0_0_0/0.65)]",
+        "transition-[opacity,scale] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        closing ? "scale-95 opacity-0" : "starting:scale-95 starting:opacity-0",
+      )}
+    >
+      <div className="p-1.5">
+        <div className="flex items-center gap-2 rounded-lg bg-primary-light px-3 py-1.5 transition-[box-shadow] focus-within:ring-2 focus-within:ring-white/15">
+          <span className="icon-[solar--magnifer-linear] shrink-0 text-lg text-primary-dark" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") submit(query);
+              else if (event.key === "Escape") {
+                if (query) onQueryChange("");
+                else closeWithAnimation();
+              }
+            }}
+            placeholder="Search"
+            aria-label="Search"
+            spellCheck={false}
+            className="min-w-0 flex-1 bg-transparent text-sm text-primary outline-none placeholder:text-primary-dark"
+          />
+          {/* With a term in the box the X clears it, the same as Escape; with an
+              empty box it closes search, so both ways out stay reachable. */}
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => (query ? onQueryChange("") : closeWithAnimation())}
+            aria-label={query ? "Clear search" : "Close search"}
+            className="shrink-0 cursor-pointer text-primary-dark transition-colors hover:text-primary"
+          >
+            <span className="icon-[solar--close-linear] text-lg" />
+          </button>
+        </div>
       </div>
 
-      {showFlyout &&
-        anchor &&
-        createPortal(
-          <SearchFlyout anchor={anchor}>
-            {text ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => submit(text)}
-                  className="flex shrink-0 items-center gap-2.5 border-b border-white/5 px-3.5 py-2.5 text-left text-sm text-primary transition-colors hover:bg-white/10"
-                >
-                  <span className="icon-[solar--magnifer-linear] shrink-0 text-lg text-primary-dark" />
-                  <span className="min-w-0 truncate">
-                    Search for <span className="font-medium">“{text}”</span>
-                  </span>
-                </button>
-                <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-1">
-                  {suggestions.length > 0 && (
-                    <div className="mb-1 border-b border-white/5 pb-1">
-                      <p className="px-2.5 pt-1.5 pb-1 text-xs font-medium tracking-wide text-primary-dark uppercase">
-                        Suggestions
-                      </p>
-                      {suggestions.map((suggestion) => (
-                        <button
-                          key={suggestion}
-                          type="button"
-                          onClick={() => submit(suggestion)}
-                          className="flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-primary transition-colors hover:bg-white/10"
-                        >
-                          <span className="icon-[solar--magnifer-linear] shrink-0 text-lg text-primary-dark" />
-                          <span className="min-w-0 truncate">{suggestion}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {loading && results.length === 0 ? (
-                    <div className="grid place-items-center py-6" role="status">
-                      <span className="icon-[solar--loader-linear] animate-spin text-xl text-primary-dark" />
-                    </div>
-                  ) : results.length === 0 ? (
-                    <p className="px-3 py-6 text-center text-sm text-primary-dark">No results</p>
-                  ) : (
-                    results.map((result, index) => (
-                      <SearchRow
-                        key={`${result.kind}-${result.videoId ?? result.browseId ?? index}`}
-                        result={result}
-                        dense
-                        onSelect={() => openResult(result)}
-                      />
-                    ))
-                  )}
-                </div>
-              </>
+      <div
+        ref={scrollRef}
+        className="scrollbar-thin min-h-0 flex-1 flex-col overflow-y-auto border-t border-white/5"
+      >
+        {text ? (
+          <>
+            {suggestions.length > 0 && (
+              <div className="mb-1 border-b border-white/5 pb-1">
+                <p className="px-2.5 pt-1.5 pb-1 text-xs font-medium tracking-wide text-primary-dark uppercase">
+                  Suggestions
+                </p>
+                {suggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => submit(suggestion)}
+                    className="flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-primary transition-colors hover:bg-white/10"
+                  >
+                    <span className="icon-[solar--magnifer-linear] shrink-0 text-lg text-primary-dark" />
+                    <span className="min-w-0 truncate">{suggestion}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {loading && results.length === 0 ? (
+              <div className="grid place-items-center py-6" role="status">
+                <span className="icon-[solar--loader-linear] animate-spin text-xl text-primary-dark" />
+              </div>
+            ) : results.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-primary-dark">No results</p>
             ) : (
-              <>
-                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/5 px-3.5 pt-2.5 pb-1.5">
-                  <span className="text-xs font-medium tracking-wide text-primary-dark uppercase">Recent searches</span>
+              results.map((result, index) => (
+                <SearchRow
+                  key={`${result.kind}-${result.videoId ?? result.browseId ?? index}`}
+                  result={result}
+                  dense
+                  onSelect={() => openResult(result)}
+                />
+              ))
+            )}
+          </>
+        ) : recent.length > 0 ? (
+          <>
+            <div className="flex shrink-0 items-center justify-between gap-2 px-3.5 pt-2.5 pb-1.5">
+              <span className="text-xs font-medium tracking-wide text-primary-dark uppercase">Recent searches</span>
+              <button
+                type="button"
+                onClick={clear}
+                className="cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium text-primary-dark transition-colors hover:bg-white/10 hover:text-primary"
+              >
+                Clear
+              </button>
+            </div>
+            <div>
+              {recent.map((term) => (
+                <div key={term} className="group flex items-center gap-1 rounded-lg pr-1 hover:bg-white/10">
                   <button
                     type="button"
-                    onClick={clear}
-                    className="cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium text-primary-dark transition-colors hover:bg-white/10 hover:text-primary"
+                    onClick={() => submit(term)}
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-2.5 py-2 text-left text-sm text-primary"
                   >
-                    Clear
+                    <span className="icon-[solar--history-linear] shrink-0 text-lg text-primary-dark" />
+                    <span className="min-w-0 truncate">{term}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => remove(term)}
+                    aria-label={`Remove ${term}`}
+                    className="shrink-0 cursor-pointer rounded-full p-1 text-primary-dark opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary"
+                  >
+                    <span className="icon-[solar--close-linear] text-lg" />
                   </button>
                 </div>
-                <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-1">
-                  {recent.map((term) => (
-                    <div key={term} className="group flex items-center gap-1 rounded-lg pr-1 hover:bg-white/10">
-                      <button
-                        type="button"
-                        onClick={() => submit(term)}
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-2.5 py-2 text-left text-sm text-primary"
-                      >
-                        <span className="icon-[solar--history-linear] shrink-0 text-lg text-primary-dark" />
-                        <span className="min-w-0 truncate">{term}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => remove(term)}
-                        aria-label={`Remove ${term}`}
-                        className="shrink-0 cursor-pointer rounded-full p-1 text-primary-dark opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary"
-                      >
-                        <span className="icon-[solar--close-linear] text-lg" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </SearchFlyout>,
-          document.body,
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="px-3 py-6 text-center text-sm text-primary-dark">Type to search</p>
         )}
-    </div>
+      </div>
+    </div>,
+    document.body,
   );
 };

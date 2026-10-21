@@ -26,6 +26,10 @@ def _volume(value: object) -> int | None:
     return int(min(100, max(0, round(value))))
 
 
+def _boolean(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 class Preferences:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -50,6 +54,24 @@ class Preferences:
             except OSError:
                 logger.exception("Could not save preferences")
         return level
+
+    def horizontal_nav(self) -> bool:
+        with self._lock:
+            return _boolean(self._values.get("horizontal_nav")) is True
+
+    def set_horizontal_nav(self, value: object) -> bool:
+        enabled = _boolean(value)
+        if enabled is None:
+            return self.horizontal_nav()
+        with self._lock:
+            if self._values.get("horizontal_nav") == enabled:
+                return enabled
+            self._values["horizontal_nav"] = enabled
+            try:
+                self._save()
+            except OSError:
+                logger.exception("Could not save preferences")
+        return enabled
 
     def _load(self) -> None:
         try:

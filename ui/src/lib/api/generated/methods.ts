@@ -105,6 +105,10 @@ export interface ApiMethods {
   update_discord_presence: { params: [title: string, artist: string, album: string, playing: boolean, elapsed: number, duration: number, artwork: string, videoId: string]; response: void };
   /** Saved player volume, 0-100 on the slider scale. */
   get_volume: { params: []; response: number };
+  /** Whether the experimental horizontal icon nav is on. */
+  get_horizontal_nav: { params: []; response: boolean };
+  /** Save the horizontal icon nav choice and return the stored value. */
+  set_horizontal_nav: { params: [enabled: boolean]; response: boolean };
   /** Save the player volume and return the stored value. */
   set_volume: { params: [volume: number]; response: number };
 }

@@ -40,6 +40,8 @@ export const PyBridge = {
   getHistory: () => callPython("get_history"),
   /** Return every shelf YouTube Music puts on the home feed. */
   getHome: (forceRefresh: boolean = false) => callPython("get_home", forceRefresh),
+  /** Whether the experimental horizontal icon nav is on. */
+  getHorizontalNav: () => callPython("get_horizontal_nav"),
   /** Fetch the albums saved to the user's YouTube Music library. */
   getLibraryAlbums: (limit: number = 1000, forceRefresh: boolean = false) => callPython("get_library_albums", limit, forceRefresh),
   /** Fetch the artists saved to the user's YouTube Music library. */
@@ -96,6 +98,8 @@ export const PyBridge = {
   search: (query: string, filter: SearchFilter | "" = "", scope: SearchScope | "" = "", limit: number = 30) => callPython("search", query, filter, scope, limit),
   /** Turn Discord rich presence on or off. */
   setDiscordPresence: (enabled: boolean) => callPython("set_discord_presence", enabled),
+  /** Save the horizontal icon nav choice and return the stored value. */
+  setHorizontalNav: (enabled: boolean) => callPython("set_horizontal_nav", enabled),
   /** Save the player volume and return the stored value. */
   setVolume: (volume: number) => callPython("set_volume", volume),
   /** Return the given track ids in a true-random order. */
