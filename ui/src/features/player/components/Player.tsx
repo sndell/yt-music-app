@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { usePlayer } from "../context/PlayerContext";
 import { playhead } from "../lib/playhead";
+import { attachEqualizer, loadEqualizer } from "../lib/equalizer";
 import { APP_EVENTS, type AppEvent } from "../lib/appEvents";
 import { useToast } from "@/components/ui/Toast";
 import { PyBridge } from "@/lib/api";
@@ -77,6 +78,17 @@ export const Player = () => {
   volumeRef.current = volume;
   playingRef.current = isPlaying;
   elapsedRef.current = elapsedTime;
+
+  // The equalizer owns the audio graph for this element, so it has to see the
+  // node before the first stream is assigned to it.
+  const bindAudio = useCallback((node: HTMLAudioElement | null) => {
+    playerRef.current = node;
+    if (node) attachEqualizer(node);
+  }, []);
+
+  useEffect(() => {
+    void loadEqualizer();
+  }, []);
 
   const playAudio = useCallback((audio: HTMLAudioElement) => {
     void audio.play().then(() => {
@@ -363,7 +375,8 @@ export const Player = () => {
         />
       </div>
       <audio
-        ref={playerRef}
+        ref={bindAudio}
+        crossOrigin="anonymous"
         preload="auto"
         onPlay={() => {
           playingRef.current = true;

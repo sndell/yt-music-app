@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 from typing import Any
 
@@ -18,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = data_dir() / "preferences.json"
 _DEFAULT_VOLUME = 50
+# One entry per slider in the UI. The count is part of the stored shape, so a
+# payload that does not carry exactly this many bands is ignored rather than
+# stretched.
+_EQUALIZER_BANDS = 10
+# The UI's slider range, in dB. Clamping here too keeps a hand-edited or older
+# preferences.json from driving Chromium's filters past what the sliders show.
+_GAIN_LIMIT = 12.0
+_DEFAULT_EQUALIZER: dict[str, Any] = {
+    "enabled": False,
+    "preamp": 0.0,
+    "bass": 0.0,
+    "treble": 0.0,
+    "bands": [0.0] * _EQUALIZER_BANDS,
+}
 
 
 def _volume(value: object) -> int | None:
@@ -28,6 +43,40 @@ def _volume(value: object) -> int | None:
 
 def _boolean(value: object) -> bool | None:
     return value if isinstance(value, bool) else None
+
+
+def _gain(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if math.isnan(number) or math.isinf(number):
+        return None
+    return round(min(_GAIN_LIMIT, max(-_GAIN_LIMIT, number)), 1)
+
+
+def _equalizer(value: object) -> dict[str, Any] | None:
+    """The stored equalizer, or None when the payload is not one we wrote."""
+    if not isinstance(value, dict):
+        return None
+    bands = value.get("bands")
+    if not isinstance(bands, list) or len(bands) != _EQUALIZER_BANDS:
+        return None
+    gains = [_gain(band) for band in bands]
+    if any(gain is None for gain in gains):
+        return None
+    preamp = _gain(value.get("preamp"))
+    bass = _gain(value.get("bass"))
+    treble = _gain(value.get("treble"))
+    enabled = _boolean(value.get("enabled"))
+    if preamp is None or bass is None or treble is None or enabled is None:
+        return None
+    return {
+        "enabled": enabled,
+        "preamp": preamp,
+        "bass": bass,
+        "treble": treble,
+        "bands": gains,
+    }
 
 
 class Preferences:
@@ -72,6 +121,39 @@ class Preferences:
             except OSError:
                 logger.exception("Could not save preferences")
         return enabled
+
+    def equalizer(self) -> dict[str, Any]:
+        with self._lock:
+            stored = _equalizer(self._values.get("equalizer"))
+            # A fresh list per call: callers write into the payload they get back.
+            return {**_DEFAULT_EQUALIZER, "bands": list(_DEFAULT_EQUALIZER["bands"])} if stored is None else stored
+
+    def set_equalizer(self, value: object) -> dict[str, Any]:
+        current = self.equalizer()
+        if not isinstance(value, dict):
+            return current
+        next_value = dict(current)
+        enabled = _boolean(value.get("enabled"))
+        if enabled is not None:
+            next_value["enabled"] = enabled
+        for key in ("preamp", "bass", "treble"):
+            gain = _gain(value.get(key))
+            if gain is not None:
+                next_value[key] = gain
+        bands = value.get("bands")
+        if isinstance(bands, list) and len(bands) == _EQUALIZER_BANDS:
+            gains = [_gain(band) for band in bands]
+            if all(gain is not None for gain in gains):
+                next_value["bands"] = gains
+        with self._lock:
+            if self._values.get("equalizer") == next_value:
+                return next_value
+            self._values["equalizer"] = next_value
+            try:
+                self._save()
+            except OSError:
+                logger.exception("Could not save preferences")
+        return next_value
 
     def _load(self) -> None:
         try:

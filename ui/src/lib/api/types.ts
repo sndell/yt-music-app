@@ -524,6 +524,18 @@ export interface AudioStream {
   expiresInSeconds: number;
 }
 
+/**
+ * The built-in equalizer, in dB. `bands` carries one gain per entry of
+ * `EQUALIZER_BANDS` in the UI, low to high.
+ */
+export interface EqualizerSettings {
+  enabled: boolean;
+  preamp: number;
+  bass: number;
+  treble: number;
+  bands: number[];
+}
+
 export type SearchFilter =
   | "songs"
   | "videos"

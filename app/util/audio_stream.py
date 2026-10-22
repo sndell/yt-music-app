@@ -34,6 +34,7 @@ import ytmusicapi
 from yt_dlp_ejs.yt.solver import core as solver_core
 from yt_dlp_ejs.yt.solver import lib as solver_lib
 
+from util import audio_proxy
 from util.app_paths import cache_dir
 
 logger = logging.getLogger(__name__)
@@ -338,7 +339,9 @@ _player_js: str | None = None
 _player_timestamp: int | None = None
 
 _stream_lock = threading.Lock()
-_streams: dict[str, tuple[float, dict[str, Any]]] = {}
+# Expiry, payload and the user agent that URL was verified with, which the local
+# proxy has to replay when it re-fetches the bytes.
+_streams: dict[str, tuple[float, dict[str, Any], str]] = {}
 
 
 def _player_source(ytmusic: ytmusicapi.YTMusic) -> tuple[str, str, int]:
@@ -617,7 +620,7 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
             _streams.pop(video_id, None)
         cached = _streams.get(video_id)
         if cached is not None and cached[0] > now:
-            return dict(cached[1])
+            return _proxied(cached[1], cached[2])
 
     deadline = time.time() + _STREAM_DEADLINE_SECONDS
     timestamp = _player_source(ytmusic)[2]
@@ -661,11 +664,12 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
             _streams[video_id] = (
                 time.time() + max(30, payload["expiresInSeconds"] - _CACHE_SKEW_SECONDS),
                 dict(payload),
+                user_agent,
             )
             if len(_streams) > 32:
                 oldest = min(_streams, key=lambda key: _streams[key][0])
                 _streams.pop(oldest, None)
-        return payload
+        return _proxied(payload, user_agent)
     raise RuntimeError("YouTube refused to stream this song. " + "; ".join(failures))
 
 
@@ -691,3 +695,12 @@ def _warm(ytmusic: ytmusicapi.YTMusic) -> None:
         logger.info("Audio solver armed in %.2fs", time.time() - started)
     except Exception as exc:  # noqa: BLE001 - the first song can retry the same work
         logger.info("Audio solver warm-up skipped: %s", exc)
+
+
+def _proxied(payload: dict[str, Any], user_agent: str) -> dict[str, Any]:
+    """The payload the UI plays: the same stream, re-served from loopback.
+
+    The element has to stay untainted for the equalizer's Web Audio graph, and
+    googlevideo authorizes no origin but its own page.
+    """
+    return {**payload, "url": audio_proxy.url_for(payload["url"], user_agent)}

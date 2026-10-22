@@ -65,7 +65,7 @@ The most common defect here is a change that works on the one path you tried and
 | `app/main.py` | Startup, the window, and `Api` (media controls, Discord, volume) on top of `MusicApi` |
 | `app/features/music_api.py` | The YouTube Music surface the UI calls, and the writes |
 | `app/features/music/` | The helpers behind it: payload builders (`normalize.py`), lyrics and translation (`lyrics.py`), playlist paging, date capture and stats (`playlists.py`) |
-| `app/util/` | Window helpers: paths, audio, media keys, Discord, preferences, the packaged UI server, the event dispatcher |
+| `app/util/` | Window helpers: paths, audio, media keys, Discord, preferences, the packaged UI server, the audio proxy, the event dispatcher |
 | `app/dev/` | Dev-only tooling: `vite.py` starts the dev server, `control.py` serves the dev HTTP surface, `logs.py` captures logs, `cli.py` talks to a running instance |
 | `ui/src/features/<name>/` | One folder per feature: album, artist, library, player, playlist, search, settings |
 | `ui/src/components/ui/` | Shared UI pieces (menus, dialogs, rows, scroll) |
@@ -253,6 +253,20 @@ The Related tab: `YTMusic.get_song_related` reads `contents.sectionListRenderer`
 Every menu component (TrackMenu, SongListMenu, PlaylistMenu, ShuffleMenu, AddToPlaylistPanel, the tuner and language menus) dismisses itself on a global-capture `scroll` event outside its own panel, so a scroll anywhere in the app closes any open menu. That reads app-initiated scrolls as user scrolls: the lyrics picture window follows the playing line, and the queue pins now-playing, and both closed every open menu while they ran — the reported "context menus close when lyrics switch". Their scroll paths call `suppressScrollDismiss(ms)` first and the menu guards skip those (`isProgrammaticScroll()` in `components/ui/menuDom.ts`). A scroll the user makes still closes the menus.
 
 Settings is a column of `SettingsSection` groups from `ui/src/features/settings/components/SettingsSection.tsx`: a small label, a hairline, then `SettingsRow`s of a title, a short explanation, a right-hand control and an optional result line. A new option joins its category (Appearance for UI tweaks, Integrations for external services) instead of becoming another top-level block. Booleans use `components/ui/Switch`; a section's single action is the `SettingsAction` pill in the page. The rows carry no card fill, and explanations cap at 56ch so they stay a readable measure.
+
+## The equalizer and the loopback audio proxy
+
+Playback stays in the page's `<audio>` element, so the equalizer is a Web Audio graph in `ui/src/features/player/lib/equalizer.ts`: a preamp gain, ten peaking biquads at `EQUALIZER_BANDS`, a 150 Hz lowshelf and a 6 kHz highshelf, built once per element and ramped with `setTargetAtTime` so a drag does not click. Off sets every gain to 0 dB instead of unwiring, because capturing a media element cannot be undone. The graph is built on the element's first `play`: a context created outside a gesture starts suspended, and a suspended context silences the media it captured. Settings live in `preferences.json` under `equalizer`, validated to ten bands within ±12 dB.
+
+Vite has no hot-update boundary for that file, so editing it reloads the page; a React refresh can still re-attach the module to the element that is already playing, and capturing an element twice throws `InvalidStateError` and leaves the equalizer dead with the audio still flowing through the old graph. The graph is therefore stored on the element under `__ytmusicEqualizer`, and a second attach adopts it. Faders that do nothing after an edit are this, not the bridge.
+
+There is no automatic headroom, by request: the preamp is a manual slider, and a curve that boosts clips at the device above 0 dBFS. Do not add the cut back. An automatic version was built, shipped into a branch, and removed the same day, so treat it as a decided question rather than an unfinished one: the developer tunes the preamp, or turns the volume down until the distortion stops.
+
+The element's own `volume` scales the signal before the graph, so an EQ that boosts 23 dB still reaches full scale with the volume at 8%: `volume` and the curve multiply. That is why a clipping threshold belongs to the pair, not to the EQ, and why turning the volume down until the distortion stops caps how loud the app can get.
+
+That graph needs a CORS-clean element, and googlevideo will not give it one: a signed-in URL answers `Access-Control-Allow-Origin: https://www.youtube.com` and no header at all for a `localhost` origin (October 2026, on the web client and on both fallback clients). An element without CORS is tainted, and `createMediaElementSource` on it outputs silence. So `audio_stream` returns `http://127.0.0.1:<port>/audio/<token>` from `app/util/audio_proxy.py`, an in-process server that replays the request's `Range` at googlevideo and answers CORS itself. Only URLs Python resolved get a token, so the port is not an open proxy. The player's element carries `crossorigin="anonymous"` before its first `src` is assigned.
+
+Measured in a dev window: preamp −12 dB took the tapped output RMS from 0.079 to 0.020 (4×, as it should), and bass +12 dB raised the 40–120 Hz to 800–2500 Hz ratio from 14 to 21. To tap the output yourself, wrap `AudioNode.prototype.connect` before the first play and insert an `AnalyserNode` where a node connects to `context.destination`; tapping the media source measures the signal before the filters. `cli.py eval` cannot grant user activation, so a click dispatched from `eval` is not a gesture — this WebView2 starts audio contexts running anyway, which is why the measurements work.
 
 ## Audio streams and the PO-token wall
 
