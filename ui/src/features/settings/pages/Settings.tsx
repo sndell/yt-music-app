@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageHeading } from "@/components/ui/PageHeading";
 import { Switch } from "@/components/ui/Switch";
 import { PyBridge } from "@/lib/api";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
-import { cn } from "@/util/cn";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
 import { SettingsAction, SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { EqualizerSection } from "../components/EqualizerSection";

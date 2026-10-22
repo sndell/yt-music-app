@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, EqualizerSettings, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -113,6 +113,10 @@ export interface ApiMethods {
   set_horizontal_nav: { params: [enabled: boolean]; response: boolean };
   /** Save the player volume and return the stored value. */
   set_volume: { params: [volume: number]; response: number };
+  /** The saved equalizer: on/off, preamp, bass, treble, and each band's gain. */
+  get_equalizer: { params: []; response: EqualizerSettings };
+  /** Save the equalizer settings and return the stored value. */
+  set_equalizer: { params: [settings?: EqualizerSettings | null]; response: EqualizerSettings };
   /** The running version and the newest published release. */
   get_update_status: { params: []; response: UpdateStatus };
   /** Download the newest release, replace this exe with it, and restart. */
