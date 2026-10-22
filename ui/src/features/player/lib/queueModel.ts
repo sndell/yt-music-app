@@ -42,11 +42,12 @@ export type PlayerContextType = {
   playTracks: (tracks: Track[], preserveOrder?: boolean) => void;
   /** Start a list in a true-random order (OS CSPRNG). Album/playlist only. */
   trueShuffle: (tracks: Track[]) => Promise<void>;
-  /** Fetch every song in a playlist, then start it true-randomly shuffled. */
+  /** Read a playlist's whole list (cache first), then start it true-randomly shuffled. */
   trueShufflePlaylist: (playlistId: string) => Promise<void>;
   /**
-   * True while a true shuffle is still reading the rest of the list behind the
-   * queue. The opening song is already playing; the shuffled order lands later.
+   * True while a playlist true shuffle is still reading the list it will
+   * randomise. Nothing new is queued yet, so the queue panel shows a loader
+   * instead of tracks until the shuffled order is ready.
    */
   shufflePending: boolean;
   playNext: () => Promise<boolean>;

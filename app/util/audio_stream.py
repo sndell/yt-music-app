@@ -667,3 +667,27 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
                 _streams.pop(oldest, None)
         return payload
     raise RuntimeError("YouTube refused to stream this song. " + "; ".join(failures))
+
+
+def warm(ytmusic: ytmusicapi.YTMusic) -> None:
+    """Fetch the player script and arm the solver, off the calling thread.
+
+    The first stream of a session is the slow one: the player script has to be
+    downloaded and parsed into the two challenge solvers before any song can
+    play. None of that depends on the song, so the window asks for it while the
+    user is still browsing and the first press only waits for its own request.
+    Best effort: a failed warm-up leaves the first song to do the work itself.
+    """
+    threading.Thread(target=_warm, args=(ytmusic,), name="ytmusic-stream-warm", daemon=True).start()
+
+
+def _warm(ytmusic: ytmusicapi.YTMusic) -> None:
+    started = time.time()
+    try:
+        player_url, player_js, _ = _player_source(ytmusic)
+        # No challenge to solve yet; the payload only carries the player script,
+        # which is what arms the solver process.
+        _solver.solve(player_url, player_js, None, None)
+        logger.info("Audio solver armed in %.2fs", time.time() - started)
+    except Exception as exc:  # noqa: BLE001 - the first song can retry the same work
+        logger.info("Audio solver warm-up skipped: %s", exc)

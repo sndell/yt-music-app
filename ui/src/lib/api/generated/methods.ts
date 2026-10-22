@@ -43,6 +43,8 @@ export interface ApiMethods {
   get_playlist_page: { params: [playlistId: string, pageToken: string]; response: PlaylistPage };
   /** Every track of a playlist, in order. */
   get_playlist_all_tracks: { params: [playlistId: string]; response: { tracks: Track[] } };
+  /** Every track of a playlist, for a true shuffle. */
+  get_playlist_shuffle_tracks: { params: [playlistId: string]; response: { tracks: Track[] } };
   /** Fetch an album by browse id. */
   get_album: { params: [browseId: string, forceRefresh?: boolean]; response: AlbumDetails };
   /** Fetch an artist page: header plus songs, releases, videos, and related artists. */

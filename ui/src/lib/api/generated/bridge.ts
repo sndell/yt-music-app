@@ -60,6 +60,8 @@ export const PyBridge = {
   getPlaylistItems: (playlistId: string, forceRefresh: boolean = false) => callPython("get_playlist_items", playlistId, forceRefresh),
   /** Read the page of playlist tracks after the one already loaded. */
   getPlaylistPage: (playlistId: string, pageToken: string) => callPython("get_playlist_page", playlistId, pageToken),
+  /** Every track of a playlist, for a true shuffle. */
+  getPlaylistShuffleTracks: (playlistId: string) => callPython("get_playlist_shuffle_tracks", playlistId),
   /** Fetch all playlists from the user's YouTube Music library. */
   getPlaylists: () => callPython("get_playlists"),
   /** Genre chips that retune the mix around one song. */
