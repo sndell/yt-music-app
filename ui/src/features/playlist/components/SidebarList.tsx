@@ -4,7 +4,6 @@ import { useLocation } from "wouter";
 import type { PlaylistDetails, PlaylistSummary } from "@/lib/api";
 import { PyBridge } from "@/lib/api";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
-import { useHorizontalNav } from "@/lib/horizontalNav";
 import { PlaylistMenu } from "@/components/ui/PlaylistMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
 import { EditPlaylistDialog } from "@/components/ui/EditPlaylistDialog";
@@ -35,7 +34,6 @@ type PreviewState = {
 export const SidebarList = () => {
   const { playlists, isLoading, error, fetchPlaylists, createPlaylist, editPlaylist, deletePlaylist } = usePlaylist();
   const { showToast } = useToast();
-  const horizontalNav = useHorizontalNav();
   const orderMap = useOrderMap();
   const applyOrderMap = orderMap.apply;
   // Liked Music is pinned to the panel's first row: keep it there even if a
@@ -109,7 +107,7 @@ export const SidebarList = () => {
     const id = button.getAttribute("data-playlist-id");
     const playlist = playlistsRef.current.find((item) => item.playlistId === id);
     if (!playlist) return null;
-    const art = button.querySelector("img, .size-10") ?? button;
+    const art = button.querySelector("img, .size-12") ?? button;
     return { playlist, rect: art.getBoundingClientRect() };
   };
 
@@ -202,7 +200,7 @@ export const SidebarList = () => {
     const id = button.getAttribute("data-playlist-id");
     const playlist = playlistsRef.current.find((item) => item.playlistId === id);
     if (!playlist) return;
-    const art = button.querySelector("img, .size-10") ?? button;
+    const art = button.querySelector("img, .size-12") ?? button;
     showAt(playlist, art.getBoundingClientRect());
   };
 
@@ -338,7 +336,6 @@ export const SidebarList = () => {
               >
                 <PlaylistSidebarItem
                   playlist={playlist}
-                  tall={horizontalNav}
                   active={phase === "open" && preview?.playlistId === playlist.playlistId}
                   menuOpen={menu?.playlistId === playlist.playlistId}
                   onOpen={() => navigate(`/playlist/${playlist.playlistId}`)}
@@ -459,7 +456,6 @@ const PlaylistSidebarItem = ({
   playlist,
   active,
   menuOpen = false,
-  tall = false,
   onOpen,
   onOpenMenu,
 }: {
@@ -467,8 +463,6 @@ const PlaylistSidebarItem = ({
   active: boolean;
   /** Keeps the row in its hover state while its context menu is open. */
   menuOpen?: boolean;
-  /** Experimental horizontal nav: bigger covers, so the rows read taller. */
-  tall?: boolean;
   onOpen: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) => {
@@ -491,8 +485,7 @@ const PlaylistSidebarItem = ({
       aria-label={playlist.title}
       data-menu-open={menuOpen ? "true" : undefined}
       className={cn(
-        "flex w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-primary-dark lg:transition-colors hover:bg-primary-light hover:text-primary max-lg:justify-center max-lg:hover:bg-transparent",
-        tall ? "p-2" : "p-1.5",
+        "flex w-full min-w-0 items-center gap-2 rounded-lg p-1.5 text-left text-sm text-primary-dark lg:transition-colors hover:bg-primary-light hover:text-primary max-lg:justify-center max-lg:hover:bg-transparent",
         "cursor-pointer",
         "data-[menu-open=true]:bg-primary-light data-[menu-open=true]:text-primary max-lg:data-[menu-open=true]:bg-transparent",
         active && "max-lg:bg-primary-light max-lg:text-primary",
@@ -504,15 +497,10 @@ const PlaylistSidebarItem = ({
           alt=""
           draggable={false}
           onError={() => setFailed(true)}
-          className={cn("shrink-0 rounded-md object-cover", tall ? "size-12" : "size-10")}
+          className="size-12 shrink-0 rounded-md object-cover"
         />
       ) : (
-        <div
-          className={cn(
-            "grid shrink-0 place-items-center rounded-md bg-primary-light",
-            tall ? "size-12" : "size-10",
-          )}
-        >
+        <div className="grid size-12 shrink-0 place-items-center rounded-md bg-primary-light">
           <span className="icon-[solar--music-note-linear] text-primary-dark" />
         </div>
       )}

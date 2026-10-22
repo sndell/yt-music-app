@@ -26,16 +26,12 @@ export const Sidebar = () => {
         <SidebarSearch query={search.query} onQueryChange={setSideSearchQuery} onClose={closeSideSearch} />
       )}
       <div className="rounded-xl bg-primary p-1.5">
-        {/* Experimental horizontal nav: one icon-only row at lg. It frees the
-            line height the labeled stack used, so the playlist rows below can
-            be taller. The strip only fits wide windows; below lg five icons do
-            not fit the narrow column, so it stays the vertical stack. */}
-        <div
-          className={cn(
-            "flex flex-col gap-1.5",
-            horizontalNav && "lg:flex-row lg:flex-wrap lg:justify-between lg:gap-0 lg:pl-0.5 lg:pr-1",
-          )}
-        >
+        {/* Horizontal nav: one icon-only row at lg. It frees the line height the
+            labeled stack used, so more playlist rows fit below. The strip only
+            fits wide windows; below lg five icons do not fit the narrow column,
+            so it stays the vertical stack. Buttons share the row evenly, so the
+            gaps between them stay `gap-1.5` instead of spreading open. */}
+        <div className={cn("flex flex-col gap-1.5", horizontalNav && "lg:flex-row lg:gap-1.5")}>
           <SidebarItem icon="icon-[solar--home-2-linear]" path="/" text="Home" iconOnly={horizontalNav} />
           <SidebarItem icon="icon-[solar--compass-linear]" path="/explore" text="Explore" iconOnly={horizontalNav} />
           <SidebarItem icon="icon-[solar--library-linear]" path="/library" text="Library" iconOnly={horizontalNav} />
@@ -64,6 +60,7 @@ const NavSearch = ({ horizontalNav, active }: { horizontalNav: boolean; active: 
       onClick={() => (active ? closeSideSearch() : openSideSearch())}
       className={cn(
         "flex cursor-pointer items-center gap-3 rounded-lg px-3 py-1.5 transition-colors max-lg:justify-center max-lg:px-2",
+        horizontalNav && "lg:flex-1 lg:justify-center",
         isActive ? "text-primary-light bg-primary-light" : "text-primary-dark hover:text-primary hover:bg-primary-light",
       )}
     >
@@ -98,6 +95,7 @@ const SidebarItem = ({
       aria-label={text}
       className={cn(
         "flex cursor-pointer items-center gap-3 rounded-lg px-3 py-1.5 transition-colors max-lg:justify-center max-lg:px-2",
+        iconOnly && "lg:flex-1 lg:justify-center",
         isActive ? "text-primary-light bg-primary-light" : "text-primary-dark hover:text-primary hover:bg-primary-light",
       )}
     >
