@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -89,6 +90,10 @@ MOOD_CATEGORY_SHAPE: Shape = ("title", "params", "color")
 MOOD_SECTION_SHAPE: Shape = ("title", ("categories", MOOD_CATEGORY_SHAPE))
 
 MOOD_PLAYLIST_SHAPE: Shape = ("title", "playlistId", "thumbnails", "description", "owned", "count?")
+
+# The sidebar's playlist list, as ytmusicapi reads it. Rows are YouTube's own
+# dicts, so only the two the panel cannot draw without are required.
+LIBRARY_PLAYLIST_SHAPE: Shape = ("playlistId", "title", "thumbnails?", "count?", "owned?", "description?", "author?")
 
 # Chart playlist cards are the mood cards' shape without a count (a chart list
 # reports none), and a chart artist carries YouTube's own rank and trend.
@@ -172,6 +177,11 @@ class Family:
     # A family whose payload is YouTube's dict with fields added cannot declare
     # every key YouTube may send. Missing declared fields still fail; extras warn.
     strict_extra: bool = True
+    # Serve a payload younger than this without a background refresh. Zero means
+    # every cached hit refreshes, which is right for a page whose content moves
+    # under the user (the playlist they are editing). TTL is the hard expiry;
+    # this is the softer "old enough to be worth a fetch" age.
+    refresh_after: int = 0
 
     def version(self) -> str:
         """Short hash of the declared shape, stable across runs and machines."""
@@ -183,6 +193,22 @@ class Family:
 
     def prefix(self) -> str:
         return f"{self.name}:{self.version()}:"
+
+    def is_stale(self, fetched_at: float) -> bool:
+        """Whether a payload written at ``fetched_at`` should be refreshed.
+
+        A payload with no recorded write time (an entry from before the store
+        kept one) counts as stale, so the first read after an upgrade refreshes
+        once and the entry joins the new format.
+        """
+        if self.refresh_after <= 0:
+            return True
+        return time.time() - fetched_at >= self.refresh_after
+
+
+# Fields the store adds on the way out and strips on the way back in; they are
+# transport metadata, not part of any family's shape.
+TRANSPORT_FIELDS = frozenset({"fromCache", "stale"})
 
 
 def _canonical(shape: Shape) -> Any:
@@ -217,10 +243,27 @@ PLAYLIST = Family(
     ),
     strict_extra=False,
 )
-HOME = Family(name="home", ttl=WEEK, shape=(("shelves", HOME_SHELF_SHAPE),))
+# The sidebar's playlist list and the Library's Playlists chip. Refreshed behind
+# a painted list, so a few minutes of reuse costs nothing the user can see.
+LIBRARY_PLAYLISTS = Family(
+    name="playlists",
+    ttl=WEEK,
+    shape=(("playlists", LIBRARY_PLAYLIST_SHAPE),),
+    strict_extra=False,
+    refresh_after=10 * 60,
+)
+# Sized so a route change paints from disk and skips the network entirely. The
+# background read still happens once the age passes, so the feed catches up.
+HOME = Family(name="home", ttl=WEEK, shape=(("shelves", HOME_SHELF_SHAPE),), refresh_after=30 * 60)
 # YouTube Music's Explore page: one family for the whole feed, keyed by a single
-# id, because every section comes from the one browse request.
-EXPLORE = Family(name="explore", ttl=WEEK, shape=(("sections", EXPLORE_SECTION_SHAPE),))
+# id, because every section comes from the one browse request. Releases and
+# trending move by the day, not by the minute.
+EXPLORE = Family(
+    name="explore",
+    ttl=WEEK,
+    shape=(("sections", EXPLORE_SECTION_SHAPE),),
+    refresh_after=6 * 60 * 60,
+)
 # The Related tab of one watch playlist, keyed by the related browse id from
 # that response. A song's related set is stable, so a week is safe.
 RELATED = Family(name="related", ttl=WEEK, shape=(("sections", RELATED_SECTION_SHAPE),))
@@ -242,18 +285,26 @@ CHARTS = Family(
         ("artists", CHART_ARTIST_SHAPE),
     ),
 )
-LIBRARY_SONGS = Family(name="library:songs", ttl=WEEK, shape=(("songs", TRACK_SHAPE),), strict_extra=False)
+LIBRARY_SONGS = Family(
+    name="library:songs",
+    ttl=WEEK,
+    shape=(("songs", TRACK_SHAPE),),
+    strict_extra=False,
+    refresh_after=30 * 60,
+)
 LIBRARY_ALBUMS = Family(
     name="library:albums",
     ttl=WEEK,
     shape=(("albums", ("browseId", "playlistId", "title", "type", "thumbnails", "artists", "year")),),
     strict_extra=False,
+    refresh_after=30 * 60,
 )
 LIBRARY_ARTISTS = Family(
     name="library:artists",
     ttl=WEEK,
     shape=(("artists", ("browseId", "name", "songCount", "thumbnails")),),
     strict_extra=False,
+    refresh_after=30 * 60,
 )
 ALBUM = Family(
     name="album",
@@ -365,33 +416,49 @@ def shape_of(value: Any) -> Any:
 
 
 class PayloadStore:
-    """Reads and writes cached payloads; the only user of diskcache."""
+    """Reads and writes cached payloads; the only user of diskcache.
+
+    Each entry is stored as ``(fetched_at, payload)`` so the reader can say
+    whether the payload is old enough to refresh. An entry from before that
+    wrapper existed is read as an untimed payload and counts as stale.
+    """
 
     def __init__(self, path: Path) -> None:
         self._cache = diskcache.Cache(str(path))
 
+    @staticmethod
+    def _split(entry: Any) -> tuple[float, Any]:
+        if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], (int, float)):
+            return float(entry[0]), entry[1]
+        return 0.0, entry
+
     def read(self, family: Family, ident: str) -> Any | None:
-        """The cached payload, marked `fromCache` so the UI can paint then refresh."""
-        payload = self._cache.get(family.key(ident))
-        if payload is None:
+        """The cached payload, marked `fromCache` and `stale` for the UI."""
+        entry = self._cache.get(family.key(ident))
+        if entry is None:
             return None
+        fetched_at, payload = self._split(entry)
         if family.dict_payload and isinstance(payload, dict):
             marked = dict(payload)
             marked["fromCache"] = True
+            marked["stale"] = family.is_stale(fetched_at)
             return marked
         return payload
 
     def read_raw(self, family: Family, ident: str) -> Any | None:
-        """The stored payload, without the transport flag, for mutation."""
-        return self._cache.get(family.key(ident))
+        """The stored payload, without the transport flags, for mutation."""
+        entry = self._cache.get(family.key(ident))
+        if entry is None:
+            return None
+        return self._split(entry)[1]
 
     def write(self, family: Family, ident: str, payload: Any) -> None:
         if family.dict_payload:
-            stored = {key: value for key, value in payload.items() if key != "fromCache"}
+            stored = {key: value for key, value in payload.items() if key not in TRANSPORT_FIELDS}
             _check(stored, family.shape, family.name, family.strict_extra)
         else:
             stored = payload
-        self._cache.set(family.key(ident), stored, expire=family.ttl)
+        self._cache.set(family.key(ident), (time.time(), stored), expire=family.ttl)
 
     def update(self, family: Family, ident: str, mutate: Callable[[Any], bool]) -> bool:
         """Read, mutate in place, write back. False when nothing is cached."""
@@ -421,9 +488,9 @@ class PayloadStore:
     def entries(self, family: Family) -> Iterable[Any]:
         """Raw stored payloads of a family, for a sweep like a like-status fix."""
         for key in self.keys(family):
-            payload = self._cache.get(key)
-            if payload is not None:
-                yield key, payload
+            entry = self._cache.get(key)
+            if entry is not None:
+                yield key, self._split(entry)[1]
 
     def clear(self) -> int:
         count = len(self._cache)

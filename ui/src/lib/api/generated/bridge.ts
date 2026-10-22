@@ -63,7 +63,7 @@ export const PyBridge = {
   /** Every track of a playlist, for a true shuffle. */
   getPlaylistShuffleTracks: (playlistId: string) => callPython("get_playlist_shuffle_tracks", playlistId),
   /** Fetch all playlists from the user's YouTube Music library. */
-  getPlaylists: () => callPython("get_playlists"),
+  getPlaylists: (forceRefresh: boolean = false) => callPython("get_playlists", forceRefresh),
   /** Genre chips that retune the mix around one song. */
   getQueueTuner: (videoId: string) => callPython("get_queue_tuner", videoId),
   /** Return the Quick picks shelf in the older title-and-tracks shape. */

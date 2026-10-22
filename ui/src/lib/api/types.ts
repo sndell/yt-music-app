@@ -38,6 +38,17 @@ export type PlaylistSummary = {
   owned?: boolean;
 };
 
+/**
+ * The sidebar's playlist list ("liked playlists"), cached whole in Python so a
+ * launch paints it from disk and refreshes behind the list.
+ */
+export interface LibraryPlaylists {
+  playlists: PlaylistSummary[];
+  fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
+}
+
 /** One row in an owned playlist, addressed by its playlist-specific id. */
 export interface PlaylistItemRef {
   videoId: string;
@@ -77,16 +88,22 @@ export interface LibraryArtist {
 export interface LibrarySongs {
   songs: Track[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 export interface LibraryAlbums {
   albums: LibraryAlbum[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 export interface LibraryArtists {
   artists: LibraryArtist[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 export interface QuickPick {
@@ -134,6 +151,8 @@ export interface HomeShelf {
 export interface HomeFeed {
   shelves: HomeShelf[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 /** One category tile on the Moods & genres page. `params` opens its playlists. */
@@ -153,11 +172,15 @@ export interface MoodSection {
 export interface MoodCategories {
   sections: MoodSection[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 export interface MoodPlaylists {
   playlists: PlaylistSummary[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 /**
@@ -198,6 +221,8 @@ export interface ExploreSection {
 export interface ExploreFeed {
   sections: ExploreSection[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 /**
@@ -257,6 +282,8 @@ export interface Charts {
   sections: ChartSection[];
   artists: ChartArtist[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 export interface Track {
@@ -304,6 +331,8 @@ export interface PlaylistDetails {
   durationSeconds: number;
   dominantColor: string | null;
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
   /**
    * Cursor for the page of tracks after the loaded ones, or null when every
    * track is here. Pass it to `getPlaylistPage` to load more.
@@ -341,6 +370,8 @@ export interface AlbumDetails {
   tracks: Track[];
   otherVersions: AlbumVersion[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 export interface ArtistRelease {
@@ -391,6 +422,8 @@ export interface ArtistDetails {
   videos: ArtistShelf<ArtistVideo> | null;
   related: RelatedArtist[];
   fromCache?: boolean;
+  /** True when the payload is older than the family's refresh window. */
+  stale?: boolean;
 }
 
 export interface FeedbackTokens {

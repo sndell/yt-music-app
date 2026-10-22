@@ -43,6 +43,7 @@ from contract.cache import (
     HOME,
     LIBRARY_ALBUMS,
     LIBRARY_ARTISTS,
+    LIBRARY_PLAYLISTS,
     LIBRARY_SONGS,
     LYRICS,
     LYRICS_TRANSLATED,
@@ -264,6 +265,16 @@ def _cache_created_playlist(playlist_id: str, title: str, description: str, priv
             "dominantColor": None,
         },
     )
+
+
+def _forget_playlist_list() -> None:
+    """Drop the sidebar's saved list after a write that moves it.
+
+    The list is painted on launch from disk, so a deleted or retitled row would
+    otherwise stay on screen until its refresh window elapsed. The next read
+    fetches the account's list again.
+    """
+    store.drop(LIBRARY_PLAYLISTS, "all")
 
 
 def _delete_status(result: Any) -> str:
@@ -842,6 +853,11 @@ def _destroy_sign_in_window(window: Any) -> None:
 
 _auth_lock = threading.Lock()
 
+# `_is_authenticated` asks YouTube for the account, which is a network round
+# trip. A cached read must not pay it before serving from disk, and a burst of
+# calls should ask once. Signing in or out resets the answer.
+_AUTH_CHECK_TTL = 60.0
+
 
 class MusicApi:
     """API class for interacting with YouTube Music via ytmusicapi.
@@ -851,6 +867,8 @@ class MusicApi:
     """
 
     _ytmusic: ytmusicapi.YTMusic | None = None
+    _auth_ok: bool | None = None
+    _auth_checked_at: float = 0.0
 
     @classmethod
     def _get_ytmusic(cls) -> ytmusicapi.YTMusic:
@@ -872,21 +890,32 @@ class MusicApi:
     def _reset_ytmusic(cls) -> None:
         """Reset the YTMusic instance to force re-initialization."""
         cls._ytmusic = None
+        cls._auth_ok = None
+        cls._auth_checked_at = 0.0
 
     @classmethod
     def _is_authenticated(cls) -> bool:
-        """Check if user is authenticated by calling the API.
-        
+        """Check if user is authenticated by asking YouTube Music for the account.
+
+        The answer is kept for ``_AUTH_CHECK_TTL`` so a page that reads several
+        lists does not pay a round trip per call. A cache hit is served before
+        this is ever asked, so a warm disk cache works with the network down.
+
         Returns:
             True if authenticated (get_account_info succeeds), False otherwise.
         """
+        now = time.monotonic()
+        if cls._auth_ok is not None and now - cls._auth_checked_at < _AUTH_CHECK_TTL:
+            return cls._auth_ok
         try:
-            ytmusic = cls._get_ytmusic()
-            account_info = ytmusic.get_account_info()
-            return account_info is not None
+            account_info = cls._get_ytmusic().get_account_info()
+            ok = account_info is not None
         except Exception as e:
             logger.warning("Authentication check failed: %s", e)
-            return False
+            ok = False
+        cls._auth_ok = ok
+        cls._auth_checked_at = now
+        return ok
 
     @api.read(returns="string | null")
     def get_cover_color(self, image_url: str) -> str | None:
@@ -919,31 +948,52 @@ class MusicApi:
         result = _inline_thumbnail(image_url)
         return result if result.startswith("data:") else None
 
-    @api.read(returns="PlaylistSummary[]")
-    def get_playlists(self) -> list[dict[str, Any]]:
+    @api.read(returns="LibraryPlaylists", cache="playlists")
+    def get_playlists(self, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch all playlists from the user's YouTube Music library.
-        
+
+        The list is cached whole, so the sidebar and the Library's Playlists
+        chip paint from disk on the next launch and a background read replaces
+        them when the payload is older than the family's refresh window.
+
+        Args:
+            force_refresh: Skip the cached payload and fetch again.
+
         Returns:
-            A list of playlist dictionaries, or an empty list on error.
+            ``{"playlists": [...], "fromCache": bool, "stale": bool}``, empty
+            on error.
         """
+        empty: dict[str, Any] = {"playlists": []}
         try:
+            if not force_refresh:
+                cached = store.read(LIBRARY_PLAYLISTS, "all")
+                if cached is not None and isinstance(cached.get("playlists"), list):
+                    logger.info("Returning cached playlists (count: %d)", len(cached["playlists"]))
+                    return cached
+
             if not self._is_authenticated():
                 logger.warning("Not authenticated - cannot return playlists")
-                return []
-            
+                return empty
+
             logger.info("Fetching playlists from API...")
             ytmusic = self._get_ytmusic()
             playlists = ytmusic.get_library_playlists()
             _inline_playlist_thumbnails(playlists)
-            
+
+            payload: dict[str, Any] = {"playlists": playlists}
+            store.write(LIBRARY_PLAYLISTS, "all", payload)
             logger.info("Playlists fetched (count: %d)", len(playlists))
-            return playlists
+            return payload
         except FileNotFoundError as e:
             logger.error("Configuration error: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
         except Exception as e:
             logger.exception("Failed to fetch playlists: %s", e)
-            return []
+            if force_refresh:
+                raise
+            return empty
 
     @api.read(returns="LibraryAlbums", cache="library_albums")
     def get_library_albums(
@@ -963,16 +1013,16 @@ class MusicApi:
         """
         empty: dict[str, Any] = {"albums": []}
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return library albums")
-                return empty
-
             if not force_refresh:
                 cached = store.read(LIBRARY_ALBUMS, "all")
                 albums = cached.get("albums") if cached else None
                 if isinstance(albums, list):
                     logger.info("Returning cached library albums (count: %d)", len(albums))
                     return {**cached, "albums": albums[:limit] if limit else albums}
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return library albums")
+                return empty
 
             logger.info("Fetching library albums from API...")
             ytmusic = self._get_ytmusic()
@@ -1013,16 +1063,16 @@ class MusicApi:
         """
         empty: dict[str, Any] = {"songs": []}
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return library songs")
-                return empty
-
             if not force_refresh:
                 cached = store.read(LIBRARY_SONGS, "all")
                 songs = cached.get("songs") if cached else None
                 if isinstance(songs, list):
                     logger.info("Returning cached library songs (count: %d)", len(songs))
                     return {**cached, "songs": songs[:limit] if limit else songs}
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return library songs")
+                return empty
 
             logger.info("Fetching library songs from API...")
             ytmusic = self._get_ytmusic()
@@ -1068,16 +1118,16 @@ class MusicApi:
         """
         empty: dict[str, Any] = {"artists": []}
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return library artists")
-                return empty
-
             if not force_refresh:
                 cached = store.read(LIBRARY_ARTISTS, "all")
                 artists = cached.get("artists") if cached else None
                 if isinstance(artists, list):
                     logger.info("Returning cached library artists (count: %d)", len(artists))
                     return {**cached, "artists": artists[:limit] if limit else artists}
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return library artists")
+                return empty
 
             logger.info("Fetching library artists from API...")
             ytmusic = self._get_ytmusic()
@@ -1163,15 +1213,15 @@ class MusicApi:
         """
         empty = _empty_home()
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return home")
-                return empty
-
             if not force_refresh:
                 cached = store.read(HOME, "feed")
                 if cached is not None and isinstance(cached.get("shelves"), list):
                     logger.info("Returning cached home (shelves: %d)", len(cached["shelves"]))
                     return cached
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return home")
+                return empty
 
             logger.info("Fetching home from API...")
             home = self._get_ytmusic().get_home(limit=16)
@@ -1245,15 +1295,15 @@ class MusicApi:
         """
         empty: dict[str, Any] = {"sections": []}
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return explore")
-                return empty
-
             if not force_refresh:
                 cached = store.read(EXPLORE, "feed")
                 if cached is not None and isinstance(cached.get("sections"), list):
                     logger.info("Returning cached explore (sections: %d)", len(cached["sections"]))
                     return cached
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return explore")
+                return empty
 
             logger.info("Fetching explore from API...")
             sections = _explore_sections(self._get_ytmusic().get_explore())
@@ -1296,15 +1346,15 @@ class MusicApi:
         """
         empty = _empty_mood_categories()
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return mood categories")
-                return empty
-
             if not force_refresh:
                 cached = store.read(MOODS, "all")
                 if cached is not None and isinstance(cached.get("sections"), list):
                     logger.info("Returning cached mood categories (sections: %d)", len(cached["sections"]))
                     return cached
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return mood categories")
+                return empty
 
             logger.info("Fetching moods and genres from API...")
             ytmusic = self._get_ytmusic()
@@ -1359,15 +1409,15 @@ class MusicApi:
         if not token:
             return empty
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return mood playlists")
-                return empty
-
             if not force_refresh:
                 cached = store.read(MOOD_PLAYLISTS, token)
                 if cached is not None and isinstance(cached.get("playlists"), list):
                     logger.info("Returning cached mood playlists (count: %d)", len(cached["playlists"]))
                     return cached
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return mood playlists")
+                return empty
 
             logger.info("Fetching mood playlists from API...")
             playlists = self._get_ytmusic().get_mood_playlists(token)
@@ -1407,15 +1457,15 @@ class MusicApi:
         """
         code = _chart_country_code(country)
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return charts")
-                return _empty_charts(code)
-
             if not force_refresh:
                 cached = store.read(CHARTS, code)
                 if cached is not None and isinstance(cached.get("sections"), list):
                     logger.info("Returning cached charts for %s (sections: %d)", code, len(cached["sections"]))
                     return cached
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return charts")
+                return _empty_charts(code)
 
             logger.info("Fetching charts from API (%s)...", code)
             payload = _charts_payload(self._get_ytmusic().get_charts(code), code)
@@ -1536,10 +1586,6 @@ class MusicApi:
         """
 
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return playlist items")
-                return {}
-
             if not force_refresh:
                 cached = store.read(PLAYLIST, playlist_id)
                 if cached is not None:
@@ -1549,6 +1595,10 @@ class MusicApi:
                         len(cached.get("tracks", []))
                     )
                     return cached
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return playlist items")
+                return {}
 
             logger.info("Fetching playlist items from API for ID: %s", playlist_id)
             ytmusic = self._get_ytmusic()
@@ -1723,6 +1773,19 @@ class MusicApi:
             if not isinstance(browse_id, str) or not browse_id:
                 logger.warning("Album browse id is required")
                 return {}
+            # A cached album is served before the network is touched. An
+            # ``OLAK5uy_`` alias has no cache key until it is resolved, so that
+            # path resolves first and reads the cache under the browse id.
+            if not force_refresh and not browse_id.startswith("OLAK5uy_"):
+                cached = store.read(ALBUM, browse_id)
+                if cached is not None:
+                    logger.info(
+                        "Returning cached album '%s' (tracks: %d)",
+                        cached.get("title", "Unknown"),
+                        len(cached.get("tracks", [])),
+                    )
+                    return cached
+
             if not self._is_authenticated():
                 logger.warning("Not authenticated - cannot return album")
                 return {}
@@ -1735,16 +1798,15 @@ class MusicApi:
                     return {}
                 logger.info("Resolved album %s to %s", browse_id, resolved)
                 browse_id = resolved
-
-            if not force_refresh:
-                cached = store.read(ALBUM, browse_id)
-                if cached is not None:
-                    logger.info(
-                        "Returning cached album '%s' (tracks: %d)",
-                        cached.get("title", "Unknown"),
-                        len(cached.get("tracks", [])),
-                    )
-                    return cached
+                if not force_refresh:
+                    cached = store.read(ALBUM, browse_id)
+                    if cached is not None:
+                        logger.info(
+                            "Returning cached album '%s' (tracks: %d)",
+                            cached.get("title", "Unknown"),
+                            len(cached.get("tracks", [])),
+                        )
+                        return cached
 
             logger.info("Fetching album from API for ID: %s", browse_id)
             album = ytmusic.get_album(browse_id)
@@ -1787,15 +1849,15 @@ class MusicApi:
             if not channel_id:
                 logger.warning("Artist channel id is required")
                 return {}
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return artist")
-                return {}
-
             if not force_refresh:
                 cached = store.read(ARTIST, channel_id)
                 if cached is not None:
                     logger.info("Returning cached artist '%s'", cached.get("name", "Unknown"))
                     return cached
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return artist")
+                return {}
 
             logger.info("Fetching artist from API for ID: %s", channel_id)
             ytmusic = self._get_ytmusic()
@@ -1946,14 +2008,14 @@ class MusicApi:
         if not ident:
             return []
         try:
-            if not self._is_authenticated():
-                logger.warning("Not authenticated - cannot return related songs")
-                return []
-
             cached = store.read(RELATED, ident)
             if cached is not None and isinstance(cached.get("sections"), list):
                 logger.info("Returning cached related songs (%s)", ident)
                 return cached["sections"]
+
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return related songs")
+                return []
 
             logger.info("Fetching related songs for %s...", ident)
             sections = _song_related_sections(self._get_ytmusic(), ident)
@@ -2634,6 +2696,7 @@ class MusicApi:
                 return {"status": "DUPLICATE", "setVideoIds": {}, "duplicate": True}
             raise
         store.drop(PLAYLIST, playlist_id)
+        _forget_playlist_list()
         _record_playlist_stat(playlist_id, "add")
         results: dict[str, str] = {}
         if isinstance(result, dict):
@@ -2690,6 +2753,7 @@ class MusicApi:
         result = ytmusic.remove_playlist_items(playlist_id, rows)
         status = _edit_status(result, "Could not remove from the playlist")
         store.drop(PLAYLIST, playlist_id)
+        _forget_playlist_list()
         return {"status": status}
 
     @api.write(returns="{ status: string; removed: number }")
@@ -2796,6 +2860,7 @@ class MusicApi:
         result = ytmusic.edit_playlist(playlist_id, title=title, description=description, privacyStatus=privacy)
         status = _edit_status(result, "Could not update the playlist")
         store.drop(PLAYLIST, playlist_id)
+        _forget_playlist_list()
         return {"status": status}
 
     @api.write(returns="{ status: string }")
@@ -2806,6 +2871,7 @@ class MusicApi:
         ytmusic = self._get_ytmusic()
         status = _delete_status(ytmusic.delete_playlist(playlist_id))
         _forget_playlist_stat(playlist_id)
+        _forget_playlist_list()
         return {"status": status}
 
     @api.write(returns="{ playlistId: string }", params={"description": "string", "privacy": "PlaylistPrivacy", "videoIds": "string[]"})
@@ -2842,6 +2908,7 @@ class MusicApi:
         if not ids:
             # Only an empty playlist can be described without reading it back.
             _cache_created_playlist(playlist_id, title.strip(), description, privacy_value)
+        _forget_playlist_list()
         logger.info("Created playlist %s (%d songs)", playlist_id, len(ids))
         return {"playlistId": playlist_id}
 
@@ -2857,6 +2924,7 @@ class MusicApi:
         if rating not in _LIKE_STATUSES:
             raise ValueError(f"Invalid rating: {rating}")
         self._get_ytmusic().rate_playlist(playlist_id, rating)
+        _forget_playlist_list()
         logger.info("Rated playlist %s as %s", playlist_id, rating)
         return {"status": "OK"}
 
@@ -2875,7 +2943,7 @@ class MusicApi:
             limit = 4
         if limit == 0:
             return {"playlistIds": []}
-        playlists = self.get_playlists()
+        playlists = self.get_playlists().get("playlists", [])
         candidates = [
             playlist
             for playlist in playlists

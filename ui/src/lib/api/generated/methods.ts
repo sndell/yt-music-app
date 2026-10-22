@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PlaylistSummary, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -10,7 +10,7 @@ export interface ApiMethods {
   /** Return a data URL for a cover the webview cannot decode directly. */
   inline_thumbnail: { params: [imageUrl: string]; response: string | null };
   /** Fetch all playlists from the user's YouTube Music library. */
-  get_playlists: { params: []; response: PlaylistSummary[] };
+  get_playlists: { params: [forceRefresh?: boolean]; response: LibraryPlaylists };
   /** Fetch the albums saved to the user's YouTube Music library. */
   get_library_albums: { params: [limit?: number, forceRefresh?: boolean]; response: LibraryAlbums };
   /** Fetch the songs saved to the user's YouTube Music library. */

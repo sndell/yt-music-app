@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PyBridge } from "@/lib/api";
+import { PyBridge, showCachedThenRefresh } from "@/lib/api";
 import type { PlaylistItemRef, PlaylistPatch, PlaylistPrivacy, PlaylistSummary } from "@/lib/api/types";
 import { useToast } from "@/components/ui/Toast";
 
@@ -48,7 +48,7 @@ type PlaylistContextValue = {
   playlists: PlaylistSummary[];
   isLoading: boolean;
   error: string | null;
-  fetchPlaylists: () => Promise<void>;
+  fetchPlaylists: (force?: boolean) => Promise<void>;
   /** Loaded lazily when the add-to-playlist flyout opens; null until the first fetch. */
   recommendedPlaylists: PlaylistSummary[] | null;
   /** True while those ids are being fetched. */
@@ -163,7 +163,7 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
     });
   }, [playlists, countOverrides, displayCount]);
 
-  const fetchPlaylists = useCallback(async () => {
+  const fetchPlaylists = useCallback(async (force = false) => {
     const requestId = ++requestIdRef.current;
     // Sizes are reconciled against the moment the read began, not the moment it
     // lands: an edit made while it was in flight is newer than its answer.
@@ -174,20 +174,16 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
     if (!loadedOnceRef.current) setIsLoading(true);
     setError(null);
 
-    const result = await PyBridge.getPlaylists();
-
-    // Ignore stale responses (e.g., from HMR race conditions)
-    if (requestId !== requestIdRef.current) return;
-
-    loadedOnceRef.current = true;
-    if (result.success) {
-      const serverIds = new Set(result.data.map((playlist) => playlist.playlistId));
+    const apply = (list: PlaylistSummary[]) => {
+      if (requestId !== requestIdRef.current) return;
+      loadedOnceRef.current = true;
+      const serverIds = new Set(list.map((playlist) => playlist.playlistId));
       // Keep the optimistic rows the server list does not have yet; drop the
       // ones it now reports so the real row (thumbnail, count) takes over.
       pendingCreatesRef.current = pendingCreatesRef.current.filter(
         (playlist) => !serverIds.has(playlist.playlistId),
       );
-      setPlaylists([...pendingCreatesRef.current, ...result.data]);
+      setPlaylists([...pendingCreatesRef.current, ...list]);
       // This read is the newer word on every playlist it started after, so
       // those local sizes retire and the library's own numbers take over.
       setCountOverrides((current) => {
@@ -199,9 +195,20 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
         }
         return next ?? current;
       });
-    } else {
-      setError(result.error.message);
-    }
+    };
+
+    const result = await showCachedThenRefresh(
+      (forceRefresh) => PyBridge.getPlaylists(forceRefresh),
+      (data) => apply(data.playlists),
+      () => requestId === requestIdRef.current,
+      { force },
+    );
+
+    // Ignore stale responses (e.g., from HMR race conditions)
+    if (requestId !== requestIdRef.current) return;
+
+    loadedOnceRef.current = true;
+    if (result && !result.success) setError(result.error.message);
     setIsLoading(false);
   }, []);
 
@@ -391,7 +398,7 @@ export const PlaylistProvider = ({ children }: { children: ReactNode }) => {
         window.setTimeout(() => {
           // Nothing left to confirm once a fetch has dropped the placeholder.
           if (!pendingCreatesRef.current.some((playlist) => playlist.playlistId === playlistId)) return;
-          void fetchPlaylists();
+          void fetchPlaylists(true);
         }, delay);
       }
     },
