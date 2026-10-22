@@ -190,7 +190,9 @@ export const EqualizerSection = () => {
   };
 
   return (
-    <>
+    // One child in the section's divide wrapper, so the section's own divider
+    // falls below the whole block and no line lands between the row and its faders.
+    <div>
       <SettingsRow
         title="Equalizer"
         description="Ten bands from 31 Hz to 16 kHz, plus a 150 Hz bass shelf and a 6 kHz treble shelf. It runs inside the player, so the sound changes without another audio device in the chain. Scroll over a fader to nudge it, double-click to put it back to zero."
@@ -237,7 +239,7 @@ export const EqualizerSection = () => {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-x-8 border-t border-white/5 pt-4">
+        <div className="mt-4 grid grid-cols-3 gap-x-8">
           <RowSlider
             label="Bass"
             hint="150 Hz"
@@ -264,6 +266,6 @@ export const EqualizerSection = () => {
           />
         </div>
       </div>
-    </>
+    </div>
   );
 };
