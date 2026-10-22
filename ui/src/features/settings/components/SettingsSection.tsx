@@ -6,11 +6,32 @@ import { cn } from "@/util/cn";
  * card fill, because the rows already sit on the page's own surface and the
  * extra box only competes with the controls.
  */
+
 export const SettingsSection = ({ title, children }: { title: string; children: ReactNode }) => (
   <section className="space-y-2">
     <h2 className="text-xs font-medium tracking-wide text-primary-dark uppercase">{title}</h2>
     <div className="divide-y divide-white/5 border-t border-white/5">{children}</div>
   </section>
+);
+
+export const SettingsAction = ({ children, onClick, disabled = false, primary = false }: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  /** Filled white, for the one action a section wants the eye on. */
+  primary?: boolean;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className={cn(
+      "h-8 shrink-0 cursor-pointer rounded-full px-3.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+      primary ? "bg-white font-medium text-black hover:bg-white/85" : "border border-white/20 text-primary hover:bg-white/10",
+    )}
+  >
+    {children}
+  </button>
 );
 
 /**

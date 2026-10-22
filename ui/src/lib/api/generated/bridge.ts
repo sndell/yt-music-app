@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { LikeStatus, PlaylistItemRef, PlaylistPatch, PlaylistPrivacy, SearchFilter, SearchScope } from "../types";
+import type { EqualizerSettings, LikeStatus, PlaylistItemRef, PlaylistPatch, PlaylistPrivacy, SearchFilter, SearchScope } from "../types";
 
 import { callPython } from "../transport";
 
@@ -34,6 +34,8 @@ export const PyBridge = {
   getCoverColor: (imageUrl: string) => callPython("get_cover_color", imageUrl),
   /** Whether Discord rich presence is on, and if the desktop app is connected. */
   getDiscordPresence: () => callPython("get_discord_presence"),
+  /** The saved equalizer: on/off, preamp, bass, treble, and each band's gain. */
+  getEqualizer: () => callPython("get_equalizer"),
   /** Return YouTube Music's Explore feed as the sections the page renders. */
   getExplore: (forceRefresh: boolean = false) => callPython("get_explore", forceRefresh),
   /** Return the songs the account played recently, newest first. */
@@ -104,6 +106,8 @@ export const PyBridge = {
   search: (query: string, filter: SearchFilter | "" = "", scope: SearchScope | "" = "", limit: number = 30) => callPython("search", query, filter, scope, limit),
   /** Turn Discord rich presence on or off. */
   setDiscordPresence: (enabled: boolean) => callPython("set_discord_presence", enabled),
+  /** Save the equalizer settings and return the stored value. */
+  setEqualizer: (settings: EqualizerSettings | null = null) => callPython("set_equalizer", settings),
   /** Save the horizontal icon nav choice and return the stored value. */
   setHorizontalNav: (enabled: boolean) => callPython("set_horizontal_nav", enabled),
   /** Save the player volume and return the stored value. */

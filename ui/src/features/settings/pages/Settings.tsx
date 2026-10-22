@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageHeading } from "@/components/ui/PageHeading";
 import { Switch } from "@/components/ui/Switch";
 import { PyBridge } from "@/lib/api";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
-import { cn } from "@/util/cn";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
-import { SettingsRow, SettingsSection } from "../components/SettingsSection";
+import { SettingsAction, SettingsRow, SettingsSection } from "../components/SettingsSection";
+import { EqualizerSection } from "../components/EqualizerSection";
 
 const notifyAuthChanged = () => {
   window.dispatchEvent(new Event("ytmusic-auth-changed"));
@@ -215,6 +215,10 @@ export const Settings = () => {
               />
             </SettingsSection>
 
+            <SettingsSection title="Audio">
+              <EqualizerSection />
+            </SettingsSection>
+
             <SettingsSection title="Integrations">
               <SettingsRow
                 title="Discord"
@@ -261,29 +265,3 @@ export const Settings = () => {
   );
 };
 
-const SettingsAction = ({
-  children,
-  onClick,
-  disabled = false,
-  primary = false,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  /** Filled white, for the one action a section wants the eye on. */
-  primary?: boolean;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    className={cn(
-      "h-8 shrink-0 cursor-pointer rounded-full px-3.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-      primary
-        ? "bg-white font-medium text-black hover:bg-white/85"
-        : "border border-white/20 text-primary hover:bg-white/10",
-    )}
-  >
-    {children}
-  </button>
-);

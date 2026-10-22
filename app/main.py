@@ -102,6 +102,16 @@ class Api(MusicApi):
         """Save the player volume and return the stored value."""
         return preferences.set_volume(volume)
 
+    @api.read(returns="EqualizerSettings")
+    def get_equalizer(self) -> dict:
+        """The saved equalizer: on/off, preamp, bass, treble, and each band's gain."""
+        return preferences.equalizer()
+
+    @api.read(returns="EqualizerSettings", params={"settings": "EqualizerSettings | null"})
+    def set_equalizer(self, settings: dict[str, Any] | None = None) -> dict:
+        """Save the equalizer settings and return the stored value."""
+        return preferences.set_equalizer(settings)
+
     @api.read(returns="UpdateStatus")
     def get_update_status(self) -> dict:
         """The running version and the newest published release."""
