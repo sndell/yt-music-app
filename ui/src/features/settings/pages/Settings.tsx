@@ -6,7 +6,9 @@ import { saveCrossfadeSeconds, useCrossfadeSeconds } from "@/lib/crossfade";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
 import { setPopoutEnabled, usePopout } from "@/lib/popout";
 import { cn } from "@/util/cn";
+import { Dot } from "@/components/ui/Dot";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
+import { useUpdateStatus } from "@/lib/updateStatus";
 import { SettingsAction, SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { EqualizerSection } from "../components/EqualizerSection";
 
@@ -17,11 +19,11 @@ const notifyAuthChanged = () => {
   window.dispatchEvent(new Event("ytmusic-auth-changed"));
 };
 
-const updateDetail = (update: UpdateStatus | null, stage: "idle" | "installing" | "restarting") => {
+const updateDetail = (update: UpdateStatus | null, error: string | null, stage: "idle" | "installing" | "restarting") => {
   if (stage === "restarting") return "Restarting with the new version. The window reopens on its own.";
   if (stage === "installing") return "Downloading and checking the new build...";
-  if (!update) return "Checking for updates...";
-  if (update.error) return "Could not check for updates.";
+  if (update?.error) return "Could not check for updates.";
+  if (!update) return error ? "Could not check for updates." : "Checking for updates...";
   if (!update.available) return "Up to date.";
   if (!update.frozen) return `${update.latest} is available. Updates install in the packaged YTMusic.exe.`;
   return `${update.latest} is available. The window closes and reopens to finish.`;
@@ -51,32 +53,18 @@ export const Settings = () => {
   const [discordState, setDiscordState] = useState<DiscordPresenceStatus["state"]>("off");
   const [discordMessage, setDiscordMessage] = useState("");
   const holdLocalStatus = useRef(false);
-  const [update, setUpdate] = useState<UpdateStatus | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
+  // Shared with the sidebar badge, so both read the same one check.
+  const { status: update, error: updateError } = useUpdateStatus();
   const [updateStage, setUpdateStage] = useState<"idle" | "installing" | "restarting">("idle");
-
-  useEffect(() => {
-    let cancelled = false;
-    PyBridge.getUpdateStatus().then((result) => {
-      if (cancelled) return;
-      if (result.success) {
-        setUpdate(result.data);
-      } else {
-        setUpdateError(result.error.message);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   const installUpdate = async () => {
-    setUpdateError(null);
+    setInstallError(null);
     setUpdateStage("installing");
     const result = await PyBridge.installUpdate();
     if (!result.success) {
       setUpdateStage("idle");
-      setUpdateError(result.error.message);
+      setInstallError(result.error.message);
       return;
     }
     setUpdateStage("restarting");
@@ -287,11 +275,11 @@ export const Settings = () => {
               />
             </SettingsSection>
 
-            <SettingsSection title="About">
+            <SettingsSection title="About" badge={update?.available ? <Dot /> : undefined}>
               <SettingsRow
                 title="Version"
-                description={updateDetail(update, updateStage)}
-                detail={updateError}
+                description={updateDetail(update, updateError, updateStage)}
+                detail={installError ?? updateError}
                 detailTone="error"
                 control={
                   <div className="flex items-center gap-3">
