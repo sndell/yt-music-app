@@ -14,6 +14,7 @@ import { Artist } from "./features/artist";
 import { Search } from "./features/search";
 import { MoodCategory, MoodsGenres, Explore, Charts } from "./features/discovery";
 import { Player, PlayerProvider, QueuePanel, VideoOverlay } from "./features/player";
+import { PopoutApp, PopoutBridge } from "./features/popout";
 import { ToastProvider } from "./components/ui/Toast";
 import { installRendererLog } from "./dev/rendererLog";
 
@@ -57,6 +58,7 @@ const App = () => {
                 <QueuePanel />
               </div>
               <Player />
+              <PopoutBridge />
             </div>
           </PlaylistProvider>
         </PlayerProvider>
@@ -74,4 +76,9 @@ container.__ytmusicRoot = root;
 
 if (import.meta.env.DEV) installRendererLog();
 
-root.render(<App />);
+// The popout loads this same page with `?popout=1` and mounts only its own
+// surface. It must not mount PlayerProvider or the player bar: this window owns
+// no audio, so a second one would play the song twice.
+const isPopoutWindow = new URLSearchParams(window.location.search).has("popout");
+
+root.render(isPopoutWindow ? <PopoutApp /> : <App />);

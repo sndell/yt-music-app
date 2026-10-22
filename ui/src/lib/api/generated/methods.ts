@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioSample, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, EqualizerSettings, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, SongTempo, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioSample, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, EqualizerSettings, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PopoutPrefs, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, SongTempo, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -131,6 +131,20 @@ export interface ApiMethods {
   get_automix: { params: []; response: boolean };
   /** Save the beat-aligned blend choice and return the stored value. */
   set_automix: { params: [enabled: boolean]; response: boolean };
+  /** Whether the always-on-top player is enabled, open, pinned or collapsed. */
+  get_popout: { params: []; response: PopoutPrefs };
+  /** Turn the always-on-top player on or off, opening or closing its window. */
+  set_popout: { params: [enabled: boolean]; response: PopoutPrefs };
+  /** Show the always-on-top player window. */
+  open_popout: { params: []; response: PopoutPrefs };
+  /** Hide the always-on-top player window. */
+  close_popout: { params: []; response: PopoutPrefs };
+  /** Keep the always-on-top player above other windows, or let it sit. */
+  set_popout_pinned: { params: [pinned: boolean]; response: PopoutPrefs };
+  /** Shrink the always-on-top player to its strip, or expand it again. */
+  set_popout_collapsed: { params: [collapsed: boolean]; response: PopoutPrefs };
+  /** Bring the main window forward, after a click in the popout. */
+  focus_main: { params: []; response: void };
   /** The running version and the newest published release. */
   get_update_status: { params: []; response: UpdateStatus };
   /** Download the newest release, replace this exe with it, and restart. */

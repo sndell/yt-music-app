@@ -11,26 +11,28 @@ const followLink = (event: MouseEvent<HTMLAnchorElement>, href: string, navigate
 
 
 const PLAYBAR_TITLE_CHARS = 30;
-import { IconButton } from "@/components/ui/IconButton";
+import { IconButton, type IconButtonSize } from "@/components/ui/IconButton";
 import { ScrollingText } from "@/components/ui/ScrollingText";
 import { cn } from "@/util/cn";
 import type { LikeStatus, Track } from "@/lib/api/types";
 import { VolumeControl } from "./VolumeControl";
 
-const RatingButtons = ({
+export const RatingButtons = ({
   likeStatus,
   pending,
   onRate,
+  size = "md",
 }: {
   likeStatus: LikeStatus;
   pending: boolean;
   onRate: (rating: LikeStatus) => void;
+  size?: IconButtonSize;
 }) => (
   <>
     <IconButton
       iconClass={likeStatus === "LIKE" ? "icon-[solar--like-bold]" : "icon-[solar--like-linear]"}
       label="Like"
-      size="md"
+      size={size}
       tone="ghost"
       iconScale="secondary"
       disabled={pending}
@@ -39,7 +41,7 @@ const RatingButtons = ({
     <IconButton
       iconClass={likeStatus === "DISLIKE" ? "icon-[solar--dislike-bold]" : "icon-[solar--dislike-linear]"}
       label="Dislike"
-      size="md"
+      size={size}
       tone={likeStatus === "DISLIKE" ? "active" : "ghost"}
       iconScale="secondary"
       disabled={pending}
@@ -64,6 +66,9 @@ export const PlayerControls = ({
   hasVideo,
   videoOpen,
   onToggleVideo,
+  popoutEnabled,
+  popoutOpen,
+  onTogglePopout,
   shuffle,
   onToggleShuffle,
   loop,
@@ -86,6 +91,10 @@ export const PlayerControls = ({
   hasVideo: boolean;
   videoOpen: boolean;
   onToggleVideo: () => void;
+  /** The always-on-top player is enabled in Settings. */
+  popoutEnabled: boolean;
+  popoutOpen: boolean;
+  onTogglePopout: () => void;
   shuffle: boolean;
   onToggleShuffle: () => void;
   loop: boolean;
@@ -248,6 +257,16 @@ export const PlayerControls = ({
             tone={videoOpen ? "active" : "ghost"}
             iconScale="dense"
             onClick={onToggleVideo}
+          />
+        )}
+        {popoutEnabled && (
+          <IconButton
+            iconClass="icon-[lucide--picture-in-picture-2]"
+            label={popoutOpen ? "Close the player popout" : "Open the player popout"}
+            size="md"
+            tone={popoutOpen ? "active" : "ghost"}
+            iconScale="dense"
+            onClick={onTogglePopout}
           />
         )}
         <IconButton

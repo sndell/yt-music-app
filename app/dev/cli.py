@@ -130,7 +130,9 @@ def _health(info: dict) -> dict | None:
     if not isinstance(port, int):
         return None
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=0.5) as response:
+        # The window's own thread can be busy for a moment while it opens or
+        # resizes a second window, which starves this probe at 0.5s.
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2.0) as response:
             health = json.loads(response.read().decode("utf-8"))
     except (OSError, ValueError, urllib.error.URLError):
         return None
@@ -414,7 +416,7 @@ def _cmd_call(args) -> None:
 
 
 def _cmd_eval(args) -> None:
-    _print(_request(args.base, "POST", "/eval", {"expression": args.expression}))
+    _print(_request(args.base, "POST", "/eval", {"expression": args.expression, "window": args.window}))
 
 
 def _cmd_logs(args) -> None:
@@ -423,7 +425,9 @@ def _cmd_logs(args) -> None:
 
 
 def _cmd_screenshot(args) -> None:
-    query = f"?path={urllib.parse.quote(args.path)}" if args.path else ""
+    query = f"?window={args.window}"
+    if args.path:
+        query += f"&path={urllib.parse.quote(args.path)}"
     _print(_request(args.base, "GET", f"/screenshot{query}"))
 
 
@@ -474,6 +478,9 @@ def main(argv: list[str] | None = None) -> int:
 
     evaluate = sub.add_parser("eval", parents=[common], help="run JavaScript in the page")
     evaluate.add_argument("expression")
+    evaluate.add_argument(
+        "-w", "--window", default="main", choices=("main", "popout"), help="which window to run it in"
+    )
     evaluate.set_defaults(func=_cmd_eval)
 
     logs = sub.add_parser("logs", parents=[common], help="Python, renderer, and Vite logs")
@@ -483,6 +490,9 @@ def main(argv: list[str] | None = None) -> int:
 
     shot = sub.add_parser("screenshot", parents=[common], help="capture the window to a PNG")
     shot.add_argument("path", nargs="?", default="")
+    shot.add_argument(
+        "-w", "--window", default="main", choices=("main", "popout"), help="which window to capture"
+    )
     shot.set_defaults(func=_cmd_screenshot)
 
     stop = sub.add_parser("stop", parents=[common], help="close the running instance")

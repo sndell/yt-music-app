@@ -28,6 +28,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from dev import instance, logs
+from util.popout import popout
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ def _discovery_payload() -> dict[str, Any]:
         "vitePort": port,
         "viteOrigin": vite.ui_origin() if port else None,
         "loaded": _loaded.is_set(),
+        "popoutOpen": popout.is_open,
         "startedAt": _started_at,
         "branch": instance.branch(),
         "worktree": str(instance.REPO_DIR),
@@ -158,13 +160,27 @@ def _call(method: str, args: list[Any]) -> Any:
     return function(*args)
 
 
-def _eval(expression: str) -> Any:
-    if _window is None:
-        raise RuntimeError("No window yet")
-    return _window.evaluate_js(expression)
+def _window_for(target: str) -> Any:
+    """The main window, or the popout. Two windows exist, so the other is it."""
+    if target in ("", "main"):
+        if _window is None:
+            raise RuntimeError("No window yet")
+        return _window
+    if target != "popout":
+        raise ValueError(f"Unknown window {target!r}; use main or popout")
+    import webview
+
+    others = [window for window in webview.windows if window is not _window]
+    if not others:
+        raise RuntimeError("The popout is not open")
+    return others[0]
 
 
-def _capture(path: Path) -> dict[str, Any]:
+def _eval(expression: str, target: str = "main") -> Any:
+    return _window_for(target).evaluate_js(expression)
+
+
+def _capture(path: Path, target: str = "main") -> dict[str, Any]:
     """Grab the window into a PNG with PrintWindow.
 
     PW_RENDERFULLCONTENT (2) makes the capture include the WebView2 content
@@ -172,9 +188,10 @@ def _capture(path: Path) -> dict[str, Any]:
     """
     from PIL import Image  # noqa: PLC0415 - only needed for a screenshot
 
-    if _window is None or _window.native is None:
+    window = _window_for(target)
+    if window.native is None:
         raise RuntimeError("No window yet")
-    handle = _window.native.Handle.ToInt64()
+    handle = window.native.Handle.ToInt64()
 
     user32 = ctypes.windll.user32
     gdi32 = ctypes.windll.gdi32
@@ -287,18 +304,19 @@ class _Handler(BaseHTTPRequestHandler):
                 query = self._query()
                 target = (query.get("path") or [""])[0]
                 path = Path(target) if target else instance.artifacts_dir() / "screenshot.png"
-                return self._json(200, _capture(path))
+                window = (query.get("window") or ["main"])[0]
+                return self._json(200, _capture(path, window))
             if route == "/":
                 return self._json(
                     200,
                     {
                         "endpoints": {
-                            "GET /health": "instance, pid, checkout, ports, whether the page loaded",
+                            "GET /health": "instance, pid, checkout, ports, whether the page and the popout are up",
                             "POST /call": '{"method": "get_playlists", "args": []}',
-                            "POST /eval": '{"expression": "document.body.innerText"}',
+                            "POST /eval": '{"expression": "document.body.innerText", "window": "main|popout"}',
                             "POST /stop": "close the window",
                             "GET /logs": "?level=warning&limit=200",
-                            "GET /screenshot": "?path=optional.png",
+                            "GET /screenshot": "?path=optional.png&window=main|popout",
                         }
                     },
                 )
@@ -321,7 +339,8 @@ class _Handler(BaseHTTPRequestHandler):
                 expression = body.get("expression")
                 if not isinstance(expression, str) or not expression:
                     raise ValueError("expression must be a non-empty string")
-                return self._json(200, {"result": _eval(expression)})
+                window = str(body.get("window") or "main")
+                return self._json(200, {"result": _eval(expression, window)})
             if route == "/stop":
                 # Destroying the window makes webview.start() return, so the
                 # normal shutdown stops Vite and removes the discovery file.

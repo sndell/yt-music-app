@@ -478,6 +478,14 @@ export interface DiscordPresenceStatus {
   message: string;
 }
 
+/** The always-on-top player. `open` is live state, the rest is saved. */
+export interface PopoutPrefs {
+  enabled: boolean;
+  open: boolean;
+  pinned: boolean;
+  collapsed: boolean;
+}
+
 export interface WatchPlaylist {
   tracks: WatchTrack[];
   playlistId: string | null;

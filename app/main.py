@@ -41,6 +41,7 @@ from features.music_api import MusicApi
 from util import audio_stream
 from util.discord_presence import discord_presence
 from util.media_controls import media_controls, prepare_webview
+from util.popout import popout
 from util.preferences import preferences
 from util.ui_server import serve_ui
 from util.webview_controller import WebViewController
@@ -136,6 +137,50 @@ class Api(MusicApi):
         """Save the beat-aligned blend choice and return the stored value."""
         return preferences.set_automix(enabled)
 
+    @api.read(returns="PopoutPrefs")
+    def get_popout(self) -> dict:
+        """Whether the always-on-top player is enabled, open, pinned or collapsed."""
+        return _popout_state()
+
+    @api.read(returns="PopoutPrefs")
+    def set_popout(self, enabled: bool) -> dict:
+        """Turn the always-on-top player on or off, opening or closing its window."""
+        preferences.set_popout(enabled=enabled)
+        if preferences.popout()["enabled"]:
+            popout.open()
+        else:
+            popout.close()
+        return _popout_state()
+
+    @api.read(returns="PopoutPrefs")
+    def open_popout(self) -> dict:
+        """Show the always-on-top player window."""
+        popout.open()
+        return _popout_state()
+
+    @api.read(returns="PopoutPrefs")
+    def close_popout(self) -> dict:
+        """Hide the always-on-top player window."""
+        popout.close()
+        return _popout_state()
+
+    @api.read(returns="PopoutPrefs")
+    def set_popout_pinned(self, pinned: bool) -> dict:
+        """Keep the always-on-top player above other windows, or let it sit."""
+        popout.set_pinned(pinned)
+        return _popout_state()
+
+    @api.read(returns="PopoutPrefs")
+    def set_popout_collapsed(self, collapsed: bool) -> dict:
+        """Shrink the always-on-top player to its strip, or expand it again."""
+        popout.set_collapsed(collapsed)
+        return _popout_state()
+
+    @api.read(returns="void")
+    def focus_main(self) -> None:
+        """Bring the main window forward, after a click in the popout."""
+        WebViewController.focus()
+
     @api.read(returns="UpdateStatus")
     def get_update_status(self) -> dict:
         """The running version and the newest published release."""
@@ -162,6 +207,28 @@ class Api(MusicApi):
             from dev import logs
 
             logs.add_renderer_entry(entry)
+
+
+def _close_popout() -> None:
+    """Close the popout with the main window.
+
+    A surviving second window keeps the WinForms loop alive after the main
+    window is destroyed, which leaves the process running with no player. The
+    popout posts its destroy to the UI thread, which is the thread closing this
+    window, so hand it to a worker instead of re-entering it.
+    """
+    threading.Thread(target=popout.close, name="popout-close", daemon=True).start()
+
+
+def _popout_state() -> dict:
+    """The saved popout settings plus whether its window is up right now."""
+    settings = preferences.popout()
+    return {
+        "enabled": settings["enabled"],
+        "open": popout.is_open,
+        "pinned": settings["pinned"],
+        "collapsed": settings["collapsed"],
+    }
 
 
 def resource_path(*relative_parts: str) -> Path:
@@ -256,6 +323,11 @@ if __name__ == "__main__":
         url = vite.ui_origin()
     else:
         url = serve_ui(resource_path("ui"))
+    # The popout loads the same page, so it has to know the URL this process
+    # serves or the Vite origin it was handed. The ready hook turns off
+    # WebView2's own context menu there too, so a row's right-click menu is the
+    # only one that opens.
+    popout.configure(api, url, _disable_browser_context_menu)
     window = webview.create_window(
         title,
         url,
@@ -268,6 +340,12 @@ if __name__ == "__main__":
     window.events.before_show += lambda: media_controls.attach(window)
     window.events.loaded += lambda: _disable_browser_context_menu(window)
     window.events.loaded += _warm_audio_stream
+    window.events.closing += _close_popout
+    # Restore runs off the UI thread: pywebview only creates a window after
+    # `start()` from a worker, and `loaded` fires on the UI thread.
+    window.events.loaded += lambda: threading.Thread(
+        target=popout.restore, name="popout-restore", daemon=True
+    ).start()
     if ENV == "dev":
         window.events.loaded += lambda: control.mark_loaded()
         control.start(api, window)

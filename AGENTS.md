@@ -65,7 +65,7 @@ The most common defect here is a change that works on the one path you tried and
 | `app/main.py` | Startup, the window, and `Api` (media controls, Discord, volume) on top of `MusicApi` |
 | `app/features/music_api.py` | The YouTube Music surface the UI calls, and the writes |
 | `app/features/music/` | The helpers behind it: payload builders (`normalize.py`), lyrics and translation (`lyrics.py`), playlist paging, date capture and stats (`playlists.py`) |
-| `app/util/` | Window helpers: paths, audio, media keys, Discord, preferences, the packaged UI server, the audio proxy, the event dispatcher |
+| `app/util/` | Window helpers: paths, audio, media keys, Discord, preferences, the popout window, the packaged UI server, the audio proxy, the event dispatcher |
 | `app/dev/` | Dev-only tooling: `vite.py` starts the dev server, `control.py` serves the dev HTTP surface, `logs.py` captures logs, `cli.py` talks to a running instance |
 | `ui/src/features/<name>/` | One folder per feature: album, artist, library, player, playlist, search, settings |
 | `ui/src/components/ui/` | Shared UI pieces (menus, dialogs, rows, scroll) |
@@ -135,6 +135,7 @@ python app\dev\cli.py -i like-toggle stop
 - `call` runs any public API method. A read is safe; a write changes the signed-in account, so treat it like the app's own buttons. Pass plain string arguments, or `--json` or `--json-file` for a typed list. A list call such as `get_playlists` or `get_home` returns data-URL thumbnails and floods the terminal, so read ids from the page with `eval` or navigate straight to a known id instead. Plain arguments arrive as strings, so a numeric method needs `--json "[40]"`: `call set_volume 40` returns the old value and changes nothing, because the setter refuses a string.
 - To drive a write path without touching the account, stub the method in the page first: `eval "window.pywebview.api.remove_playlist_items = async () => ({ status: 'SUCCEEDED' })"`. The stub lets the UI code run its real path and shows the state it produces, while the account sees nothing. A reload drops it, so re-install after every reload, and stub every write the flow can reach rather than only the one under test: an unstubbed call is a real edit, and there is no undo for a removal you did not mean. To remove a stub, reload; `delete window.pywebview.api.<method>` takes pywebview's real method down with it, because every method sits on the same object, and every later call waits out the 30s bridge timeout.
 - A toast action's label is uppercased by CSS, so `innerText` reads `UNDO`, not `Undo`. Match case-insensitively when clicking one, and click it inside the action toast's 5.6s life. Chain the clicks in one `eval` with `setTimeout` when the steps are close together, because each `eval` call costs about a second of round trip.
+- `eval` and `screenshot` take `-w popout` to target the always-on-top player window. Without it they address the main window, which is the only one with `window.pythonEvent`. `/health` reports `popoutOpen`.
 - `eval` runs JavaScript in the page. Use single quotes inside the expression, because PowerShell strips double quotes on the way to a native command. JS that needs a double-quoted string cannot be passed at all, so write such a selector unquoted (`input[aria-label=Search]`).
 - `eval` does not wait on an async expression. Return a promise and the call gives `{}` while its body keeps running in the page, so run a sequence as separate calls with `Start-Sleep` between them.
 - `logs` merges three streams: `python`, `renderer` (console output and uncaught errors forwarded from the page), and `vite` (the Vite console, tee'd to that instance's `app/dev/.instances/<id>/artifacts/vite.log` while its own console stays visible).
@@ -270,6 +271,18 @@ That graph needs a CORS-clean element, and googlevideo will not give it one: a s
 
 Measured in a dev window: preamp −12 dB took the tapped output RMS from 0.079 to 0.020 (4×, as it should), and bass +12 dB raised the 40–120 Hz to 800–2500 Hz ratio from 14 to 21. To tap the output yourself, wrap `AudioNode.prototype.connect` before the first play and insert an `AnalyserNode` where a node connects to `context.destination`; tapping the media source measures the signal before the filters. `cli.py eval` cannot grant user activation, so a click dispatched from `eval` is not a gesture — this WebView2 starts audio contexts running anyway, which is why the measurements work.
 
+## Always-on-top player
+
+`Settings → Always-on-top player` turns on a second window: frameless and `on_top`, 380x560, or 380x120 collapsed. `app/util/popout.py` owns it, `app/main.py` exposes `get_popout`, `set_popout`, `open_popout`, `close_popout`, `set_popout_pinned`, `set_popout_collapsed` and `focus_main`, and the window loads the same page with `?popout=1`, which makes `main.tsx` mount `PopoutApp` instead of `App`. The feature being enabled is what reopens it at launch; its open state is not stored, so shutdown order cannot decide the next start. Geometry is saved on close and after a move, and a rectangle no monitor can reach falls back to the primary screen's top right.
+
+The popout never plays audio. The main window owns the only `<audio>` element, so the popout mounts neither `PlayerProvider` nor `Player`; a second copy would play the song twice and write the account's history twice. `ui/src/features/player/lib/playback.ts` is the store `Player.tsx` publishes playing, position, duration and loop into, and `PopoutBridge` sends that plus the player context over a `BroadcastChannel` named `ytmusic-popout`: a `state` message when the song, queue or lyrics change, a `tick` about four times a second for the clock. Commands travel back the same way and run through the main window's real handlers, which is what keeps one queue, one like state and one history write. The popout answers a `hello` with a fresh snapshot, so it catches up after a restore or a reload.
+
+Both windows are same-origin (the Vite origin, or the one `serve_ui` URL, whose server is a `ThreadingHTTPServer`), which is what makes the channel work. The collapsed layout comes from `window.innerHeight`, not from the saved preference: Python owns the size and a resize is the only truth, so a collapse from the dev surface cannot leave the page laid out for the wrong height.
+
+A frameless window keeps the border it was created with, so the page came up 16x39 short of the requested size. `popout._create` calls `window.resize()` once after creation, which makes `Size` and `ClientSize` the same number; every later `resize` is exact. A surviving popout also keeps the WinForms loop alive after the main window is destroyed, so `main.py` closes it from the main window's `closing` event. Without that, `cli.py stop` reports success and leaves a process with no player, and the only way out is `call close_popout`.
+
+`RelatedPanel` takes `currentVideoId`, `onPlay` and `onOpen` instead of reading `usePlayer` and `useLocation`, which is what lets both windows use it. The popout's `TrackMenu` omits `onNewPlaylist`, so creating a playlist stays a main-window action, and its queue rows have no drag reorder: a 380px drag target is fussy, so the row menu is the path there.
+
 ## Audio streams and the PO-token wall
 
 YouTube gates the Google Video Server per account in rolling experiments (yt-dlp's PO Token Guide tracks which client is gated when): the player response still lists URLs, but fetching the bytes returns 403. The signature in the log is a successful resolve followed by instant failure, visible in Python as `Audio stream` lines with no playback and in the UI as a play icon that flips back within a second. Premium accounts are exempt, which is why one machine plays and another with the same exe does not; the reported free account got the wall on 2026-10-17 while the Premium developer account did not.
@@ -305,7 +318,6 @@ Automix — the blend starts on the beat of the song that is ending and the inco
 - The window is the *opening* of the file, not its last seconds, because a byte range from the end cannot be decoded on its own — an MP4 needs the `moov` at the front, a WebM its EBML header — so a tail-only analysis means the whole file. The incoming song enters near its own start, where its opening is the window that matters anyway; for the outgoing one it is a proxy.
 - An estimate is only kept when two windows (0-18 s and 6-24 s) agree to within 3% and repeat strongly enough; otherwise `tempoFromBytes` returns null and the song fades as before. `ensureTempo` runs for the playing song and the queue's next on every queue change, and a null is remembered for the session, so nothing retries the same song's download.
 - Both halves of the hand-over were verified from a live run: the incoming song started at 0.580 s, exactly the offset measured for it, and the outgoing handed over 32 ms past one of its own beats — a quarter of the 40 ms sampling step.
->>>>>>> 6afd8bb (feat(player): crossfade songs with a preloaded next track)
 
 ## Updates
 
@@ -371,6 +383,7 @@ A rule that a check carries is not a rule an agent has to remember. This table p
 | The 16:9 frame is Home only | the `no-restricted-imports` block in `ui/eslint.config.js` |
 | One instance id derivation | `start.ps1` asks `app/dev/instance.py`; there is no second copy |
 | The account is read-only unless the conversation asked | judgment. The write methods are named in **Never destroy what the user has**; the dev `/call` path and the page-level stub are the two ways to drive them |
+| The popout never owns audio | judgment. `main.tsx` branches on `?popout=1` before `PlayerProvider`, so the second window cannot mount `Player` or a second `<audio>` |
 | Never kill a process found by name or path | judgment |
 | One request is one pull request | judgment |
 | Do not commit plans, research notes or scratch files | judgment |

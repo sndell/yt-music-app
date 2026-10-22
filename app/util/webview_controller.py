@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 from typing import Any, TYPE_CHECKING
@@ -55,3 +56,23 @@ class WebViewController:
         """
         if cls._window is not None:
             cls._window.destroy()
+
+    @classmethod
+    def focus(cls) -> None:
+        """Raise the main window, after a click that happened in the popout.
+
+        The click gives this process the foreground, which is what lets
+        SetForegroundWindow through; `show()` alone does not activate a window
+        that is already visible.
+        """
+        window = cls._window
+        if window is None:
+            return
+        try:
+            window.restore()
+            window.show()
+            native = window.native
+            if native is not None:
+                ctypes.windll.user32.SetForegroundWindow(native.Handle.ToInt64())
+        except Exception:
+            logger.exception("Could not focus the main window")
