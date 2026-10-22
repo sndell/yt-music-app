@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PageHeading } from "@/components/ui/PageHeading";
+import { Switch } from "@/components/ui/Switch";
 import { PyBridge } from "@/lib/api";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
+import { cn } from "@/util/cn";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
+import { SettingsRow, SettingsSection } from "../components/SettingsSection";
 
 const notifyAuthChanged = () => {
   window.dispatchEvent(new Event("ytmusic-auth-changed"));
@@ -155,7 +158,6 @@ export const Settings = () => {
     }
   };
 
-  const discordQuiet = discordState === "connected" || discordState === "connecting" || discordState === "waiting";
   const horizontalNav = useHorizontalNav();
   const [navWorking, setNavWorking] = useState(false);
 
@@ -165,95 +167,123 @@ export const Settings = () => {
     setNavWorking(false);
   };
 
+  const signedInDescription = signedIn
+    ? "Signed in to YouTube Music."
+    : "Opens YouTube Music to capture the signed-in API request. Log in there if asked; the window closes when the headers are read.";
+
   return (
-    <div className="flex justify-center">
-      <div className="w-full max-w-7xl p-1.5 px-3">
-        <PageHeading>Settings</PageHeading>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-1.5">
-              <div>YouTube Music</div>
-              <p className="text-sm text-primary-dark">
-                {signedIn
-                  ? "Signed in to YouTube Music."
-                  : "Opens YouTube Music and reads the signed-in API request itself. Log in if YouTube asks; the window closes when the headers are captured."}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={signedIn ? handleSignOut : handleSignIn}
-              disabled={signInStatus === "working" || signedIn == null}
-              className="h-8 shrink-0 cursor-pointer rounded-full border border-white/40 px-3 text-sm text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {signInStatus === "working" ? "Working..." : signedIn == null ? "..." : signedIn ? "Sign out" : "Sign in"}
-            </button>
-          </div>
-          {signInStatus === "error" && signInError && <div className="text-sm text-red-500">{signInError}</div>}
-        </div>
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="scrollbar flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-2xl">
+          <PageHeading>Settings</PageHeading>
+          <div className="space-y-8">
+            <SettingsSection title="Account">
+              <SettingsRow
+                title="YouTube Music"
+                description={signedInDescription}
+                detail={signInStatus === "error" ? signInError : null}
+                detailTone="error"
+                control={
+                  <SettingsAction
+                    onClick={() => void (signedIn ? handleSignOut() : handleSignIn())}
+                    disabled={signInStatus === "working" || signedIn == null}
+                  >
+                    {signInStatus === "working"
+                      ? "Working..."
+                      : signedIn == null
+                        ? "..."
+                        : signedIn
+                          ? "Sign out"
+                          : "Sign in"}
+                  </SettingsAction>
+                }
+              />
+            </SettingsSection>
 
-        <div className="mt-8 space-y-3 border-t border-white/10 pt-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-1.5">
-              <div>Discord</div>
-              <p className="text-sm text-primary-dark">
-                Shows the current song on your Discord profile while YouTube Music is playing. The Discord desktop app
-                has to be open.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void saveDiscord(!discordEnabled)}
-              disabled={!discordReady || discordWorking}
-              className="h-8 shrink-0 cursor-pointer rounded-full border border-white/40 px-3 text-sm text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {discordWorking ? "Working..." : !discordReady ? "..." : discordEnabled ? "Turn off" : "Turn on"}
-            </button>
-          </div>
-          {discordMessage && (
-            <p className={discordQuiet ? "text-sm text-primary-dark" : "text-sm text-red-500"}>{discordMessage}</p>
-          )}
-        </div>
+            <SettingsSection title="Appearance">
+              <SettingsRow
+                title="Horizontal navigation"
+                description="Icon-only row at the top of the sidebar, so more playlists fit. Needs a window wide enough for the five icons."
+                control={
+                  <Switch
+                    checked={horizontalNav}
+                    onChange={(enabled) => void saveNav(enabled)}
+                    disabled={navWorking}
+                    label="Horizontal navigation"
+                  />
+                }
+              />
+            </SettingsSection>
 
-        <div className="mt-8 space-y-3 border-t border-white/10 pt-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-1.5">
-              <div>Horizontal navigation</div>
-              <p className="text-sm text-primary-dark">
-                Puts the navigation buttons in a single icon-only row at the top of the sidebar, so playlist rows get
-                bigger covers. Only applies when the window is wide enough to fit the row.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void saveNav(!horizontalNav)}
-              disabled={navWorking}
-              className="h-8 shrink-0 cursor-pointer rounded-full border border-white/40 px-3 text-sm text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {navWorking ? "Working..." : horizontalNav ? "Turn off" : "Turn on"}
-            </button>
-          </div>
-        </div>
+            <SettingsSection title="Integrations">
+              <SettingsRow
+                title="Discord"
+                description="Shows the current song on your Discord profile. The Discord desktop app has to be open."
+                control={
+                  <Switch
+                    checked={discordEnabled}
+                    onChange={(enabled) => void saveDiscord(enabled)}
+                    disabled={!discordReady || discordWorking}
+                    label="Discord rich presence"
+                  />
+                }
+                detail={discordMessage}
+                detailTone={discordState === "error" ? "error" : "quiet"}
+              />
+            </SettingsSection>
 
-        <div className="mt-8 space-y-3 border-t border-white/10 pt-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-1.5">
-              <div>Version {update?.current ?? "..."}</div>
-              <p className="text-sm text-primary-dark">{updateDetail(update, updateStage)}</p>
-            </div>
-            {update?.available && update.frozen && (
-              <button
-                type="button"
-                onClick={() => void installUpdate()}
-                disabled={updateStage !== "idle"}
-                className="h-8 shrink-0 cursor-pointer rounded-full border border-white/40 px-3 text-sm text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {updateStage === "installing" ? "Downloading..." : updateStage === "restarting" ? "Restarting..." : "Update"}
-              </button>
-            )}
+            <SettingsSection title="About">
+              <SettingsRow
+                title="Version"
+                description={updateDetail(update, updateStage)}
+                detail={updateError}
+                detailTone="error"
+                control={
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm tabular-nums text-primary-dark">{update?.current ?? "..."}</span>
+                    {update?.available && update.frozen && (
+                      <SettingsAction primary onClick={() => void installUpdate()} disabled={updateStage !== "idle"}>
+                        {updateStage === "installing"
+                          ? "Downloading..."
+                          : updateStage === "restarting"
+                            ? "Restarting..."
+                            : "Update"}
+                      </SettingsAction>
+                    )}
+                  </div>
+                }
+              />
+            </SettingsSection>
           </div>
-          {updateError && <p className="text-sm text-red-500">{updateError}</p>}
         </div>
       </div>
     </div>
   );
 };
+
+const SettingsAction = ({
+  children,
+  onClick,
+  disabled = false,
+  primary = false,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  /** Filled white, for the one action a section wants the eye on. */
+  primary?: boolean;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className={cn(
+      "h-8 shrink-0 cursor-pointer rounded-full px-3.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+      primary
+        ? "bg-white font-medium text-black hover:bg-white/85"
+        : "border border-white/20 text-primary hover:bg-white/10",
+    )}
+  >
+    {children}
+  </button>
+);
