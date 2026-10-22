@@ -61,6 +61,9 @@ export const Player = () => {
   const { showToast } = useToast();
   const [duration, setDuration] = useState(0);
   const playerRef = useRef<HTMLAudioElement | null>(null);
+  // The stream read in flight for the element, so a play press during it waits
+  // for that read instead of starting a second one.
+  const pendingLoadRef = useRef<{ videoId: string; request: number } | null>(null);
   const elapsedRef = useRef(0);
   const historyVideoIdRef = useRef<string | null>(null);
   const [volume, setVolume] = useState(50);
@@ -89,6 +92,7 @@ export const Player = () => {
     const request = ++requestRef.current;
     const audio = playerRef.current;
     if (!audio) return;
+    pendingLoadRef.current = { videoId, request };
     ignorePauseRef.current = true;
     audio.pause();
     audio.removeAttribute("src");
@@ -115,6 +119,8 @@ export const Player = () => {
       node.src = result.data.url;
       ignorePauseRef.current = false;
       if (playingRef.current) playAudio(node);
+    }).finally(() => {
+      if (pendingLoadRef.current?.request === request) pendingLoadRef.current = null;
     });
   }, [playAudio, showToast]);
 
@@ -321,7 +327,18 @@ export const Player = () => {
             playingRef.current = true;
             setIsPlaying(true);
             const audio = playerRef.current;
-            if (audio && !audio.getAttribute("src") && currentSong.videoId) loadStream(currentSong.videoId, true);
+            const pending = pendingLoadRef.current;
+            // A stream already on its way starts on its own when it lands. Asking
+            // again here threw it away and began a second read, so the first song
+            // of a session played only after the user pressed play twice.
+            if (
+              audio &&
+              !audio.getAttribute("src") &&
+              currentSong.videoId &&
+              pending?.videoId !== currentSong.videoId
+            ) {
+              loadStream(currentSong.videoId, true);
+            }
           }}
           onPause={() => {
             playingRef.current = false;

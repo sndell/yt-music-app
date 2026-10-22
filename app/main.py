@@ -38,6 +38,7 @@ import webview
 
 from features import updates
 from features.music_api import MusicApi
+from util import audio_stream
 from util.discord_presence import discord_presence
 from util.media_controls import media_controls, prepare_webview
 from util.preferences import preferences
@@ -135,6 +136,30 @@ def resource_path(*relative_parts: str) -> Path:
     return base.joinpath(*relative_parts)
 
 
+_WARM_DELAY_SECONDS = 2.0
+
+
+def _warm_audio_stream() -> None:
+    """Arm the audio solver once the window has painted.
+
+    The first song of a session is the one that waits: until it asks, the player
+    script is neither downloaded nor parsed and the solver process is not up.
+    That work is the same for every song, so it runs here while the user is
+    still browsing instead of on the first press.
+    """
+
+    def run() -> None:
+        try:
+            ytmusic = MusicApi._get_ytmusic()
+        except Exception:  # noqa: BLE001 - signed out; the sign-in flow owns that
+            return
+        audio_stream.warm(ytmusic)
+
+    timer = threading.Timer(_WARM_DELAY_SECONDS, run)
+    timer.daemon = True
+    timer.start()
+
+
 def _disable_browser_context_menu(window: webview.Window) -> None:
     """Hide the WebView2 menu. Track and playlist menus stay in the page."""
     native = window.native
@@ -208,6 +233,7 @@ if __name__ == "__main__":
     WebViewController.set_window(window)
     window.events.before_show += lambda: media_controls.attach(window)
     window.events.loaded += lambda: _disable_browser_context_menu(window)
+    window.events.loaded += _warm_audio_stream
     if ENV == "dev":
         window.events.loaded += lambda: control.mark_loaded()
         control.start(api, window)

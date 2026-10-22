@@ -208,18 +208,20 @@ def _playlist_track_page(
         return [], None
     return parse_playlist_items(items, is_collaborative=is_collaborative), get_continuation_token(items)
 
-def _fetch_all_playlist_tracks(ytmusic: Any, playlist_id: str) -> list[dict[str, Any]]:
-    """Every track of a playlist, in one call.
+def _read_playlist_whole(
+    ytmusic: Any, playlist_id: str
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """A playlist header and every track, in one call.
 
-    Used by the callers that cannot work from a page: the duplicate check on an
-    add, a row lookup on a removal, queueing, and true shuffle. A list whose
-    header reports no size is a generated mix that never ends, so it is left at
-    its first page, the same guard `get_playlist_items` uses.
+    A list whose header reports no size is a generated mix that never ends, so
+    it is left at its first page, the same guard `get_playlist_items` uses.
     """
     playlist, token = _playlist_first_page(ytmusic, playlist_id)
+    if not isinstance(playlist, dict):
+        return {}, []
     tracks = list(playlist.get("tracks") or [])
     if playlist.get("trackCount") is None:
-        return tracks
+        return playlist, tracks
     is_collaborative = bool(playlist.get("collaborators"))
     seen: set[str] = set()
     while token and token not in seen:
@@ -230,7 +232,16 @@ def _fetch_all_playlist_tracks(ytmusic: Any, playlist_id: str) -> list[dict[str,
             break
         _apply_added_dates(page, capture.items)
         tracks.extend(page)
-    return tracks
+    return playlist, tracks
+
+def _fetch_all_playlist_tracks(ytmusic: Any, playlist_id: str) -> list[dict[str, Any]]:
+    """Every track of a playlist, in one call.
+
+    Used by the callers that cannot work from a page: the duplicate check on an
+    add, a row lookup on a removal, and queueing. It always reads from YouTube,
+    because an add or a removal acts on the rows it is about to change.
+    """
+    return _read_playlist_whole(ytmusic, playlist_id)[1]
 
 def _load_playlist_stats() -> dict[str, dict[str, list[float]]]:
     try:

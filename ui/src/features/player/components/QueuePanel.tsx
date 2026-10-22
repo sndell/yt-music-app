@@ -344,15 +344,8 @@ export const QueuePanel = () => {
         >
           <PanelTab active={activeTab === "queue"} onClick={() => setTab("queue")}>
             <span>Queue</span>
-            {queue.length > 0 && <span className="text-xs text-primary-dark">{queue.length}</span>}
-            {/* Sits in the tab, not at the end of the list: a long queue keeps the
-                tail out of the virtualizer's window, so a row there is unreachable. */}
-            {shufflePending && (
-              <span
-                role="status"
-                aria-label="Shuffling the rest of the playlist"
-                className="text-sm transition-transform icon-[solar--loader-linear] animate-spin text-primary-dark"
-              />
+            {queue.length > 0 && !shufflePending && (
+              <span className="text-xs text-primary-dark">{queue.length}</span>
             )}
           </PanelTab>
           {lyricsAvailable && (
@@ -374,71 +367,83 @@ export const QueuePanel = () => {
               activeTab !== "queue" && "hidden"
             )}
           >
-            {queueLoading && queue.length === 0 && (
+            {shufflePending && (
+              <div
+                role="status"
+                aria-label="Reading the playlist to shuffle it"
+                className="grid place-items-center gap-2 py-8"
+              >
+                <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
+                <span className="text-xs text-primary-dark">Shuffling playlist…</span>
+              </div>
+            )}
+            {!shufflePending && queueLoading && queue.length === 0 && (
               <div className="grid place-items-center py-8">
                 <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
               </div>
             )}
-            {!queueLoading && queue.length === 0 && (
+            {!shufflePending && !queueLoading && queue.length === 0 && (
               <p className="px-2 py-8 text-sm text-center text-primary-dark">Play a song to fill the queue.</p>
             )}
-            <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
-              {virtualizer.getVirtualItems().map((virtualItem) => {
-                const entry = entries[virtualItem.index];
-                if (entry.kind === "label") {
+            {!shufflePending && (
+              <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                  const entry = entries[virtualItem.index];
+                  if (entry.kind === "label") {
+                    return (
+                      <p
+                        key={entry.key}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: QUEUE_LABEL_HEIGHT,
+                          transform: `translateY(${virtualItem.start}px)`,
+                        }}
+                        className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark"
+                      >
+                        {entry.text}
+                      </p>
+                    );
+                  }
+                  if (entry.kind === "loading") {
+                    return (
+                      <div
+                        key={entry.key}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: QUEUE_ROW_HEIGHT,
+                          transform: `translateY(${virtualItem.start}px)`,
+                        }}
+                        className="grid place-items-center"
+                        role="status"
+                        aria-label="Loading next tracks"
+                      >
+                        <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
+                      </div>
+                    );
+                  }
+                  const { track, index } = entry;
+                  const isCurrent = currentTrack != null && index === currentQueueIndex;
                   return (
-                    <p
-                      key={entry.key}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
-                        height: QUEUE_LABEL_HEIGHT,
-                        transform: `translateY(${virtualItem.start}px)`,
-                      }}
-                      className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark"
-                    >
-                      {entry.text}
-                    </p>
+                    <ReorderItem key={entry.key} id={entry.key} offsetY={virtualItem.start} height={QUEUE_ROW_HEIGHT}>
+                      <QueueItem
+                        track={track}
+                        isCurrent={isCurrent}
+                        accent={isCurrent ? coverColor : undefined}
+                        menuOpen={menu?.track === track}
+                        onPlay={() => playFromQueue(track, index)}
+                        onOpenMenu={(x, y) => setMenu({ track, x, y })}
+                      />
+                    </ReorderItem>
                   );
-                }
-                if (entry.kind === "loading") {
-                  return (
-                    <div
-                      key={entry.key}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
-                        height: QUEUE_ROW_HEIGHT,
-                        transform: `translateY(${virtualItem.start}px)`,
-                      }}
-                      className="grid place-items-center"
-                      role="status"
-                      aria-label="Loading next tracks"
-                    >
-                      <span className="icon-[solar--loader-linear] animate-spin text-2xl text-primary-dark" />
-                    </div>
-                  );
-                }
-                const { track, index } = entry;
-                const isCurrent = currentTrack != null && index === currentQueueIndex;
-                return (
-                  <ReorderItem key={entry.key} id={entry.key} offsetY={virtualItem.start} height={QUEUE_ROW_HEIGHT}>
-                    <QueueItem
-                      track={track}
-                      isCurrent={isCurrent}
-                      accent={isCurrent ? coverColor : undefined}
-                      menuOpen={menu?.track === track}
-                      onPlay={() => playFromQueue(track, index)}
-                      onOpenMenu={(x, y) => setMenu({ track, x, y })}
-                    />
-                  </ReorderItem>
-                );
-              })}
-            </div>
+                })}
+              </div>
+            )}
           </div>
         </ReorderList>
         {queueChips.length > 1 && (

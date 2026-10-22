@@ -61,7 +61,7 @@ from features.music.lyrics import _lyrics_browse_id, _normalize_lyrics, _query_b
 from features.music.moods import _empty_mood_categories, _mood_fallback_sections, _mood_playlists, _mood_sections, MOODS_BROWSE_ID  # the moods and genres browse page
 from features.music.explore import _explore_sections  # the explore feed
 from features.music.related import _song_related_sections  # the watch playlist's Related tab
-from features.music.playlists import _PlaylistDateCapture, _apply_added_dates, _date_sink, _fetch_all_playlist_tracks, _find_playlist_shelf, _forget_playlist_stat, _install_date_recorder, _load_playlist_stats, _playlist_first_page, _playlist_stat_score, _playlist_track_page, _record_playlist_stat, _save_playlist_stats, _token_sink, _walk_playlist_item_data  # moved out of this module
+from features.music.playlists import _PlaylistDateCapture, _apply_added_dates, _date_sink, _fetch_all_playlist_tracks, _find_playlist_shelf, _forget_playlist_stat, _install_date_recorder, _load_playlist_stats, _playlist_first_page, _playlist_stat_score, _playlist_track_page, _read_playlist_whole, _record_playlist_stat, _save_playlist_stats, _token_sink, _walk_playlist_item_data  # moved out of this module
 
 logger = logging.getLogger(__name__)
 
@@ -1651,8 +1651,10 @@ class MusicApi:
     def get_playlist_all_tracks(self, playlist_id: str) -> dict[str, Any]:
         """Every track of a playlist, in order.
 
-        Queueing and true shuffle need the whole list, so those paths ask for
-        it explicitly instead of waiting on the pages the view happens to hold.
+        Queueing and a write's row lookup need the rows as they are on YouTube
+        now, so this always reads them; true shuffle uses
+        :meth:`get_playlist_shuffle_tracks` instead, which may answer from the
+        cache.
         """
         if not isinstance(playlist_id, str) or not playlist_id:
             raise ValueError("playlist id is required")
@@ -1665,6 +1667,49 @@ class MusicApi:
             return {"tracks": tracks}
         except Exception as e:
             logger.exception("Failed to read playlist whole: %s", e)
+            return {"tracks": []}
+
+    @api.read(returns="{ tracks: Track[] }", cache="playlist")
+    def get_playlist_shuffle_tracks(self, playlist_id: str) -> dict[str, Any]:
+        """Every track of a playlist, for a true shuffle.
+
+        The cached playlist is used when it already holds every page, so a list
+        the user has opened shuffles without a network read. A partial cache is
+        answered by reading the whole playlist once and storing it, so the next
+        shuffle and the playlist view's warm open both start from it. A
+        generated mix never ends, so it stays at one page.
+        """
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise ValueError("playlist id is required")
+        try:
+            if not self._is_authenticated():
+                logger.warning("Not authenticated - cannot return playlist tracks")
+                return {"tracks": []}
+
+            cached = store.read(PLAYLIST, playlist_id)
+            cached_tracks = cached.get("tracks") if isinstance(cached, dict) else None
+            if isinstance(cached_tracks, list) and cached.get("nextToken") is None:
+                logger.info(
+                    "Playlist '%s' shuffled from cache (tracks: %d)", playlist_id, len(cached_tracks)
+                )
+                return {"tracks": cached_tracks}
+
+            playlist, tracks = _read_playlist_whole(self._get_ytmusic(), playlist_id)
+            if not playlist:
+                return {"tracks": []}
+            if playlist.get("durationSeconds") is None:
+                playlist["durationSeconds"] = _as_int(playlist.get("duration_seconds"))
+            if playlist.get("trackCount") is None:
+                playlist["trackCount"] = len(tracks)
+            playlist["tracks"] = tracks
+            playlist["nextToken"] = None
+            playlist["dominantColor"] = _dominant_color(playlist.get("thumbnails", []))
+            _inline_playlist_thumbnails([playlist])
+            store.write(PLAYLIST, playlist_id, playlist)
+            logger.info("Playlist '%s' read whole for shuffle (tracks: %d)", playlist_id, len(tracks))
+            return {"tracks": tracks}
+        except Exception as e:
+            logger.exception("Failed to read a playlist for shuffle: %s", e)
             return {"tracks": []}
 
     @api.read(returns="AlbumDetails", cache="album")
