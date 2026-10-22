@@ -536,6 +536,19 @@ export interface EqualizerSettings {
   bands: number[];
 }
 
+/** The opening of a stream, base64, for the page's tempo analysis. */
+export interface AudioSample {
+  data: string;
+  mimeType: string;
+}
+
+/** Where a song's beat falls: the grid is `offset + n * 60 / bpm` seconds. */
+export interface SongTempo {
+  videoId: string;
+  bpm: number;
+  offset: number;
+}
+
 export type SearchFilter =
   | "songs"
   | "videos"

@@ -112,6 +112,30 @@ class Api(MusicApi):
         """Save the equalizer settings and return the stored value."""
         return preferences.set_equalizer(settings)
 
+    @api.read(returns="number")
+    def get_crossfade_seconds(self) -> int:
+        """How many seconds the next song fades in before this one ends. 0 is off."""
+        return preferences.crossfade_seconds()
+
+    @api.read(returns="number")
+    def set_crossfade_seconds(self, seconds: int) -> int:
+        """Save the crossfade length and return the stored value."""
+        return preferences.set_crossfade_seconds(seconds)
+
+    @api.read(returns="boolean")
+    def get_automix(self) -> bool:
+        """Whether a blend waits for the beat of the song that is ending.
+
+        Stored so the choice survives, but the UI keeps it off for now; the
+        honest answer lives in ``ui/src/lib/automix.ts``.
+        """
+        return preferences.automix()
+
+    @api.read(returns="boolean")
+    def set_automix(self, enabled: bool) -> bool:
+        """Save the beat-aligned blend choice and return the stored value."""
+        return preferences.set_automix(enabled)
+
     @api.read(returns="UpdateStatus")
     def get_update_status(self) -> dict:
         """The running version and the newest published release."""

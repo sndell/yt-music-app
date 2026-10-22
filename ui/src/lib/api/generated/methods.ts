@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, EqualizerSettings, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioSample, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, EqualizerSettings, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, SongTempo, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -63,6 +63,12 @@ export interface ApiMethods {
   translate_lyrics: { params: [videoId: string, language?: string]; response: TranslatedLyrics };
   /** Direct audio URL for a song on the signed-in account. */
   get_audio_stream: { params: [videoId: string, refresh?: boolean]; response: AudioStream };
+  /** The opening of a song's stream, for the page's tempo analysis. */
+  get_audio_sample: { params: [videoId: string]; response: AudioSample };
+  /** The beat estimate kept for a song, or null when it has never been measured. */
+  get_song_tempo: { params: [videoId: string]; response: SongTempo | null };
+  /** Keep an estimate measured in the page, so this song costs nothing next time. */
+  store_song_tempo: { params: [videoId: string, bpm: number, offset: number]; response: SongTempo };
   /** Return the signed-in user's like status and the release year of a song. */
   get_song_info: { params: [videoId: string]; response: { likeStatus: LikeStatus; year: string | null } };
   /** Set the signed-in user's rating for a song. */
@@ -117,6 +123,14 @@ export interface ApiMethods {
   get_equalizer: { params: []; response: EqualizerSettings };
   /** Save the equalizer settings and return the stored value. */
   set_equalizer: { params: [settings?: EqualizerSettings | null]; response: EqualizerSettings };
+  /** How many seconds the next song fades in before this one ends. 0 is off. */
+  get_crossfade_seconds: { params: []; response: number };
+  /** Save the crossfade length and return the stored value. */
+  set_crossfade_seconds: { params: [seconds: number]; response: number };
+  /** Whether a blend waits for the beat of the song that is ending. */
+  get_automix: { params: []; response: boolean };
+  /** Save the beat-aligned blend choice and return the stored value. */
+  set_automix: { params: [enabled: boolean]; response: boolean };
   /** The running version and the newest published release. */
   get_update_status: { params: []; response: UpdateStatus };
   /** Download the newest release, replace this exe with it, and restart. */
