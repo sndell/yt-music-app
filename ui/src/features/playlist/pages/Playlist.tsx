@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useParams, useLocation } from "wouter";
 import { PyBridge, type LikeStatus, type PlaylistDetails, type PlaylistItemRef, type PlaylistPatch, type PlaylistSummary } from "@/lib/api";
 import { usePlayer } from "@/features/player";
-import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
+import { CollectionHeader, CollectionMeta } from "@/components/ui/CollectionHeader";
 import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
 import { StickyCollectionBar } from "@/components/ui/StickyCollectionBar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -12,9 +12,7 @@ import { useEdgeFade } from "@/components/ui/useEdgeFade";
 import { useToast } from "@/components/ui/Toast";
 import type { PlaybackExtraAction } from "@/components/ui/PlaybackButtons";
 import { moveItem } from "@/lib/orderMap";
-import { collectionCoverClass, collectionHeaderClass, collectionTitleClass, collectionWash } from "@/components/ui/collectionChrome";
 import { usePlaylist, type PlaylistChangedDetail, type PlaylistRestore } from "../hooks/usePlaylist.tsx";
-import { PlaylistDescription } from "../components/PlaylistDescription";
 import { PlaylistTrackList } from "../components/PlaylistTrackList";
 import type { Track } from "@/lib/api";
 
@@ -37,38 +35,6 @@ const withPatch = (playlist: PlaylistDetails, patch: PlaylistPatch): PlaylistDet
   ...(patch.privacy != null ? { privacy: patch.privacy } : {}),
 });
 
-const PlaylistMeta = ({
-  author,
-  year,
-  trackCount,
-  privacy,
-  className,
-}: {
-  author: string;
-  year: string;
-  trackCount: number;
-  privacy?: string;
-  className?: string;
-}) => {
-  const details = [year, `${trackCount} songs`, privacy?.toLowerCase()].filter(Boolean);
-
-  return (
-    <p className={cn("flex w-full min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 font-medium text-primary-dark", className)}>
-      {author ? <span className="min-w-0 max-w-full text-primary wrap-break-word">{author}</span> : null}
-      {details.map((detail, index) => (
-        <span key={detail} className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap capitalize">
-          {(author || index > 0) && (
-            <span className="text-sm leading-none" aria-hidden="true">
-              •
-            </span>
-          )}
-          {detail}
-        </span>
-      ))}
-    </p>
-  );
-};
-
 const SKELETON_ROWS = [
   { title: "w-40", artist: "w-24", album: "w-28" },
   { title: "w-56", artist: "w-20", album: "w-36" },
@@ -79,73 +45,41 @@ const SKELETON_ROWS = [
 ] as const;
 
 const PlaylistTracksLoading = ({ summary }: { summary: PlaylistSummary }) => {
-  const [failed, setFailed] = useState(false);
   const thumbnailUrl = summary.thumbnails?.[0]?.url;
 
   return (
     <div className="@container flex flex-1 flex-col overflow-hidden">
-      <div className={collectionHeaderClass}>
-        {thumbnailUrl && !failed ? (
-          <img
-            src={thumbnailUrl}
-            alt=""
-            onError={() => setFailed(true)}
-            className={cn(collectionCoverClass, "rounded-md object-cover shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
-          />
-        ) : (
-          <div className={cn(collectionCoverClass, "grid place-items-center rounded-md bg-primary-light")}>
-            <span className="icon-[solar--music-note-linear] text-4xl text-primary-dark" />
-          </div>
-        )}
-        <div className="min-w-0 flex-1 @lg:self-end">
-          <h1 title={summary.title} className={collectionTitleClass}>
-            {summary.title}
-          </h1>
-          <p className="flex items-center gap-2 pt-3 text-sm text-primary-dark" role="status">
-            <span className="icon-[solar--loader-linear] animate-spin text-base" />
+      <CollectionHeader
+        eyebrow="Playlist"
+        title={summary.title}
+        artworkUrl={thumbnailUrl}
+        meta={[
+          <span key="loading" className="inline-flex items-center gap-2">
+            <span className="icon-[solar--loader-linear] animate-spin text-base" aria-hidden="true" />
             Loading tracks
-          </p>
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-3" aria-hidden="true">
-            <div className="h-3.5 w-28 rounded-full bg-secondary/70" />
-            <div className="h-3.5 w-14 rounded-full bg-secondary/70" />
-            <div className="h-3.5 w-20 rounded-full bg-secondary/70" />
-            <div className="h-3.5 w-12 rounded-full bg-secondary/70" />
+          </span>,
+        ]}
+        actions={
+          <div className="flex items-center gap-2" aria-hidden="true">
+            <div className="h-9 w-24 rounded-full bg-secondary/70" />
+            <div className="h-9 w-20 rounded-full bg-secondary/70" />
           </div>
-        </div>
-      </div>
+        }
+      />
 
-      <div className="flex min-h-0 flex-1 flex-col pt-3 pb-4 sm:pb-6">
-        <div className="relative flex flex-wrap items-center gap-3 px-3 sm:px-4" aria-hidden="true">
-          <div className="size-10 shrink-0 rounded-full bg-secondary" />
-          <div className="size-8 shrink-0 rounded-full bg-secondary/70" />
-          <div className="size-8 shrink-0 rounded-full bg-secondary/70" />
-          <div className="ms-auto h-8 w-full max-w-xs shrink-0 rounded-full bg-secondary/70 sm:w-64" />
-          <div className="size-8 shrink-0 rounded-full bg-secondary/70" />
-        </div>
-        <div className="relative mt-3 px-3 sm:px-4">
-          <div className="grid grid-cols-[5fr_1fr] border-b border-primary pb-1.5 text-sm text-primary-dark md:grid-cols-[7fr_5fr_1fr]">
-            <div>Track</div>
-            <div className="max-md:hidden">Album</div>
-            <div className="justify-self-end">Duration</div>
-          </div>
-        </div>
-        <div className="relative mt-1 min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col pt-4 pb-4 sm:pb-6">
+        <div className="relative mt-1 min-h-0 flex-1 overflow-hidden px-3 sm:px-4">
           {Array.from({ length: 14 }, (_, index) => {
             const row = SKELETON_ROWS[index % SKELETON_ROWS.length];
             return (
-              <div
-                key={index}
-                className="grid h-12 grid-cols-[5fr_1fr] items-center gap-4 px-3 sm:px-4 md:grid-cols-[7fr_5fr_1fr]"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="size-10 shrink-0 rounded-md bg-secondary" />
-                  <div className="flex min-w-0 flex-col gap-2">
-                    <div className={`h-3 rounded-full bg-secondary ${row.title}`} />
-                    <div className={`h-2.5 rounded-full bg-secondary/70 ${row.artist}`} />
-                  </div>
+              <div key={index} className="flex h-12 items-center gap-3 py-1">
+                <div className="size-10 shrink-0 rounded-md bg-secondary" />
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <div className={`h-3 rounded-full bg-secondary ${row.title}`} />
+                  <div className={`h-2.5 rounded-full bg-secondary/70 ${row.artist}`} />
                 </div>
                 <div className={`hidden h-2.5 rounded-full bg-secondary/70 md:block ${row.album}`} />
-                <div className="h-2.5 w-8 justify-self-end rounded-full bg-secondary/70" />
+                <div className="h-2.5 w-8 rounded-full bg-secondary/70" />
               </div>
             );
           })}
@@ -339,7 +273,11 @@ export const Playlist = () => {
   const trackCount = displayCount(id, serverTrackCount);
   const thumbnailUrl = thumbnails?.[0]?.url;
 
-  const wash = collectionWash(dominantColor);
+  const trackWash = dominantColor
+    ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 0.18)}, transparent)`
+    : "transparent";
+
+  const playlistMeta = [author?.name || null, year, `${trackCount} ${trackCount === 1 ? "song" : "songs"}`, privacy?.toLowerCase()];
 
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
@@ -456,19 +394,10 @@ export const Playlist = () => {
         background={stickyBg}
         thumbnailUrl={thumbnailUrl}
         title={title}
-        meta={
-          <PlaylistMeta
-            author={author?.name ?? ""}
-            year={year}
-            trackCount={trackCount}
-            privacy={privacy}
-            className="text-sm leading-5"
-          />
-        }
+        meta={<CollectionMeta className="text-xs" parts={playlistMeta} />}
         onPlay={() => play("play")}
         shuffleMenu={shuffleMenu}
         extra={extraActions}
-        columnHeaders
       />
 
       {/* Scrollable content */}
@@ -478,39 +407,22 @@ export const Playlist = () => {
         onScroll={handleScroll}
         className="overflow-x-hidden overflow-y-auto flex-1 scrollbar [overflow-anchor:none]"
       >
-        {/* Original full header */}
-        <div
-          ref={headerRef}
-          className={collectionHeaderClass}
-          style={{ background: wash.header }}
-        >
-          {thumbnailUrl && (
-            <img
-              src={thumbnailUrl}
-              alt={title}
-              className={cn(collectionCoverClass, "rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
-            />
-          )}
-          {/* Stays on the cover's bottom edge while the description height eases, so hiding it doesn't snap the text down. */}
-          <div className="min-w-0 flex-1 text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)] @lg:self-end">
-            <h1 title={title} className={collectionTitleClass}>
-              {title}
-            </h1>
-            <PlaylistDescription description={description} />
-            <PlaylistMeta
-              author={author?.name ?? ""}
-              year={year}
-              trackCount={trackCount}
-              privacy={privacy}
-              className="pt-3"
-            />
-          </div>
-        </div>
+        <CollectionHeader
+          headerRef={headerRef}
+          eyebrow="Playlist"
+          title={title}
+          artworkUrl={thumbnailUrl}
+          description={description}
+          descriptionPlaceholder
+          meta={playlistMeta}
+          dominantColor={dominantColor}
+          actions={<PlaybackButtons onPlay={() => play("play")} shuffleMenu={shuffleMenu} extra={extraActions} />}
+        />
 
         {reorderError && <p className="px-6 pt-4 text-sm text-red-400">{reorderError}</p>}
         <PlaylistTrackList
           tracks={playlist.tracks}
-          gradient={wash.tracks}
+          gradient={trackWash}
           playlistId={id}
           onReorder={reorderTrack}
           removable={removable}
@@ -518,9 +430,6 @@ export const Playlist = () => {
           filterable
           hasMore={Boolean(nextToken)}
           totalCount={trackCount}
-          actions={
-            <PlaybackButtons onPlay={() => play("play")} shuffleMenu={shuffleMenu} extra={extraActions} />
-          }
         />
       </div>
 

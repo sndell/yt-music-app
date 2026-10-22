@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "wouter";
 import type {
   ArtistDetails,
@@ -15,9 +15,9 @@ import { PlaylistDescription } from "@/features/playlist/components/PlaylistDesc
 import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { BrowseCard, BrowseRow } from "@/components/ui/BrowseCard";
 import { PlaybackButtons } from "@/components/ui/PlaybackButtons";
+import { CollectionHeader, CollectionMeta } from "@/components/ui/CollectionHeader";
 import { StickyCollectionBar } from "@/components/ui/StickyCollectionBar";
 import { useEdgeFade } from "@/components/ui/useEdgeFade";
-import { collectionTitleClass } from "@/components/ui/collectionChrome";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { cn } from "@/util/cn";
 import { hexToRgba } from "@/util/hex_to_rgba";
@@ -82,59 +82,6 @@ const videoToTrack = (video: ArtistVideo, artist: ArtistDetails): Track => ({
 
 const filled = <T,>(shelf: ArtistShelf<T> | null): shelf is ArtistShelf<T> =>
   Boolean(shelf && shelf.items.length > 0);
-
-/** Pull the artist color toward black so the wash meets the cover fade. */
-const shadeTowardBlack = (hex: string, amount: number) => {
-  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!match) return hex;
-  const keep = 1 - amount;
-  const channel = (value: string) => Math.round(parseInt(value, 16) * keep).toString(16).padStart(2, "0");
-  return `#${channel(match[1])}${channel(match[2])}${channel(match[3])}`;
-};
-
-const MetaLine = ({ parts, className }: { parts: (ReactNode | string | null | undefined | false)[]; className?: string }) => {
-  const visible = parts.filter((part) => part != null && part !== false && part !== "");
-  if (visible.length === 0) return null;
-
-  return (
-    <p className={cn("flex w-full min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 font-medium text-primary-dark", className)}>
-      {visible.map((part, index) => (
-        <span key={index} className="inline-flex min-w-0 items-center gap-1.5">
-          {index > 0 && (
-            <span className="text-sm leading-none" aria-hidden="true">
-              •
-            </span>
-          )}
-          {part}
-        </span>
-      ))}
-    </p>
-  );
-};
-
-const Cover = ({
-  url,
-  alt,
-  className,
-  iconClass = "text-4xl",
-}: {
-  url?: string;
-  alt: string;
-  className: string;
-  iconClass?: string;
-}) => {
-  const [failed, setFailed] = useState(false);
-
-  if (url && !failed) {
-    return <img src={url} alt={alt} onError={() => setFailed(true)} className={cn(className, "object-cover")} />;
-  }
-
-  return (
-    <div className={cn(className, "grid place-items-center bg-primary-light")}>
-      <span className={cn("icon-[solar--music-note-linear] text-primary-dark", iconClass)} />
-    </div>
-  );
-};
 
 const PageFallback = ({ error, onReload }: { error: string | null; onReload: () => void }) => {
   if (error) {
@@ -313,10 +260,6 @@ export const Artist = () => {
     playTracks(videos.items.slice(index).map((video) => videoToTrack(video, rated)));
   };
 
-  const lowerWash = dominantColor
-    ? `linear-gradient(to bottom, ${hexToRgba(shadeTowardBlack(dominantColor, 0.45), 0.18)}, transparent)`
-    : null;
-
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
   const songsId = songs?.browseId;
@@ -330,15 +273,8 @@ export const Artist = () => {
       }
     : undefined;
 
-  const meta = (className?: string) => (
-    <MetaLine
-      className={className}
-      parts={[
-        labeled(subscribers, "subscriber", "subscribers"),
-        labeled(monthlyListeners, "monthly", "monthly listeners"),
-      ]}
-    />
-  );
+  const artistMeta = [labeled(subscribers, "subscriber", "subscribers"), labeled(monthlyListeners, "monthly", "monthly listeners")];
+  const artistActions = <PlaybackButtons onPlay={onPlay} onShuffle={onShuffle} extra={radio} />;
 
   const bio = description?.trim() ? description : null;
 
@@ -351,33 +287,26 @@ export const Artist = () => {
         thumbnailAlt=""
         title={name}
         coverFallback
-        meta={meta("text-sm leading-5")}
+        meta={<CollectionMeta className="text-xs" parts={artistMeta} />}
         onPlay={onPlay}
         onShuffle={onShuffle}
         extra={radio}
       />
 
       <div key={id} ref={scrollContainerRef} onScroll={handleScroll} className="overflow-x-hidden overflow-y-auto flex-1 scrollbar [overflow-anchor:none]">
-        <div ref={headerRef} className="relative min-h-80 overflow-hidden @2xl:min-h-96">
-          <Cover key={thumbnailUrl ?? "cover"} url={thumbnailUrl} alt="" className="absolute inset-0 size-full" />
-          <div aria-hidden className="pointer-events-none absolute inset-0 bg-linear-to-b from-transparent from-30% via-black/55 via-70% to-black" />
-          <div className="relative flex min-h-80 w-full min-w-0 flex-col justify-end px-6 pt-24 pb-8 text-shadow-[0_2px_16px_rgba(0,0,0,0.55)] @2xl:min-h-96">
-            <h1 title={name} className={collectionTitleClass}>
-              {name}
-            </h1>
-            {meta("pt-2 text-sm text-primary")}
-            <PlaybackButtons className="pt-4" onPlay={onPlay} onShuffle={onShuffle} extra={radio} />
-          </div>
-        </div>
-
-        {lowerWash && (
-          <div className="pointer-events-none relative z-0 h-0" aria-hidden>
-            <div className="absolute inset-x-0 top-0 h-[22rem]" style={{ background: lowerWash }} />
-          </div>
-        )}
+        <CollectionHeader
+          headerRef={headerRef}
+          layout="banner"
+          eyebrow="Artist"
+          title={name}
+          artworkUrl={thumbnailUrl}
+          meta={artistMeta}
+          dominantColor={dominantColor}
+          actions={artistActions}
+        />
 
         {songs && (
-          <section className="relative pb-6">
+          <section className="relative pt-2 pb-6">
             <PlaylistTrackList
               tracks={songs.items}
               gradient="transparent"
@@ -404,7 +333,7 @@ export const Artist = () => {
         )}
 
         {bio && (
-          <div className="px-6 pb-8">
+          <div className="max-w-3xl px-6 pb-8">
             <PlaylistDescription description={bio} />
           </div>
         )}

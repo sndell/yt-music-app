@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Track } from "@/lib/api";
 import { cn } from "@/util/cn";
 import { usePlayer } from "@/features/player";
+import { largestCover, useVibrantCover } from "@/features/player/lib/coverAccent";
 import { IconButton } from "@/components/ui/IconButton";
 import { AddToPlaylistMenu } from "@/components/ui/AddToPlaylistPanel";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
@@ -13,7 +14,7 @@ import { usePlaylist } from "../hooks/usePlaylist.tsx";
 import { sortTracks, visibleTracks, type TrackSort } from "./trackFilter";
 import { PlaylistRow } from "./PlaylistRow";
 
-const TRACK_HEIGHT = 48; // Height of each track item in pixels
+const TRACK_HEIGHT = 60;
 
 /** Row selection (ctrl/shift-click) plus everything the rows can trigger. */
 export const PlaylistTrackList = ({
@@ -74,9 +75,21 @@ export const PlaylistTrackList = ({
   /** Songs to create a playlist with: one from a row menu, or the whole selection. */
   const [creatingFor, setCreatingFor] = useState<string[] | null>(null);
   const [addMenu, setAddMenu] = useState<{ x: number; y: number; videoIds: string[] } | null>(null);
-  const { playTrackNext, addTrackToQueue, startMix, playFromPlaylist } = usePlayer();
+  const { playTrackNext, addTrackToQueue, startMix, playFromPlaylist, currentSong, queue, currentQueueIndex } =
+    usePlayer();
   const { playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } =
     usePlaylist();
+
+  // The playing row borrows the queue's cover colour: the queue's own track
+  // carries the largest thumb and the data-URL sample the queue extracts from,
+  // so the playlist row reads the same accent it does.
+  const currentWatchTrack = currentQueueIndex >= 0 ? queue[currentQueueIndex] ?? null : null;
+  const coverUrl =
+    largestCover(currentWatchTrack) ?? currentSong?.thumbnails?.reduce((best, thumb) => ((thumb.width ?? 0) > (best.width ?? 0) ? thumb : best))?.url;
+  const sampleUrl =
+    currentWatchTrack?.thumbnail?.find((thumb) => thumb.url?.startsWith("data:"))?.url ??
+    currentSong?.thumbnails?.find((thumb) => thumb.url?.startsWith("data:"))?.url;
+  const playingAccent = useVibrantCover(coverUrl, currentSong?.videoId, sampleUrl);
 
   const filterActive = Boolean(filterable && filter.trim());
   const displayTracks = useMemo(
@@ -120,7 +133,7 @@ export const PlaylistTrackList = ({
   });
 
   const popular = variant === "popular";
-  const pad = popular ? "px-6" : "px-3 sm:px-4";
+  const pad = popular ? "px-6" : "px-4 sm:px-6";
   // A playlist carries its real size in the header while only part of it has
   // loaded, so the count line reports that size until the last page lands.
   const knownTotal = hasMore && totalCount != null && totalCount > tracks.length ? totalCount : tracks.length;
@@ -182,8 +195,10 @@ export const PlaylistTrackList = ({
     setSelected([]);
   };
 
+  const searchClass = "rounded-full bg-white/10 focus-within:bg-white/15";
+
   return (
-    <div className={cn("relative flex flex-col", popular ? "gap-2 pt-1 pb-2" : "gap-3 pt-3 pb-4 sm:pb-6")}>
+    <div className={cn("relative flex flex-col", popular ? "gap-2 pt-1 pb-2" : "gap-2 pt-4 pb-4 sm:pb-6")}>
       <div className="pointer-events-none absolute top-0 right-0 left-0 h-64" style={{ background: gradient }} />
       {popular ? (
         <>
@@ -193,67 +208,53 @@ export const PlaylistTrackList = ({
       ) : (
         <div className={cn("relative flex flex-wrap items-center gap-3", pad)}>
           {actions}
-          {filterable && (
-            <>
-              <label className="ms-auto flex w-full max-w-xs items-center gap-1.5 rounded-full bg-primary-light/80 px-3 py-1.5 text-sm transition-[box-shadow] focus-within:ring-2 focus-within:ring-white/15 sm:w-64">
-                <span aria-hidden="true" className="shrink-0 text-base text-primary-dark">
-                  <span className="icon-[solar--magnifer-linear]" />
-                </span>
-                <input
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                  placeholder="Search songs, artists, albums"
-                  className="w-full bg-transparent text-primary outline-none placeholder:text-primary-dark/70"
+          <p className="text-xs font-medium tracking-[0.14em] text-primary-dark uppercase" role="status">
+            {narrowing ? `${displayTracks.length} of ${knownTotal} songs` : `${knownTotal} ${knownTotal === 1 ? "song" : "songs"}`}
+          </p>
+          {hasMore && <span className="icon-[solar--loader-linear] animate-spin text-sm text-primary-dark" aria-hidden="true" />}
+          <div className="ms-auto flex items-center gap-2">
+            {filterable && (
+              <>
+                <label
+                  className={cn(
+                    "flex w-full max-w-xs items-center gap-2 px-3 py-1.5 text-sm transition-colors sm:w-64",
+                    searchClass,
+                  )}
+                >
+                  <span aria-hidden="true" className="shrink-0 text-base text-primary-dark">
+                    <span className="icon-[solar--magnifer-linear]" />
+                  </span>
+                  <input
+                    value={filter}
+                    onChange={(event) => setFilter(event.target.value)}
+                    placeholder="Search songs, artists, albums"
+                    className="w-full bg-transparent text-primary outline-none placeholder:text-primary-dark/70"
+                  />
+                  {filter && (
+                    <button
+                      type="button"
+                      aria-label="Clear filter"
+                      onClick={() => setFilter("")}
+                      className="shrink-0 cursor-pointer text-base text-primary-dark hover:text-primary"
+                    >
+                      <span className="icon-[solar--close-circle-linear]" />
+                    </button>
+                  )}
+                </label>
+                <IconButton
+                  iconClass="icon-[solar--menu-dots-bold] rotate-90"
+                  label="Song list options"
+                  size="sm"
+                  tone="ghost"
+                  onClick={(event) => {
+                    const trigger = event.currentTarget;
+                    const rect = trigger.getBoundingClientRect();
+                    setListMenu((current) => (current ? null : { x: rect.left, y: rect.bottom + 4, trigger }));
+                  }}
                 />
-                {filter && (
-                  <button
-                    type="button"
-                    aria-label="Clear filter"
-                    onClick={() => setFilter("")}
-                    className="shrink-0 cursor-pointer text-base text-primary-dark hover:text-primary"
-                  >
-                    <span className="icon-[solar--close-circle-linear]" />
-                  </button>
-                )}
-              </label>
-              <IconButton
-                iconClass="icon-[solar--menu-dots-bold] rotate-90"
-                label="Song list options"
-                size="sm"
-                tone="ghost"
-                onClick={(event) => {
-                  const trigger = event.currentTarget;
-                  const rect = trigger.getBoundingClientRect();
-                  setListMenu((current) => (current ? null : { x: rect.left, y: rect.bottom + 4, trigger }));
-                }}
-              />
-            </>
-          )}
-        </div>
-      )}
-      {!popular && (
-        <div className={cn("relative", pad)}>
-          {narrowing ? (
-            <p className="pb-1.5 text-sm text-primary-dark border-b border-primary" role="status">
-              {displayTracks.length === knownTotal
-                ? `${knownTotal} songs`
-                : `${displayTracks.length} of ${knownTotal} songs`}
-            </p>
-          ) : (
-            <div
-              className={cn(
-                "grid border-b border-primary pb-1.5 text-sm text-primary-dark",
-                showAdded
-                  ? "grid-cols-[5fr_2fr_1fr] md:grid-cols-[7fr_4fr_2fr_1fr]"
-                  : "grid-cols-[5fr_1fr] md:grid-cols-[7fr_5fr_1fr]",
-              )}
-            >
-              <div>Track</div>
-              <div className="max-md:hidden">Album</div>
-              {showAdded && <div>Added</div>}
-              <div className="justify-self-end">Duration</div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
       )}
       {narrowing && displayTracks.length === 0 && (
@@ -283,6 +284,8 @@ export const PlaylistTrackList = ({
                   showAdded={showAdded}
                   menuOpen={menu?.track === track}
                   selected={selected.includes(virtualItem.index)}
+                  playing={Boolean(track.videoId) && currentSong?.videoId === track.videoId}
+                  playingAccent={playingAccent}
                   onOpenMenu={openMenu}
                   onSelect={(event) => handleRowSelect(virtualItem.index, event)}
                   onShiftSelect={() => handleRowShiftSelect(virtualItem.index)}
