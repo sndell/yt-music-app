@@ -24,9 +24,14 @@ export const useExplore = (): ExploreData => {
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const requestIdRef = useRef(0);
+  // A retry asked for by the error card is a real fetch; the first mount reads
+  // the disk cache and lets its age decide.
+  const forceNextRef = useRef(false);
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
+    const force = forceNextRef.current;
+    forceNextRef.current = false;
     // A retry has to be able to take the error down again, or the error card
     // outlives the sections the retry fetched and hides them.
     setError(null);
@@ -34,6 +39,7 @@ export const useExplore = (): ExploreData => {
       (forceRefresh) => PyBridge.getExplore(forceRefresh),
       (data) => setSections(data.sections),
       () => requestId === requestIdRef.current,
+      { force },
     ).then((result) => {
       if (result && !result.success && requestId === requestIdRef.current) setError(result.error.message);
     });
@@ -42,7 +48,10 @@ export const useExplore = (): ExploreData => {
     };
   }, [revision]);
 
-  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  const reload = useCallback(() => {
+    forceNextRef.current = true;
+    setRevision((value) => value + 1);
+  }, []);
 
   return { sections, error, reload };
 };

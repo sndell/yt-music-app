@@ -131,7 +131,7 @@ export const SidebarList = () => {
 
   useEffect(() => {
     fetchPlaylists();
-    const onAuthChanged = () => fetchPlaylists();
+    const onAuthChanged = () => fetchPlaylists(true);
     window.addEventListener("ytmusic-auth-changed", onAuthChanged);
     return () => window.removeEventListener("ytmusic-auth-changed", onAuthChanged);
   }, [fetchPlaylists]);
@@ -276,7 +276,7 @@ export const SidebarList = () => {
             <span className="icon-[solar--danger-triangle-linear] hidden text-lg max-lg:block" title={error} />
             <button
               type="button"
-              onClick={fetchPlaylists}
+              onClick={() => void fetchPlaylists(true)}
               title="Reload"
               aria-label="Reload"
               className="mt-1 hidden cursor-pointer text-primary max-lg:block"
@@ -299,7 +299,7 @@ export const SidebarList = () => {
             </span>
             <button
               type="button"
-              onClick={fetchPlaylists}
+              onClick={() => void fetchPlaylists(true)}
               title="Reload"
               aria-label="Reload"
               className="cursor-pointer text-primary hover:underline"

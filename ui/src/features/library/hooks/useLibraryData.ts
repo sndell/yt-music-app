@@ -9,16 +9,17 @@ const ALBUMS_LIMIT = 1000;
 const ARTISTS_LIMIT = 2000;
 
 /** Cache-first load for one category, run at most once per key. */
-const loadOnce = <T extends { fromCache?: boolean }>(
+const loadOnce = <T extends { fromCache?: boolean; stale?: boolean }>(
   started: Set<string>,
   key: string,
   request: (forceRefresh: boolean) => Promise<Result<T>>,
   apply: (data: T) => void,
   fail: (message: string) => void,
+  force = false,
 ) => {
   if (started.has(key)) return;
   started.add(key);
-  void showCachedThenRefresh(request, apply, () => true).then((result) => {
+  void showCachedThenRefresh(request, apply, () => true, { force }).then((result) => {
     if (result && !result.success) fail(result.error.message);
   });
 };
@@ -54,6 +55,9 @@ export const useLibraryData = (): LibraryData => {
   const [artistsError, setArtistsError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const startedRef = useRef(new Set<string>());
+  // A reload (the error state's button, or a sign-in change) must read the
+  // account again even when the disk copy is younger than its refresh window.
+  const forceRef = useRef(false);
 
   const loadSongs = useCallback(() => {
     loadOnce(
@@ -62,6 +66,7 @@ export const useLibraryData = (): LibraryData => {
       (forceRefresh) => PyBridge.getLibrarySongs(SONGS_LIMIT, forceRefresh),
       (data) => setSongs(data.songs),
       setSongsError,
+      forceRef.current,
     );
   }, []);
 
@@ -72,6 +77,7 @@ export const useLibraryData = (): LibraryData => {
       (forceRefresh) => PyBridge.getLibraryAlbums(ALBUMS_LIMIT, forceRefresh),
       (data) => setAlbums(data.albums),
       setAlbumsError,
+      forceRef.current,
     );
   }, []);
 
@@ -82,11 +88,13 @@ export const useLibraryData = (): LibraryData => {
       (forceRefresh) => PyBridge.getLibraryArtists(ARTISTS_LIMIT, forceRefresh),
       (data) => setArtists(data.artists),
       setArtistsError,
+      forceRef.current,
     );
   }, []);
 
   const reload = useCallback(() => {
     startedRef.current.clear();
+    forceRef.current = true;
     setSongs(null);
     setSongsError(null);
     setAlbums(null);

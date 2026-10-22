@@ -436,7 +436,7 @@ export const Playlist = () => {
       onClick: () => {
         if (!id) return;
         void ratePlaylist(id, saved).then((ok) => {
-          if (ok) void fetchPlaylists();
+          if (ok) void fetchPlaylists(true);
         });
       },
     });

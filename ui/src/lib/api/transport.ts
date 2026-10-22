@@ -63,17 +63,26 @@ export async function callPython<M extends ApiMethodName>(
   }
 }
 
-/** Paint a cached payload, then replace it when the background fetch finishes. */
-export async function showCachedThenRefresh<T extends { fromCache?: boolean }>(
+/**
+ * Paint a cached payload, then replace it when a background fetch finishes.
+ *
+ * Python marks a cached payload `stale` when it is older than the family's
+ * refresh window, so a route change that lands inside that window paints from
+ * disk and stops: no second call, no re-render of a feed that has not moved.
+ * `force` reads the cache first for something to paint, then fetches anyway.
+ */
+export async function showCachedThenRefresh<T extends { fromCache?: boolean; stale?: boolean }>(
   load: (forceRefresh: boolean) => Promise<Result<T>>,
   apply: (data: T) => void,
   isCurrent: () => boolean,
+  options?: { force?: boolean },
 ): Promise<Result<T> | null> {
   const first = await load(false);
   if (!isCurrent()) return null;
   if (!first.success) return first;
   apply(first.data);
   if (!first.data.fromCache) return first;
+  if (!options?.force && !first.data.stale) return first;
 
   const fresh = await load(true);
   if (!isCurrent() || !fresh.success) return first;
