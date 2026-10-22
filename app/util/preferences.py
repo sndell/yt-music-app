@@ -39,6 +39,12 @@ _DEFAULT_EQUALIZER: dict[str, Any] = {
 _DEFAULT_CROSSFADE = 6
 _MAX_CROSSFADE = 12
 
+# The popout's size is a product decision, not a user one: the surface is laid
+# out for 380px and the frameless window cannot be resized by its edges anyway.
+POPOUT_WIDTH = 380
+POPOUT_HEIGHT = 560
+POPOUT_COLLAPSED_HEIGHT = 120
+
 
 def _volume(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -87,6 +93,46 @@ def _equalizer(value: object) -> dict[str, Any] | None:
         "bass": bass,
         "treble": treble,
         "bands": gains,
+    }
+
+
+def _integer(value: object, low: int, high: int) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(min(high, max(low, round(value))))
+
+
+def _bounds(value: object) -> dict[str, int]:
+    """A saved window rectangle, keeping only the numbers that make sense."""
+    if not isinstance(value, dict):
+        return {}
+    limits = {
+        "x": (-20000, 20000),
+        "y": (-20000, 20000),
+        "width": (POPOUT_WIDTH, 1600),
+        "height": (POPOUT_COLLAPSED_HEIGHT, 1600),
+    }
+    stored: dict[str, int] = {}
+    for key, (low, high) in limits.items():
+        number = _integer(value.get(key), low, high)
+        if number is not None:
+            stored[key] = number
+    return stored
+
+
+def _popout(value: object) -> dict[str, Any]:
+    """The popout settings with every default filled in.
+
+    `pinned` defaults on, so a missing value means "above other windows". The
+    window's open state is not stored: the feature being enabled is what brings
+    it back, which keeps shutdown order from deciding the next launch.
+    """
+    stored = value if isinstance(value, dict) else {}
+    return {
+        "enabled": _boolean(stored.get("enabled")) is True,
+        "pinned": _boolean(stored.get("pinned")) is not False,
+        "collapsed": _boolean(stored.get("collapsed")) is True,
+        "bounds": _bounds(stored.get("bounds")),
     }
 
 
@@ -165,6 +211,31 @@ class Preferences:
             except OSError:
                 logger.exception("Could not save preferences")
         return next_value
+
+    def popout(self) -> dict[str, Any]:
+        with self._lock:
+            return _popout(self._values.get("popout"))
+
+    def set_popout(self, **changes: object) -> dict[str, Any]:
+        """Merge the given popout settings, save them, and return them all."""
+        with self._lock:
+            current = _popout(self._values.get("popout"))
+            updated = dict(current)
+            for key in ("enabled", "pinned", "collapsed"):
+                if key in changes:
+                    flag = _boolean(changes[key])
+                    if flag is not None:
+                        updated[key] = flag
+            if "bounds" in changes:
+                updated["bounds"] = _bounds(changes["bounds"])
+            if updated == current:
+                return updated
+            self._values["popout"] = updated
+            try:
+                self._save()
+            except OSError:
+                logger.exception("Could not save preferences")
+        return updated
 
     def crossfade_seconds(self) -> int:
         with self._lock:

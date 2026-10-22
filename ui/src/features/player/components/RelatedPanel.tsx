@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
 import { PyBridge, type RelatedItem, type RelatedItemKind, type RelatedSection, type Track } from "@/lib/api";
 import { CoverFrame } from "@/components/ui/CoverFrame";
 import { ExplicitBadge } from "@/components/ui/ExplicitBadge";
 import { RevealIcon, mediaScrimClass } from "@/components/ui/RevealIcon";
 import { cn } from "@/util/cn";
-import { usePlayer } from "../context/PlayerContext";
 
 /** The glyph over a row's cover: a song plays, every other kind opens a page. */
 const ROW_ICON: Record<RelatedItemKind, string> = {
@@ -78,14 +76,30 @@ const RelatedRow = ({ item, playing, onActivate }: { item: RelatedItem; playing:
  * answer of no sections is the empty state, and the two never share a face. The
  * request id is captured before the call and compared when it resolves, because
  * a flag cleared by the effect can be re-armed before the answer lands.
+ *
+ * What a pick does is the caller's: the queue panel starts a mix in this window,
+ * the popout forwards it to the window that owns the player.
  */
-export const RelatedPanel = ({ relatedId, title }: { relatedId: string; title: string | null }) => {
+export const RelatedPanel = ({
+  relatedId,
+  title,
+  currentVideoId,
+  onPlay,
+  onOpen,
+}: {
+  relatedId: string;
+  title: string | null;
+  /** The song playing now, so its row reads as playing. */
+  currentVideoId: string | null;
+  /** A related song was picked: start it as a mix. */
+  onPlay: (track: Track) => void;
+  /** An album, artist or playlist was picked: open its page. */
+  onOpen: (href: string) => void;
+}) => {
   const [sections, setSections] = useState<RelatedSection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const requestIdRef = useRef(0);
-  const [, navigate] = useLocation();
-  const { currentSong, startMix } = usePlayer();
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
@@ -109,19 +123,19 @@ export const RelatedPanel = ({ relatedId, title }: { relatedId: string; title: s
 
   const open = (item: RelatedItem) => {
     if (item.kind === "song" && item.videoId) {
-      startMix(toTrack(item));
+      onPlay(toTrack(item));
       return;
     }
     if (item.kind === "artist" && item.browseId) {
-      navigate(`/artist/${item.browseId}`);
+      onOpen(`/artist/${item.browseId}`);
       return;
     }
     if (item.kind === "album") {
       const albumId = item.browseId ?? (item.playlistId?.startsWith("OLAK5uy_") ? item.playlistId : null);
-      if (albumId) navigate(`/album/${albumId}`);
+      if (albumId) onOpen(`/album/${albumId}`);
       return;
     }
-    if (item.kind === "playlist" && item.playlistId) navigate(`/playlist/${item.playlistId}`);
+    if (item.kind === "playlist" && item.playlistId) onOpen(`/playlist/${item.playlistId}`);
   };
 
   const retry = () => setRevision((value) => value + 1);
@@ -173,7 +187,7 @@ export const RelatedPanel = ({ relatedId, title }: { relatedId: string; title: s
                 <RelatedRow
                   key={item.videoId ?? item.browseId ?? item.playlistId ?? index}
                   item={item}
-                  playing={Boolean(item.videoId) && item.videoId === currentSong?.videoId}
+                  playing={Boolean(item.videoId) && item.videoId === currentVideoId}
                   onActivate={() => open(item)}
                 />
               ),

@@ -14,12 +14,16 @@ export const PyBridge = {
   addSongToHistory: (videoId: string) => callPython("add_song_to_history", videoId),
   /** Clear all cached data. */
   clearAllCache: () => callPython("clear_all_cache"),
+  /** Hide the always-on-top player window. */
+  closePopout: () => callPython("close_popout"),
   /** Create a new playlist holding up to the given songs. */
   createPlaylist: (title: string, description: string = "", privacy: PlaylistPrivacy = "PRIVATE", videoIds: string[] | null = null) => callPython("create_playlist", title, description, privacy, videoIds),
   /** Delete one of the user's playlists and forget its usage score. */
   deletePlaylist: (playlistId: string) => callPython("delete_playlist", playlistId),
   /** Apply any mix of title, description and privacy changes at once. */
   editPlaylist: (playlistId: string, patch: PlaylistPatch | null = null) => callPython("edit_playlist", playlistId, patch),
+  /** Bring the main window forward, after a click in the popout. */
+  focusMain: () => callPython("focus_main"),
   /** Fetch an album by browse id. */
   getAlbum: (browseId: string, forceRefresh: boolean = false) => callPython("get_album", browseId, forceRefresh),
   /** Fetch an artist page: header plus songs, releases, videos, and related artists. */
@@ -72,6 +76,8 @@ export const PyBridge = {
   getPlaylistShuffleTracks: (playlistId: string) => callPython("get_playlist_shuffle_tracks", playlistId),
   /** Fetch all playlists from the user's YouTube Music library. */
   getPlaylists: (forceRefresh: boolean = false) => callPython("get_playlists", forceRefresh),
+  /** Whether the always-on-top player is enabled, open, pinned or collapsed. */
+  getPopout: () => callPython("get_popout"),
   /** Genre chips that retune the mix around one song. */
   getQueueTuner: (videoId: string) => callPython("get_queue_tuner", videoId),
   /** Return the Quick picks shelf in the older title-and-tracks shape. */
@@ -102,6 +108,8 @@ export const PyBridge = {
   isSignedIn: () => callPython("is_signed_in"),
   /** Move one playlist row with YouTube Music's edit_playlist action. */
   movePlaylistItem: (playlistId: string, setVideoId: string, beforeSetVideoId: string = "") => callPython("move_playlist_item", playlistId, setVideoId, beforeSetVideoId),
+  /** Show the always-on-top player window. */
+  openPopout: () => callPython("open_popout"),
   /** Like, remove from library, or dislike a playlist. */
   ratePlaylist: (playlistId: string, rating: LikeStatus) => callPython("rate_playlist", playlistId, rating),
   /** Set the signed-in user's rating for a song. */
@@ -122,6 +130,12 @@ export const PyBridge = {
   setEqualizer: (settings: EqualizerSettings | null = null) => callPython("set_equalizer", settings),
   /** Save the horizontal icon nav choice and return the stored value. */
   setHorizontalNav: (enabled: boolean) => callPython("set_horizontal_nav", enabled),
+  /** Turn the always-on-top player on or off, opening or closing its window. */
+  setPopout: (enabled: boolean) => callPython("set_popout", enabled),
+  /** Shrink the always-on-top player to its strip, or expand it again. */
+  setPopoutCollapsed: (collapsed: boolean) => callPython("set_popout_collapsed", collapsed),
+  /** Keep the always-on-top player above other windows, or let it sit. */
+  setPopoutPinned: (pinned: boolean) => callPython("set_popout_pinned", pinned),
   /** Save the player volume and return the stored value. */
   setVolume: (volume: number) => callPython("set_volume", volume),
   /** Return the given track ids in a true-random order. */

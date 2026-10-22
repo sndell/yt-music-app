@@ -4,6 +4,7 @@ import { Switch } from "@/components/ui/Switch";
 import { PyBridge } from "@/lib/api";
 import { saveCrossfadeSeconds, useCrossfadeSeconds } from "@/lib/crossfade";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
+import { setPopoutEnabled, usePopout } from "@/lib/popout";
 import { cn } from "@/util/cn";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
 import { SettingsAction, SettingsRow, SettingsSection } from "../components/SettingsSection";
@@ -184,6 +185,15 @@ export const Settings = () => {
     setCrossfadeWorking(false);
   };
 
+  const popout = usePopout();
+  const [popoutWorking, setPopoutWorking] = useState(false);
+
+  const savePopout = async (enabled: boolean) => {
+    setPopoutWorking(true);
+    await setPopoutEnabled(enabled);
+    setPopoutWorking(false);
+  };
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="scrollbar flex-1 overflow-y-auto p-4 sm:p-6">
@@ -269,6 +279,11 @@ export const Settings = () => {
                 }
                 detail={discordMessage}
                 detailTone={discordState === "error" ? "error" : "quiet"}
+              />
+              <SettingsRow
+                title="Always-on-top player"
+                description="Opens a small frameless window that stays above other apps while a song plays, with the queue, lyrics and related songs. The player bar gets a button for it, and it can be collapsed to a strip. Close it from its own corner."
+                control={<Switch checked={popout.enabled} onChange={(enabled) => void savePopout(enabled)} disabled={popoutWorking} label="Always-on-top player" />}
               />
             </SettingsSection>
 

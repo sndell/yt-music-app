@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useLocation } from "wouter";
 import type { WatchTrack } from "@/lib/api";
 import { TrackRow } from "@/components/ui/TrackRow";
 import { TrackMenu } from "@/components/ui/TrackMenu";
@@ -195,6 +196,7 @@ export const QueuePanel = () => {
     addTrackToQueue,
     startMix,
   } = usePlayer();
+  const [, navigate] = useLocation();
   const { playlists, recommendedPlaylists, recommendedPending, fetchRecommendedPlaylists, createPlaylist } = usePlaylist();
   const [menu, setMenu] = useState<{ track: WatchTrack; x: number; y: number } | null>(null);
   const [newPlaylistFor, setNewPlaylistFor] = useState<string[] | null>(null);
@@ -490,7 +492,15 @@ export const QueuePanel = () => {
           </div>
         )}
         {activeTab === "lyrics" && lyrics && <LyricsPanel lyrics={lyrics} />}
-        {activeTab === "related" && relatedId && <RelatedPanel relatedId={relatedId} title={relatedTitle} />}
+        {activeTab === "related" && relatedId && (
+          <RelatedPanel
+            relatedId={relatedId}
+            title={relatedTitle}
+            currentVideoId={currentSong?.videoId ?? null}
+            onPlay={startMix}
+            onOpen={navigate}
+          />
+        )}
       </div>
       {menu && (
         <TrackMenu

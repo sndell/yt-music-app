@@ -5,11 +5,13 @@ import { attachEqualizer, loadEqualizer } from "../lib/equalizer";
 import { setActiveAudio } from "../lib/activeAudio";
 import { rampVolumes, type Ramp } from "../lib/volumeRamp";
 import { bytesFromBase64, tempoFromBytes, type Tempo } from "../lib/tempo";
+import { playback } from "../lib/playback";
 import { APP_EVENTS, type AppEvent } from "../lib/appEvents";
 import { useToast } from "@/components/ui/Toast";
 import { automixEnabled } from "@/lib/automix";
 import { useCrossfadeSeconds } from "@/lib/crossfade";
 import { PyBridge } from "@/lib/api";
+import { closePopout, openPopout, usePopout } from "@/lib/popout";
 import type { Thumbnail, Track } from "@/lib/api/types";
 import { PlayerControls } from "./PlayerControls";
 import { PlayerProgress } from "./PlayerProgress";
@@ -72,6 +74,7 @@ export const Player = () => {
   } = usePlayer();
   const [isPlaying, setIsPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
+  const popout = usePopout();
   const [elapsedTime, setElapsedTime] = useState(0);
   const { showToast } = useToast();
   const [duration, setDuration] = useState(0);
@@ -443,9 +446,55 @@ export const Player = () => {
     playNext();
   }, [playNext]);
 
+  const playingVideoId = currentSong?.videoId ?? null;
+
+  const handlePlay = useCallback(() => {
+    playingRef.current = true;
+    setIsPlaying(true);
+    const audio = audioRefs.current[activeIndexRef.current];
+    const pending = pendingLoadRef.current;
+    // A stream already on its way starts on its own when it lands. Asking
+    // again here threw it away and began a second read, so the first song
+    // of a session played only after the user pressed play twice.
+    if (audio && !audio.getAttribute("src") && playingVideoId && pending?.videoId !== playingVideoId) {
+      loadStream(playingVideoId, true);
+    }
+  }, [playingVideoId, loadStream]);
+
+  const handlePause = useCallback(() => {
+    playingRef.current = false;
+    setIsPlaying(false);
+  }, []);
+
   const toggleLoop = useCallback(() => {
     setLoop((on) => !on);
   }, []);
+
+  // The popout sends play, seek and next through these, so it drives this
+  // window's audio instead of starting a second player of its own.
+  useEffect(() => {
+    playback.setTransport({
+      play: handlePlay,
+      pause: handlePause,
+      seek: handleSeek,
+      next: handleNext,
+      previous: handlePrevious,
+      toggleLoop,
+    });
+    return () => playback.setTransport(null);
+  }, [handleNext, handlePause, handlePlay, handlePrevious, handleSeek, toggleLoop]);
+
+  useEffect(() => {
+    playback.publish({ playing: isPlaying });
+  }, [isPlaying]);
+
+  useEffect(() => {
+    playback.publish({ duration });
+  }, [duration]);
+
+  useEffect(() => {
+    playback.publish({ loop });
+  }, [loop]);
 
   const recordHistory = useCallback((song: Track) => {
     if (!song.videoId || song.videoType !== "MUSIC_VIDEO_TYPE_ATV") return;
@@ -729,6 +778,7 @@ export const Player = () => {
       const time = event.currentTarget.currentTime;
       setElapsedTime(time);
       playhead.set(time);
+      playback.publish({ position: time });
     },
     onDurationChange: (event) => {
       if (!isCurrent(event.currentTarget)) return;
@@ -803,6 +853,9 @@ export const Player = () => {
           hasVideo={Boolean(currentVideoId)}
           videoOpen={videoOpen}
           onToggleVideo={toggleVideo}
+          popoutEnabled={popout.enabled}
+          popoutOpen={popout.open}
+          onTogglePopout={() => void (popout.open ? closePopout() : openPopout())}
           shuffle={shuffle}
           onToggleShuffle={toggleShuffle}
           loop={loop}
