@@ -3,9 +3,9 @@ import { cn } from "@/util/cn";
 
 const COLLAPSED_LINES = 3;
 
-const textClass = "font-medium leading-6 wrap-anywhere text-primary-dark";
+const textClass = "font-medium leading-6 wrap-anywhere";
 const actionClass =
-  "inline cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 align-baseline font-[inherit] text-[length:inherit] leading-[inherit] font-semibold text-primary hover:underline";
+  "inline cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 align-baseline font-[inherit] text-[length:inherit] leading-[inherit] font-semibold hover:underline";
 
 type Measure = {
   overflows: boolean;
@@ -19,15 +19,17 @@ const ActionButton = ({
   pressed,
   hidden,
   onClick,
+  toneClass,
 }: {
   label: string;
   pressed: boolean;
   hidden: boolean;
   onClick: () => void;
+  toneClass: string;
 }) => (
   <button
     type="button"
-    className={actionClass}
+    className={cn(actionClass, toneClass)}
     aria-expanded={pressed}
     aria-hidden={hidden}
     tabIndex={hidden ? -1 : 0}
@@ -37,6 +39,8 @@ const ActionButton = ({
 
 type PlaylistDescriptionProps = {
   description: string | null;
+  /** Light text for a header drawn on top of artwork or a colour block. */
+  tone?: "muted" | "light";
 };
 
 const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -144,8 +148,10 @@ const measureDescription = (source: HTMLElement, text: string, width: number): M
   }
 };
 
-export const PlaylistDescription = ({ description }: PlaylistDescriptionProps) => {
+export const PlaylistDescription = ({ description, tone = "muted" }: PlaylistDescriptionProps) => {
   const text = description?.trim() ?? "";
+  const toneText = tone === "light" ? "text-white/75" : "text-primary-dark";
+  const toneAction = tone === "light" ? "text-white" : "text-primary";
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const [prefix, setPrefix] = useState("");
@@ -210,7 +216,7 @@ export const PlaylistDescription = ({ description }: PlaylistDescriptionProps) =
   };
 
   if (!text) {
-    return <p className="pt-1.5 font-medium text-primary-dark opacity-90">No description</p>;
+    return <p className={cn("pt-1.5 font-medium opacity-90", toneText)}>No description</p>;
   }
 
   const toggle = () => {
@@ -252,13 +258,13 @@ export const PlaylistDescription = ({ description }: PlaylistDescriptionProps) =
         <p
           ref={textRef}
           aria-hidden={overflows && !expanded}
-          className={cn(textClass, overflows && motion, overflows && !expanded && "opacity-0")}
+          className={cn(textClass, toneText, overflows && motion, overflows && !expanded && "opacity-0")}
         >
           <span className="whitespace-pre-line opacity-90">{text}</span>
           {overflows && (
             <>
               {" "}
-              <ActionButton label="Show less" pressed={expanded} hidden={!expanded} onClick={toggle} />
+              <ActionButton label="Show less" pressed={expanded} hidden={!expanded} onClick={toggle} toneClass={toneAction} />
             </>
           )}
         </p>
@@ -267,6 +273,7 @@ export const PlaylistDescription = ({ description }: PlaylistDescriptionProps) =
             aria-hidden={expanded}
             className={cn(
               textClass,
+              toneText,
               "absolute inset-x-0 top-0",
               motion,
               expanded && "opacity-0",
@@ -275,7 +282,7 @@ export const PlaylistDescription = ({ description }: PlaylistDescriptionProps) =
           >
             {[
               <span key="prefix" className="whitespace-pre-line opacity-90">{prefix}</span>,
-              <span key="more" className="whitespace-nowrap"><span className="opacity-90">{prefix.endsWith("…") || prefix.endsWith("...") ? " " : "… "}</span><ActionButton label="Show more" pressed={false} hidden={expanded} onClick={toggle} /></span>,
+              <span key="more" className="whitespace-nowrap"><span className="opacity-90">{prefix.endsWith("…") || prefix.endsWith("...") ? " " : "… "}</span><ActionButton label="Show more" pressed={false} hidden={expanded} onClick={toggle} toneClass={toneAction} /></span>,
             ]}
           </p>
         )}

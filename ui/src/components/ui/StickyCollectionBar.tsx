@@ -2,8 +2,6 @@ import { useState, type ReactNode } from "react";
 import { PlaybackButtons, type PlaybackExtraAction, type ShuffleMenuOptions } from "@/components/ui/PlaybackButtons";
 import { cn } from "@/util/cn";
 
-const thumbClass = "size-12 shrink-0 rounded-md shadow-md";
-
 const Thumb = ({ url, alt, fallback }: { url?: string; alt: string; fallback: boolean }) => {
   const [failed, setFailed] = useState(false);
 
@@ -13,7 +11,7 @@ const Thumb = ({ url, alt, fallback }: { url?: string; alt: string; fallback: bo
         src={url}
         alt={alt}
         onError={fallback ? () => setFailed(true) : undefined}
-        className={cn(thumbClass, "object-cover")}
+        className="size-10 shrink-0 rounded-lg object-cover shadow-md"
       />
     );
   }
@@ -21,8 +19,8 @@ const Thumb = ({ url, alt, fallback }: { url?: string; alt: string; fallback: bo
   if (!fallback) return null;
 
   return (
-    <div className={cn(thumbClass, "grid place-items-center bg-primary-light")}>
-      <span className="icon-[solar--music-note-linear] text-lg text-primary-dark" />
+    <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-light">
+      <span className="icon-[solar--music-note-linear] text-base text-primary-dark" />
     </div>
   );
 };
@@ -39,9 +37,9 @@ export const StickyCollectionBar = ({
   shuffleMenu,
   extra,
   coverFallback = false,
-  columnHeaders = false,
 }: {
   visible: boolean;
+  /** Dominant-colour tint for the glass. */
   background: string;
   thumbnailUrl?: string;
   /** Playlist and Album use the title. Artist passes an empty alt for the banner thumb. */
@@ -55,8 +53,6 @@ export const StickyCollectionBar = ({
   extra?: PlaybackExtraAction | PlaybackExtraAction[];
   /** Album and Artist show a note icon when the thumb is missing or fails. Playlist leaves the slot empty. */
   coverFallback?: boolean;
-  /** Track / Album / Duration row. Playlist and Album only. */
-  columnHeaders?: boolean;
 }) => (
   /*
    * z-30, not z-10: at the bottom of a list the edge-fade mask clears and the
@@ -65,28 +61,27 @@ export const StickyCollectionBar = ({
    * paint over it.
    */
   <div
-    className="absolute top-0 right-0 left-0 z-30 bg-primary transition-transform duration-300"
-    style={{
-      transform: visible ? "translateY(0)" : "translateY(-100%)",
-      opacity: visible ? 1 : 0,
-    }}
+    aria-hidden={!visible}
+    className={cn(
+      "absolute top-0 right-0 left-0 z-30 transition-[transform,opacity] duration-300",
+      !visible && "pointer-events-none",
+    )}
+    style={{ transform: visible ? "translateY(0)" : "translateY(-100%)", opacity: visible ? 1 : 0 }}
   >
-    <div className="flex gap-3 items-center p-3 w-full backdrop-blur-2xl" style={{ background }}>
-      <Thumb key={thumbnailUrl ?? "empty"} url={thumbnailUrl} alt={thumbnailAlt ?? title} fallback={coverFallback} />
+    <div className="flex w-full items-center gap-3 px-4 py-2 backdrop-blur-2xl" style={{ background }}>
+      <Thumb
+        key={thumbnailUrl ?? "empty"}
+        url={thumbnailUrl}
+        alt={thumbnailAlt ?? title}
+        fallback={coverFallback}
+      />
       <div className="min-w-0 flex-1">
-        <h2 title={title} className="truncate text-xl font-bold">
+        <h2 title={title} className="truncate text-[15px] font-bold">
           {title}
         </h2>
         {meta}
       </div>
       <PlaybackButtons variant="icon" onPlay={onPlay} onShuffle={onShuffle} shuffleMenu={shuffleMenu} extra={extra} />
     </div>
-    {columnHeaders && (
-      <div className="grid grid-cols-[5fr_1fr] border-y border-primary bg-secondary px-3 py-1.5 sm:px-4 md:grid-cols-[7fr_5fr_1fr]">
-        <div>Track</div>
-        <div className="max-md:hidden">Album</div>
-        <div className="justify-self-end">Duration</div>
-      </div>
-    )}
   </div>
 );

@@ -1,19 +1,17 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "wouter";
 import type { AlbumDetails, LikeStatus } from "@/lib/api";
 import type { Artist } from "@/lib/api/types";
 import { PyBridge, showCachedThenRefresh } from "@/lib/api";
 import { usePlayer } from "@/features/player";
-import { PlaylistDescription } from "@/features/playlist/components/PlaylistDescription";
-import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { BrowseCard, BrowseRow } from "@/components/ui/BrowseCard";
 import { PlaybackButtons, type PlaybackExtraAction } from "@/components/ui/PlaybackButtons";
+import { CollectionHeader, CollectionMeta } from "@/components/ui/CollectionHeader";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StickyCollectionBar } from "@/components/ui/StickyCollectionBar";
 import { useAlbumLibrary } from "../hooks/useAlbumLibrary";
 import { useEdgeFade } from "@/components/ui/useEdgeFade";
-import { collectionCoverClass, collectionHeaderClass, collectionTitleClass, collectionWash } from "@/components/ui/collectionChrome";
-import { cn } from "@/util/cn";
+import { PlaylistTrackList } from "@/features/playlist/components/PlaylistTrackList";
 import { hexToRgba } from "@/util/hex_to_rgba";
 
 const withRatings = (album: AlbumDetails, ratings: Record<string, LikeStatus>): AlbumDetails => {
@@ -47,57 +45,6 @@ const ArtistLinks = ({ artists }: { artists: Artist[] }) => (
     ))}
   </span>
 );
-
-const MetaLine = ({ parts, className }: { parts: (ReactNode | string | null | undefined | false)[]; className?: string }) => {
-  const visible = parts.filter((part) => part != null && part !== false && part !== "");
-  if (visible.length === 0) return null;
-
-  return (
-    <p className={cn("flex w-full min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 font-medium text-primary-dark", className)}>
-      {visible.map((part, index) => (
-        <span key={index} className="inline-flex min-w-0 items-center gap-1.5">
-          {index > 0 && (
-            <span className="text-sm leading-none" aria-hidden="true">
-              •
-            </span>
-          )}
-          {part}
-        </span>
-      ))}
-    </p>
-  );
-};
-
-const Cover = ({
-  url,
-  alt,
-  className,
-  iconClass = "text-4xl",
-}: {
-  url?: string;
-  alt: string;
-  className: string;
-  iconClass?: string;
-}) => {
-  const [failed, setFailed] = useState(false);
-
-  if (url && !failed) {
-    return (
-      <img
-        src={url}
-        alt={alt}
-        onError={() => setFailed(true)}
-        className={cn(className, "object-cover")}
-      />
-    );
-  }
-
-  return (
-    <div className={cn(className, "grid place-items-center bg-primary-light")}>
-      <span className={cn("icon-[solar--music-note-linear] text-primary-dark", iconClass)} />
-    </div>
-  );
-};
 
 const PageFallback = ({ error, onReload }: { error: string | null; onReload: () => void }) => {
   if (error) {
@@ -202,21 +149,18 @@ export const Album = () => {
     void playPlaylist(audioPlaylistId, mode);
   };
 
-  const wash = collectionWash(dominantColor);
+  const trackWash = dominantColor
+    ? `linear-gradient(to bottom, ${hexToRgba(dominantColor, 0.18)}, transparent)`
+    : "transparent";
 
   const stickyBg = dominantColor ? hexToRgba(dominantColor, 0.4) : "black";
 
-  const meta = (className?: string) => (
-    <MetaLine
-      className={className}
-      parts={[
-        type ? <span className="capitalize">{type}</span> : null,
-        year,
-        artists.length > 0 ? <ArtistLinks artists={artists} /> : null,
-        `${trackCount} songs`,
-      ]}
-    />
-  );
+  const albumMeta = [
+    type ? <span key="type" className="capitalize">{type}</span> : null,
+    year,
+    artists.length > 0 ? <ArtistLinks key="artists" artists={artists} /> : null,
+    `${trackCount} ${trackCount === 1 ? "song" : "songs"}`,
+  ];
 
   const shuffleMenu =
     audioPlaylistId && rated.tracks.length > 0
@@ -253,11 +197,10 @@ export const Album = () => {
         thumbnailUrl={thumbnailUrl}
         title={title}
         coverFallback
-        meta={meta("text-sm leading-5")}
+        meta={<CollectionMeta className="text-xs" parts={albumMeta} />}
         onPlay={audioPlaylistId ? () => play("play") : undefined}
         shuffleMenu={shuffleMenu}
         extra={extraActions}
-        columnHeaders
       />
 
       <div
@@ -266,27 +209,21 @@ export const Album = () => {
         onScroll={handleScroll}
         className="overflow-x-hidden overflow-y-auto flex-1 scrollbar [overflow-anchor:none]"
       >
-        <div ref={headerRef} className={collectionHeaderClass} style={{ background: wash.header }}>
-          <Cover
-            key={thumbnailUrl ?? "cover"}
-            url={thumbnailUrl}
-            alt={title}
-            className={cn(collectionCoverClass, "rounded-md shadow-[0_0_24px_6px_rgba(0,0,0,0.35)]")}
-          />
-          <div className="min-w-0 flex-1 text-shadow-[7px_5px_8px_rgba(0,0,0,0.2)] @lg:self-end">
-            <h1 title={title} className={collectionTitleClass}>
-              {title}
-            </h1>
-            <PlaylistDescription description={description} />
-            {meta("pt-3")}
-          </div>
-        </div>
+        <CollectionHeader
+          headerRef={headerRef}
+          eyebrow="Album"
+          title={title}
+          artworkUrl={thumbnailUrl}
+          description={description}
+          meta={albumMeta}
+          dominantColor={dominantColor}
+          actions={playback}
+        />
 
         <PlaylistTrackList
           tracks={rated.tracks}
-          gradient={wash.tracks}
+          gradient={trackWash}
           playlistId={audioPlaylistId ?? undefined}
-          actions={playback}
         />
 
         {versions.length > 0 && (

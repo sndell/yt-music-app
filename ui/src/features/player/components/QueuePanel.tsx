@@ -401,7 +401,10 @@ export const QueuePanel = () => {
                           height: QUEUE_LABEL_HEIGHT,
                           transform: `translateY(${virtualItem.start}px)`,
                         }}
-                        className="px-1.5 pt-0.5 pb-1 text-xs font-semibold text-primary-dark"
+                        className="px-1.5 pt-1.5 text-xs font-semibold text-primary-dark"
+                        /* Slot is 28px: 6px top padding, 16px text, 6px remainder — so a label's
+                           gap to the row above and to the row it names both land on the 12px
+                           (6px row padding + 6px) the rows use between themselves. */
                       >
                         {entry.text}
                       </p>
