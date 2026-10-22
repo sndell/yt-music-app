@@ -7,9 +7,12 @@ import { cn } from "@/util/cn";
  * extra box only competes with the controls.
  */
 
-export const SettingsSection = ({ title, children }: { title: string; children: ReactNode }) => (
+export const SettingsSection = ({ title, badge, children }: { title: string; badge?: ReactNode; children: ReactNode }) => (
   <section className="space-y-2">
-    <h2 className="text-xs font-medium tracking-wide text-primary-dark uppercase">{title}</h2>
+    <div className="flex items-center gap-2">
+      <h2 className="text-xs font-medium tracking-wide text-primary-dark uppercase">{title}</h2>
+      {badge}
+    </div>
     <div className="divide-y divide-white/5 border-t border-white/5">{children}</div>
   </section>
 );

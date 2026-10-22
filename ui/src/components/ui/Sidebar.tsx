@@ -1,13 +1,16 @@
 import { useLocation } from "wouter";
 import { cn } from "@/util/cn";
+import { Dot } from "@/components/ui/Dot";
 import { SidebarList } from "@/features/playlist";
 import { SidebarSearch } from "@/features/search";
 import { useHorizontalNav } from "@/lib/horizontalNav";
 import { closeSideSearch, openSideSearch, setSideSearchQuery, useSideSearch } from "@/lib/sideSearch";
+import { useUpdateStatus } from "@/lib/updateStatus";
 
 export const Sidebar = () => {
   const search = useSideSearch();
   const horizontalNav = useHorizontalNav();
+  const { status: update } = useUpdateStatus();
 
   return (
     /* Marked so the search panel can measure this box and sit beside it; the
@@ -36,7 +39,7 @@ export const Sidebar = () => {
           <SidebarItem icon="icon-[solar--compass-linear]" path="/explore" text="Explore" iconOnly={horizontalNav} />
           <SidebarItem icon="icon-[solar--library-linear]" path="/library" text="Library" iconOnly={horizontalNav} />
           <NavSearch horizontalNav={horizontalNav} active={search.open} />
-          <SidebarItem icon="icon-[solar--settings-linear]" path="/settings" text="Settings" iconOnly={horizontalNav} />
+          <SidebarItem icon="icon-[solar--settings-linear]" path="/settings" text="Settings" iconOnly={horizontalNav} dot={update?.available ?? false} />
         </div>
       </div>
       <div className="flex-1 overflow-hidden rounded-xl bg-primary">
@@ -75,6 +78,7 @@ const SidebarItem = ({
   path,
   text,
   iconOnly = false,
+  dot = false,
   onClick,
 }: {
   icon: string;
@@ -82,6 +86,8 @@ const SidebarItem = ({
   text: string;
   /** Drops the label, for the experimental horizontal strip where the row is the icon. */
   iconOnly?: boolean;
+  /** A badge dot over the icon's corner; the same placement reads in both nav modes. */
+  dot?: boolean;
   /** Overrides navigation, for items that open something in place. */
   onClick?: () => void;
 }) => {
@@ -99,7 +105,10 @@ const SidebarItem = ({
         isActive ? "text-primary-light bg-primary-light" : "text-primary-dark hover:text-primary hover:bg-primary-light",
       )}
     >
-      <span className={cn("text-lg", icon)} />
+      <span className="relative inline-block">
+        <span className={cn("text-lg", icon)} />
+        {dot && <Dot className="absolute -right-1 -top-0.5" />}
+      </span>
       {!iconOnly && <span className="hidden lg:inline">{text}</span>}
     </button>
   );
