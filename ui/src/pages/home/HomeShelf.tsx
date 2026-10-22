@@ -39,10 +39,7 @@ export const HomeRow = ({
   onPlayAlbum: (item: HomeItem) => void;
   onPlayPlaylist: (playlistId: string) => void;
 }) => (
-  <HomeSection
-    title={shelf.title}
-    art={shelf.items[0]?.thumbnails?.[0]?.url}
-  >
+  <HomeSection title={shelf.title}>
     <SnapRow>
       {shelf.items.map((item, index) => (
         <HomeCard

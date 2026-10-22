@@ -119,7 +119,6 @@ export const QuickPicks = ({
   return (
     <HomeSection
       title={shelf.title}
-      art={shelf.items[0]?.thumbnails?.[0]?.url}
       actions={
         shelf.items.length > 0 ? (
           <div className="flex items-center gap-2">
