@@ -32,7 +32,7 @@ from ytmusicapi.parsers.playlists import parse_playlist_items
 from ytmusicapi.parsers.songs import parse_song_runs
 
 from util.app_paths import data_dir
-from util.audio_stream import audio_stream
+from util.audio_stream import audio_prefix, audio_stream
 from util.get_dominant_color import get_dominant_color_hex
 from contract.registry import api
 from contract.cache import (
@@ -51,6 +51,7 @@ from contract.cache import (
     MOODS,
     PLAYLIST,
     RELATED,
+    TEMPO,
     THUMB,
     TUNER,
     store,
@@ -2167,6 +2168,51 @@ class MusicApi:
         except FileNotFoundError as exc:
             raise RuntimeError("Sign in to play music.") from exc
         return audio_stream(ytmusic, video_id.strip(), refresh=bool(refresh))
+
+    @api.read(returns="AudioSample")
+    def get_audio_sample(self, video_id: str) -> dict[str, Any]:
+        """The opening of a song's stream, for the page's tempo analysis.
+
+        Decoding happens in the page, which is the only place a stream can be
+        decoded here, so this hands it a prefix rather than the whole file.
+        """
+        if not isinstance(video_id, str) or not video_id.strip():
+            raise ValueError("video id is required")
+        try:
+            ytmusic = self._get_ytmusic()
+        except FileNotFoundError as exc:
+            raise RuntimeError("Sign in to play music.") from exc
+        stream = audio_stream(ytmusic, video_id.strip())
+        data = audio_prefix(stream["url"])
+        return {"data": base64.b64encode(data).decode("ascii"), "mimeType": stream["mimeType"]}
+
+    @api.read(returns="SongTempo | null")
+    def get_song_tempo(self, video_id: str) -> dict[str, Any] | None:
+        """The beat estimate kept for a song, or null when it has never been measured."""
+        if not isinstance(video_id, str) or not video_id.strip():
+            return None
+        ident = video_id.strip()
+        payload = store.read(TEMPO, ident)
+        if payload is None:
+            return None
+        return {"videoId": ident, "bpm": payload["bpm"], "offset": payload["offset"]}
+
+    @api.read(returns="SongTempo")
+    def store_song_tempo(self, video_id: str, bpm: float, offset: float) -> dict[str, Any]:
+        """Keep an estimate measured in the page, so this song costs nothing next time."""
+        if not isinstance(video_id, str) or not video_id.strip():
+            raise ValueError("video id is required")
+        rate = float(bpm)
+        first = float(offset)
+        # A transition can only use a beat it can trust, and a stored value is
+        # read straight back, so nonsense is refused rather than cached.
+        if not 40.0 <= rate <= 220.0:
+            raise ValueError("tempo out of range")
+        if not 0.0 <= first <= 5.0:
+            raise ValueError("beat offset out of range")
+        ident = video_id.strip()
+        store.write(TEMPO, ident, {"bpm": round(rate, 3), "offset": round(first, 3)})
+        return {"videoId": ident, "bpm": round(rate, 3), "offset": round(first, 3)}
 
     @api.read(returns="{ likeStatus: LikeStatus; year: string | null }")
     def get_song_info(self, video_id: str) -> dict[str, Any]:

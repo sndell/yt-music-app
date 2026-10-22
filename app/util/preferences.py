@@ -34,11 +34,22 @@ _DEFAULT_EQUALIZER: dict[str, Any] = {
     "bands": [0.0] * _EQUALIZER_BANDS,
 }
 
+# Long enough to be heard as a blend, short enough that most songs keep their
+# own ending. The player clamps it again to what a song has left.
+_DEFAULT_CROSSFADE = 6
+_MAX_CROSSFADE = 12
+
 
 def _volume(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return int(min(100, max(0, round(value))))
+
+
+def _seconds(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(min(_MAX_CROSSFADE, max(0, round(value))))
 
 
 def _boolean(value: object) -> bool | None:
@@ -154,6 +165,43 @@ class Preferences:
             except OSError:
                 logger.exception("Could not save preferences")
         return next_value
+
+    def crossfade_seconds(self) -> int:
+        with self._lock:
+            stored = _seconds(self._values.get("crossfade_seconds"))
+            return _DEFAULT_CROSSFADE if stored is None else stored
+
+    def set_crossfade_seconds(self, value: object) -> int:
+        seconds = _seconds(value)
+        if seconds is None:
+            return self.crossfade_seconds()
+        with self._lock:
+            if self._values.get("crossfade_seconds") == seconds:
+                return seconds
+            self._values["crossfade_seconds"] = seconds
+            try:
+                self._save()
+            except OSError:
+                logger.exception("Could not save preferences")
+        return seconds
+
+    def automix(self) -> bool:
+        with self._lock:
+            return _boolean(self._values.get("automix")) is True
+
+    def set_automix(self, value: object) -> bool:
+        enabled = _boolean(value)
+        if enabled is None:
+            return self.automix()
+        with self._lock:
+            if self._values.get("automix") == enabled:
+                return enabled
+            self._values["automix"] = enabled
+            try:
+                self._save()
+            except OSError:
+                logger.exception("Could not save preferences")
+        return enabled
 
     def _load(self) -> None:
         try:

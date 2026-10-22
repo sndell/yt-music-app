@@ -363,6 +363,10 @@ TUNER = Family(
     ttl=HALF_DAY,
     shape=(("chips", ("id", "text", "playlistId")),),
 )
+# The beat estimate the page measures from a song's opening. A recording's tempo
+# does not change, so it outlives the lists. Keyed by video id; "offset" is the
+# first beat in seconds, so the grid is offset + n * 60 / bpm.
+TEMPO = Family(name="tempo", ttl=4 * WEEK, shape=("bpm", "offset"))
 THUMB = Family(name="thumb", ttl=DAY, shape=(), dict_payload=False)
 
 

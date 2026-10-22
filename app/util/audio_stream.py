@@ -49,6 +49,17 @@ _VERIFY_BYTES = 2047
 _FALLBACK_MIDDLE = 2_000_000
 # The bridge call times out at 30s, so the whole candidate chain stays under it.
 _STREAM_DEADLINE_SECONDS = 25
+# Enough of a song for a stable beat, and about a fifth of its bytes at the
+# offered bitrates: 20 to 30 seconds of audio. Measured at 1.2 MB decoding to
+# 37 seconds of 11 kHz audio in the page.
+_PREFIX_BYTES = 1_000_000
+_PREFIX_TIMEOUT_SECONDS = 20
+# googlevideo answers any user agent on a signed URL; this one avoids looking
+# like a script, which the same host does gate elsewhere.
+_PREFIX_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/141.0.0.0 Safari/537.36"
+)
 
 # Clients whose player responses serve plain URLs and whose files YouTube does
 # not gate (as of October 2026). Requested anonymously on the www endpoint with
@@ -704,3 +715,19 @@ def _proxied(payload: dict[str, Any], user_agent: str) -> dict[str, Any]:
     googlevideo authorizes no origin but its own page.
     """
     return {**payload, "url": audio_proxy.url_for(payload["url"], user_agent)}
+
+
+def audio_prefix(url: str, limit: int = _PREFIX_BYTES) -> bytes:
+    """The opening bytes of a stream, for the page's beat detection.
+
+    A prefix is enough because both offered containers stream: an MP4's ``moov``
+    sits at the front and a WebM's header comes first, so the browser decodes the
+    opening seconds without the rest of the file.
+    """
+    response = requests.get(
+        url,
+        headers={"User-Agent": _PREFIX_USER_AGENT, "Range": f"bytes=0-{limit - 1}"},
+        timeout=_PREFIX_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return response.content

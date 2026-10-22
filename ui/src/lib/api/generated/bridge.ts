@@ -26,12 +26,18 @@ export const PyBridge = {
   getArtist: (channelId: string, forceRefresh: boolean = false) => callPython("get_artist", channelId, forceRefresh),
   /** Fetch the rest of an artist release shelf. */
   getArtistAlbums: (channelId: string, params: string) => callPython("get_artist_albums", channelId, params),
+  /** The opening of a song's stream, for the page's tempo analysis. */
+  getAudioSample: (videoId: string) => callPython("get_audio_sample", videoId),
   /** Direct audio URL for a song on the signed-in account. */
   getAudioStream: (videoId: string, refresh: boolean = false) => callPython("get_audio_stream", videoId, refresh),
+  /** Whether a blend waits for the beat of the song that is ending. */
+  getAutomix: () => callPython("get_automix"),
   /** Return YouTube Music's charts for one country. */
   getCharts: (country: string = "ZZ", forceRefresh: boolean = false) => callPython("get_charts", country, forceRefresh),
   /** Vibrant cover color for the queue wash. */
   getCoverColor: (imageUrl: string) => callPython("get_cover_color", imageUrl),
+  /** How many seconds the next song fades in before this one ends. 0 is off. */
+  getCrossfadeSeconds: () => callPython("get_crossfade_seconds"),
   /** Whether Discord rich presence is on, and if the desktop app is connected. */
   getDiscordPresence: () => callPython("get_discord_presence"),
   /** The saved equalizer: on/off, preamp, bass, treble, and each band's gain. */
@@ -78,6 +84,8 @@ export const PyBridge = {
   getSongInfo: (videoId: string) => callPython("get_song_info", videoId),
   /** YouTube Music's Related tab for the song that started the queue. */
   getSongRelated: (relatedId: string) => callPython("get_song_related", relatedId),
+  /** The beat estimate kept for a song, or null when it has never been measured. */
+  getSongTempo: (videoId: string) => callPython("get_song_tempo", videoId),
   /** The running version and the newest published release. */
   getUpdateStatus: () => callPython("get_update_status"),
   /** Saved player volume, 0-100 on the slider scale. */
@@ -104,6 +112,10 @@ export const PyBridge = {
   removePlaylistVideos: (playlistId: string, videoIds: string[], setVideoIds: Record<string, string> | null = null) => callPython("remove_playlist_videos", playlistId, videoIds, setVideoIds),
   /** Search YouTube Music. */
   search: (query: string, filter: SearchFilter | "" = "", scope: SearchScope | "" = "", limit: number = 30) => callPython("search", query, filter, scope, limit),
+  /** Save the beat-aligned blend choice and return the stored value. */
+  setAutomix: (enabled: boolean) => callPython("set_automix", enabled),
+  /** Save the crossfade length and return the stored value. */
+  setCrossfadeSeconds: (seconds: number) => callPython("set_crossfade_seconds", seconds),
   /** Turn Discord rich presence on or off. */
   setDiscordPresence: (enabled: boolean) => callPython("set_discord_presence", enabled),
   /** Save the equalizer settings and return the stored value. */
@@ -118,6 +130,8 @@ export const PyBridge = {
   signIn: () => callPython("sign_in"),
   /** Remove saved headers and clear the WebView profile. */
   signOut: () => callPython("sign_out"),
+  /** Keep an estimate measured in the page, so this song costs nothing next time. */
+  storeSongTempo: (videoId: string, bpm: number, offset: number) => callPython("store_song_tempo", videoId, bpm, offset),
   /** Lyrics for a song in another language, split like the original. */
   translateLyrics: (videoId: string, language: string = "en") => callPython("translate_lyrics", videoId, language),
   /** Show the current song on Discord, or clear it when nothing is playing. */

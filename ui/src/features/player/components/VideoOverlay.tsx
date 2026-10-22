@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { usePlayer } from "../context/PlayerContext";
+import { activeAudio } from "../lib/activeAudio";
 import { loadYouTubeApi, type YouTubePlayer } from "../lib/youtube";
 
 /** How often the picture is checked against the audio. */
@@ -16,8 +17,6 @@ const PLAYER_VARS = {
   playsinline: 1,
   origin: window.location.origin,
 };
-
-const currentAudio = () => document.querySelector("audio");
 
 /**
  * The YouTube embed. It is muted, so the app's `<audio>` stays the sound. It is
@@ -36,7 +35,7 @@ const YouTubeVideo = ({ videoId }: { videoId: string }) => {
     let poll = 0;
 
     const seekToAudio = () => {
-      const audio = currentAudio();
+      const audio = activeAudio();
       if (audio) player?.seekTo(audio.currentTime, true);
     };
 
@@ -49,7 +48,7 @@ const YouTubeVideo = ({ videoId }: { videoId: string }) => {
           onReady: () => {
             readyRef.current = true;
             player?.mute();
-            const audio = currentAudio();
+            const audio = activeAudio();
             if (!audio || audio.paused) player?.pauseVideo();
             else player?.playVideo();
             seekToAudio();
@@ -57,7 +56,7 @@ const YouTubeVideo = ({ videoId }: { videoId: string }) => {
             // the user paused the embed, which already paused the audio, so
             // leave it be.
             poll = window.setInterval(() => {
-              const node = currentAudio();
+              const node = activeAudio();
               if (!readyRef.current || !player || !node || node.paused) return;
               if (player.getPlayerState() !== 1) return;
               if (Math.abs(player.getCurrentTime() - node.currentTime) > MAX_DRIFT_SECONDS) {
@@ -66,7 +65,7 @@ const YouTubeVideo = ({ videoId }: { videoId: string }) => {
             }, SYNC_POLL_MS);
           },
           onStateChange: (event) => {
-            const node = currentAudio();
+            const node = activeAudio();
             if (!node) return;
             // The user pressed play or pause on the embed; move the app with it.
             if (event.data === 2 && !node.paused) node.pause();
@@ -77,14 +76,17 @@ const YouTubeVideo = ({ videoId }: { videoId: string }) => {
       playerRef.current = player;
     });
 
+    // Only the current song's element drives the picture: during a crossfade
+    // the element on its way out is still playing and its events would fight
+    // the incoming one for the embed.
     const onPlay = (event: Event) => {
-      if (event.target instanceof HTMLAudioElement) playerRef.current?.playVideo();
+      if (event.target === activeAudio()) playerRef.current?.playVideo();
     };
     const onPause = (event: Event) => {
-      if (event.target instanceof HTMLAudioElement) playerRef.current?.pauseVideo();
+      if (event.target === activeAudio()) playerRef.current?.pauseVideo();
     };
     const onSeeked = (event: Event) => {
-      if (event.target instanceof HTMLAudioElement) seekToAudio();
+      if (event.target === activeAudio()) seekToAudio();
     };
     document.addEventListener("play", onPlay, true);
     document.addEventListener("pause", onPause, true);

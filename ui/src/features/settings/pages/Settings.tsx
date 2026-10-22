@@ -2,10 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { PageHeading } from "@/components/ui/PageHeading";
 import { Switch } from "@/components/ui/Switch";
 import { PyBridge } from "@/lib/api";
+import { saveCrossfadeSeconds, useCrossfadeSeconds } from "@/lib/crossfade";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
+import { cn } from "@/util/cn";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
 import { SettingsAction, SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { EqualizerSection } from "../components/EqualizerSection";
+
+/** The lengths offered in Settings, in seconds. Zero leaves each song to end on its own. */
+const CROSSFADE_CHOICES = [0, 3, 6, 9, 12];
 
 const notifyAuthChanged = () => {
   window.dispatchEvent(new Event("ytmusic-auth-changed"));
@@ -160,6 +165,8 @@ export const Settings = () => {
 
   const horizontalNav = useHorizontalNav();
   const [navWorking, setNavWorking] = useState(false);
+  const crossfade = useCrossfadeSeconds();
+  const [crossfadeWorking, setCrossfadeWorking] = useState(false);
 
   const saveNav = async (enabled: boolean) => {
     setNavWorking(true);
@@ -170,6 +177,12 @@ export const Settings = () => {
   const signedInDescription = signedIn
     ? "Signed in to YouTube Music."
     : "Opens YouTube Music to capture the signed-in API request. Log in there if asked; the window closes when the headers are read.";
+
+  const saveCrossfade = async (seconds: number) => {
+    setCrossfadeWorking(true);
+    await saveCrossfadeSeconds(seconds);
+    setCrossfadeWorking(false);
+  };
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -217,6 +230,29 @@ export const Settings = () => {
 
             <SettingsSection title="Audio">
               <EqualizerSection />
+              <SettingsRow
+                title="Crossfade"
+                description="Starts the next song before this one ends and blends the two. Off plays every song to its end, with the next one loaded in advance so the gap between them is as short as it can be."
+                control={
+                  <div className="flex shrink-0 items-center gap-1">
+                    {CROSSFADE_CHOICES.map((seconds) => (
+                      <button
+                        key={seconds}
+                        type="button"
+                        onClick={() => void saveCrossfade(seconds)}
+                        disabled={crossfadeWorking}
+                        aria-pressed={crossfade === seconds}
+                        className={cn(
+                          "h-8 min-w-11 cursor-pointer rounded-full border px-2.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                          crossfade === seconds ? "border-accent bg-accent/15 text-accent" : "border-white/40 text-white hover:bg-white/10",
+                        )}
+                      >
+                        {seconds === 0 ? "Off" : `${seconds}s`}
+                      </button>
+                    ))}
+                  </div>
+                }
+              />
             </SettingsSection>
 
             <SettingsSection title="Integrations">

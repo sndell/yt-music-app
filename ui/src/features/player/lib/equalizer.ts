@@ -36,19 +36,13 @@ const empty = (): EqualizerSettings => ({
 });
 
 const listeners = new Set<Listener>();
+
 let current: EqualizerSettings = empty();
 let loadPromise: Promise<void> | null = null;
 let saveTimer: number | undefined;
 
-let context: AudioContext | null = null;
-let element: HTMLAudioElement | null = null;
-let wired = false;
-let graph: {
-  preamp: GainNode;
-  bass: BiquadFilterNode;
-  treble: BiquadFilterNode;
-  bands: BiquadFilterNode[];
-} | null = null;
+/** One graph per element: the player alternates two, and both must hear the curve. */
+const graphs = new Map<HTMLAudioElement, Graph>();
 
 const clampGain = (value: unknown): number => {
   const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -69,19 +63,17 @@ const normalize = (value: EqualizerSettings | null | undefined): EqualizerSettin
 };
 
 const apply = () => {
-  const ctx = context;
-  const nodes = graph;
-  if (!ctx || !nodes) return;
-  const settings = current;
-  const now = ctx.currentTime;
-  const ramp = (param: AudioParam, value: number) => param.setTargetAtTime(value, now, RAMP_SECONDS);
-  // Off leaves every filter flat rather than unwiring the graph, which cannot
-  // be undone on a media element and would click while it happened.
-  const on = settings.enabled;
-  ramp(nodes.preamp.gain, on ? Math.pow(10, settings.preamp / 20) : 1);
-  ramp(nodes.bass.gain, on ? settings.bass : 0);
-  ramp(nodes.treble.gain, on ? settings.treble : 0);
-  nodes.bands.forEach((filter, index) => ramp(filter.gain, on ? settings.bands[index] ?? 0 : 0));
+  for (const nodes of graphs.values()) {
+    const now = nodes.context.currentTime;
+    const ramp = (param: AudioParam, value: number) => param.setTargetAtTime(value, now, RAMP_SECONDS);
+    // Off leaves every filter flat rather than unwiring the graph, which cannot
+    // be undone on a media element and would click while it happened.
+    const on = current.enabled;
+    ramp(nodes.preamp.gain, on ? Math.pow(10, current.preamp / 20) : 1);
+    ramp(nodes.bass.gain, on ? current.bass : 0);
+    ramp(nodes.treble.gain, on ? current.treble : 0);
+    nodes.bands.forEach((filter, index) => ramp(filter.gain, on ? current.bands[index] ?? 0 : 0));
+  }
 };
 
 const publish = (next: EqualizerSettings) => {
@@ -105,14 +97,11 @@ type Graph = {
  */
 const GRAPH_KEY = "__ytmusicEqualizer";
 
-const build = () => {
-  const source = element;
-  if (context || !source) return;
+const buildFor = (source: HTMLAudioElement) => {
+  if (graphs.has(source)) return;
   const adopted = (source as unknown as Record<string, Graph | undefined>)[GRAPH_KEY];
   if (adopted) {
-    context = adopted.context;
-    graph = { preamp: adopted.preamp, bass: adopted.bass, treble: adopted.treble, bands: adopted.bands };
-    apply();
+    graphs.set(source, adopted);
     return;
   }
   const ctx = new AudioContext({ latencyHint: "playback" });
@@ -144,32 +133,37 @@ const build = () => {
   }
   tail.connect(ctx.destination);
 
-  (source as unknown as Record<string, Graph>)[GRAPH_KEY] = { context: ctx, preamp, bass, treble, bands };
-  context = ctx;
-  graph = { preamp, bass, treble, bands };
-  apply();
+  const graph = { context: ctx, preamp, bass, treble, bands };
+  (source as unknown as Record<string, Graph>)[GRAPH_KEY] = graph;
+  graphs.set(source, graph);
 };
 
 /**
- * Route one audio element through the equalizer. Call once per element: a
- * media element can only be captured once, and the capture lasts its life.
- *
- * The graph is built on the first `play`, which is a user gesture, so the
- * context comes up running instead of muting the app until something is
- * clicked.
+ * Route one audio element through the equalizer. The player has two elements
+ * and both get this: each carries its own graph, captured on that element's
+ * first `play` — a media element can only be captured once, and the capture
+ * lasts its life. A play event is a user gesture or a hand-over the player
+ * already authorized, so the element's own context comes up running instead
+ * of muting the app until something is clicked.
  */
 export const attachEqualizer = (audio: HTMLAudioElement) => {
-  if (wired) return;
-  wired = true;
-  element = audio;
   const start = () => {
-    build();
-    if (context && context.state !== "running") void context.resume();
+    buildFor(audio);
+    const graph = graphs.get(audio);
+    if (graph && graph.context.state !== "running") void graph.context.resume();
   };
   audio.addEventListener("play", start);
-  // A context can be suspended by the OS after a device change; the next tap
-  // anywhere brings it back.
-  window.addEventListener("pointerdown", start, { capture: true });
+  if (!resumeBound) {
+    resumeBound = true;
+    window.addEventListener("pointerdown", resumeEqualizerContexts, { capture: true });
+  }
+};
+
+let resumeBound = false;
+
+/** A context can be suspended by the OS after a device change; the next tap brings them back. */
+export const resumeEqualizerContexts = () => {
+  for (const graph of graphs.values()) if (graph.context.state !== "running") void graph.context.resume();
 };
 
 /** Read the stored settings once. Safe to call from every mount. */
