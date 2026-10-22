@@ -7,11 +7,11 @@ import { RatingButtons } from "@/features/player/components/PlayerControls";
 import { RelatedPanel } from "@/features/player/components/RelatedPanel";
 import { trackToWatchTrack } from "@/features/player/lib/queueModel";
 import { usePlaylist } from "@/features/playlist/hooks/usePlaylist.tsx";
-import { hexToRgba } from "@/util/hex_to_rgba";
-import { cn } from "@/util/cn";
+import { hexToRgba } from "@/util/hex_to_rgba";import { cn } from "@/util/cn";
 import type { PopoutCommand, PopoutState } from "../lib/channel";
 import { clock } from "../lib/format";
 import { PopoutQueue } from "./PopoutQueue";
+import { WindowButtons } from "./WindowButtons";
 
 const TABS = ["queue", "lyrics", "related"] as const;
 type Tab = (typeof TABS)[number];
@@ -34,6 +34,10 @@ export const NowPlaying = ({
   send,
   cover,
   accent,
+  pinned,
+  onTogglePinned,
+  onToggleCollapsed,
+  onClose,
 }: {
   state: PopoutState;
   send: (command: PopoutCommand) => void;
@@ -41,6 +45,11 @@ export const NowPlaying = ({
   cover: string | undefined;
   /** That cover's vibrant colour, or null while it is unknown. */
   accent: string | null;
+  /** The window buttons, rendered inside the song row: the header is gone. */
+  pinned: boolean;
+  onTogglePinned: () => void;
+  onToggleCollapsed: () => void;
+  onClose: () => void;
 }) => {
   const { song, queue, index, lyrics, relatedId, relatedTitle, shuffle, loop, playing, position, duration } = state;
   const [tab, setTab] = useState<Tab>("lyrics");
@@ -79,22 +88,22 @@ export const NowPlaying = ({
       {song ? (
         <>
           <div
-            className="relative flex shrink-0 items-center gap-3 px-4 pb-2 pt-4"
+            className="pywebview-drag-region relative flex shrink-0 items-center gap-3 px-4 pb-2 pt-4"
             onContextMenu={(event) => {
               event.preventDefault();
               openCurrentMenu(event.clientX, event.clientY);
             }}
           >
             {cover ? (
-              <img src={cover} alt="" className="size-22 shrink-0 rounded-xl object-cover" />
+              <img src={cover} alt="" className="pywebview-drag-region size-22 shrink-0 rounded-xl object-cover" />
             ) : (
               <div className="grid size-22 shrink-0 place-items-center rounded-xl bg-white/[0.06]">
                 <span className="icon-[solar--music-note-linear] text-2xl text-primary-dark" />
               </div>
             )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold leading-5 text-primary">{song.title}</p>
-              <p className="mt-1 truncate text-xs leading-4 text-primary-dark">
+            <div className="pywebview-drag-region min-w-0 flex-1">
+              <p className="pywebview-drag-region truncate text-[15px] font-semibold leading-5 text-primary">{song.title}</p>
+              <p className="pywebview-drag-region mt-1 truncate text-xs leading-4 text-primary-dark">
                 {song.artists.map((artist, artistIndex) => (
                   <span key={`${artist.id}-${artist.name}-${artistIndex}`}>
                     {artistIndex > 0 && ", "}
@@ -112,7 +121,7 @@ export const NowPlaying = ({
                   </span>
                 ))}
               </p>
-              <p className="mt-0.5 truncate text-[11px] leading-4 text-primary-dark/80">
+              <p className="pywebview-drag-region mt-0.5 truncate text-[11px] leading-4 text-primary-dark/80">
                 {song.album?.name && song.album.id ? (
                   <button
                     type="button"
@@ -139,7 +148,7 @@ export const NowPlaying = ({
           </div>
           <PopoutProgress position={position} duration={duration} onSeek={(seconds) => send({ kind: "seek", position: seconds })} />
 
-          <div className="flex shrink-0 items-center justify-center gap-2 py-3">
+          <div className="pywebview-drag-region flex shrink-0 items-center justify-center gap-2 py-3">
             <IconButton
               iconClass="icon-[solar--shuffle-linear]"
               label="Shuffle"
@@ -184,7 +193,7 @@ export const NowPlaying = ({
           </div>
 
           {availableTabs.length > 1 && (
-            <div role="tablist" className="mx-2 mb-2 flex shrink-0 rounded-xl bg-white/[0.05] p-1">
+            <div role="tablist" className="pywebview-drag-region mx-2 mb-2 flex shrink-0 rounded-xl bg-white/[0.05] p-1">
               {availableTabs.map((name) => (
                 <button
                   key={name}
@@ -225,12 +234,23 @@ export const NowPlaying = ({
           </div>
         </>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
-          <span className="icon-[solar--music-notes-linear] text-4xl text-primary-dark/50" />
-          <p className="text-sm font-medium text-primary">Nothing playing</p>
-          <p className="text-xs leading-5 text-primary-dark">Start a song in the main window and it appears here.</p>
+        <div className="pywebview-drag-region flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
+          <span className="pywebview-drag-region icon-[solar--music-notes-linear] text-4xl text-primary-dark/50" />
+          <p className="pywebview-drag-region text-sm font-medium text-primary">Nothing playing</p>
+          <p className="pywebview-drag-region text-xs leading-5 text-primary-dark">Start a song in the main window and it appears here.</p>
         </div>
       )}
+
+      {/* The window controls float at the top-right corner, above the wash. */}
+      <div className="absolute right-1.5 top-1.5 z-20 flex items-center">
+        <WindowButtons
+          pinned={pinned}
+          collapsed={false}
+          onTogglePinned={onTogglePinned}
+          onToggleCollapsed={onToggleCollapsed}
+          onClose={onClose}
+        />
+      </div>
 
       {menu && (
         <TrackMenu

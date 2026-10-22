@@ -3,28 +3,22 @@ import { PyBridge } from "@/lib/api";
 import type { PopoutPrefs } from "@/lib/api/types";
 
 /**
- * The always-on-top player's settings, kept in Python's preferences.json.
+ * The always-on-top player's state, kept in Python's preferences.json.
  *
- * A module-cache singleton instead of a React context: Settings is the only
- * writer of `enabled`, the player bar only needs `enabled` and `open`, and the
- * popout reads `pinned` through its own bridge call. Its collapsed state comes
- * from its own viewport height, which is the one thing that cannot go stale.
+ * A module-cache singleton instead of a React context: the player bar needs
+ * `open` and Settings does not write popout state any more — the button in the
+ * bar is the switch. The popout reads `pinned` through its own bridge call.
+ * Its collapsed state comes from its own viewport height, which is the one
+ * thing that cannot go stale.
  */
 const listeners = new Set<(prefs: PopoutPrefs) => void>();
 let cached: PopoutPrefs | null = null;
 
-const DEFAULT_PREFS: PopoutPrefs = { enabled: false, open: false, pinned: true, collapsed: false };
+const DEFAULT_PREFS: PopoutPrefs = { open: false, pinned: true, collapsed: false };
 
 const publish = (prefs: PopoutPrefs) => {
   cached = prefs;
   for (const listener of listeners) listener(prefs);
-};
-
-/** Turn the feature on or off. Turning it on opens the window. */
-export const setPopoutEnabled = async (enabled: boolean) => {
-  const result = await PyBridge.setPopout(enabled);
-  if (result.success) publish(result.data);
-  return result;
 };
 
 export const openPopout = async () => {

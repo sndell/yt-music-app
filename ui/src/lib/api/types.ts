@@ -478,9 +478,8 @@ export interface DiscordPresenceStatus {
   message: string;
 }
 
-/** The always-on-top player. `open` is live state, the rest is saved. */
+/** The always-on-top player. `open` is live state; off by default, the player bar's button is the switch. */
 export interface PopoutPrefs {
-  enabled: boolean;
   open: boolean;
   pinned: boolean;
   collapsed: boolean;

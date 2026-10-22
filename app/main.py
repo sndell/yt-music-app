@@ -139,28 +139,20 @@ class Api(MusicApi):
 
     @api.read(returns="PopoutPrefs")
     def get_popout(self) -> dict:
-        """Whether the always-on-top player is enabled, open, pinned or collapsed."""
-        return _popout_state()
-
-    @api.read(returns="PopoutPrefs")
-    def set_popout(self, enabled: bool) -> dict:
-        """Turn the always-on-top player on or off, opening or closing its window."""
-        preferences.set_popout(enabled=enabled)
-        if preferences.popout()["enabled"]:
-            popout.open()
-        else:
-            popout.close()
+        """Whether the always-on-top player is open, pinned or collapsed."""
         return _popout_state()
 
     @api.read(returns="PopoutPrefs")
     def open_popout(self) -> dict:
-        """Show the always-on-top player window."""
+        """Show the always-on-top player window, and keep it across launches."""
+        preferences.set_popout(enabled=True)
         popout.open()
         return _popout_state()
 
     @api.read(returns="PopoutPrefs")
     def close_popout(self) -> dict:
-        """Hide the always-on-top player window."""
+        """Hide the always-on-top player window, and keep that across launches."""
+        preferences.set_popout(enabled=False)
         popout.close()
         return _popout_state()
 
@@ -224,7 +216,6 @@ def _popout_state() -> dict:
     """The saved popout settings plus whether its window is up right now."""
     settings = preferences.popout()
     return {
-        "enabled": settings["enabled"],
         "open": popout.is_open,
         "pinned": settings["pinned"],
         "collapsed": settings["collapsed"],
@@ -327,6 +318,13 @@ if __name__ == "__main__":
     # serves or the Vite origin it was handed. The ready hook turns off
     # WebView2's own context menu there too, so a row's right-click menu is the
     # only one that opens.
+    # The popout is frameless and drags from the page: pywebview's default
+    # (`DRAG_REGION_DIRECT_TARGET_ONLY = False`) walks the mousedown target's
+    # ancestors for a drag region, so a button inside one would start a window
+    # move and swallow the click. Direct target only means the drag starts when
+    # the element under the pointer is itself a `.pywebview-drag-region`, which
+    # is how PopoutApp marks its non-interactable surfaces.
+    webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     popout.configure(api, url, _disable_browser_context_menu)
     window = webview.create_window(
         title,
