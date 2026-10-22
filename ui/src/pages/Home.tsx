@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { PyBridge, showCachedThenRefresh, type HomeFeed, type HomeItem, type HomeShelf, type Track } from "@/lib/api";
 import { usePlayer } from "@/features/player";
@@ -146,43 +146,49 @@ export const Home = () => {
         )}
 
         {hasContent && (
-          <div className="flex flex-col gap-10">
-            {shelves.map((shelf) =>
-              shelf.layout === "row" ? (
-                <HomeRow
-                  key={shelf.title}
-                  shelf={shelf}
-                  currentVideoId={currentSong?.videoId}
-                  isMenuTarget={isMenuTarget}
-                  onOpen={openItem}
-                  onPlayAlbum={playAlbum}
-                  onPlayPlaylist={(playlistId) => void playPlaylist(playlistId, "play")}
-                  onOpenMenu={(item, x, y) => {
-                    if (item.kind === "playlist" && item.playlistId) {
-                      setMenu({ kind: "playlist", playlistId: item.playlistId, x, y });
-                      return;
-                    }
-                    if (!item.videoId) return;
-                    setMenu({ kind: "track", track: toTrack(item), x, y });
-                  }}
-                />
-              ) : (
-                <QuickPicks
-                  key={shelf.title}
-                  shelf={shelf}
-                  page={page}
-                  setPage={setPage}
-                  currentVideoId={currentSong?.videoId}
-                  isMenuTarget={isMenuTarget}
-                  onPlayAll={() => playTracks(shelf.items.filter((item) => item.videoId).map(toTrack))}
-                  onOpen={openItem}
-                  onOpenMenu={(item, x, y) => {
-                    if (!item.videoId) return;
-                    setMenu({ kind: "track", track: toTrack(item), x, y });
-                  }}
-                />
-              )
-            )}
+          <div className="flex flex-col gap-6">
+            {shelves.map((shelf, index) => (
+              <Fragment key={shelf.title}>
+                {index > 0 && (
+                  <div
+                    aria-hidden="true"
+                    className="h-px bg-linear-to-r from-transparent via-white/15 to-transparent"
+                  />
+                )}
+                {shelf.layout === "row" ? (
+                  <HomeRow
+                    shelf={shelf}
+                    currentVideoId={currentSong?.videoId}
+                    isMenuTarget={isMenuTarget}
+                    onOpen={openItem}
+                    onPlayAlbum={playAlbum}
+                    onPlayPlaylist={(playlistId) => void playPlaylist(playlistId, "play")}
+                    onOpenMenu={(item, x, y) => {
+                      if (item.kind === "playlist" && item.playlistId) {
+                        setMenu({ kind: "playlist", playlistId: item.playlistId, x, y });
+                        return;
+                      }
+                      if (!item.videoId) return;
+                      setMenu({ kind: "track", track: toTrack(item), x, y });
+                    }}
+                  />
+                ) : (
+                  <QuickPicks
+                    shelf={shelf}
+                    page={page}
+                    setPage={setPage}
+                    currentVideoId={currentSong?.videoId}
+                    isMenuTarget={isMenuTarget}
+                    onPlayAll={() => playTracks(shelf.items.filter((item) => item.videoId).map(toTrack))}
+                    onOpen={openItem}
+                    onOpenMenu={(item, x, y) => {
+                      if (!item.videoId) return;
+                      setMenu({ kind: "track", track: toTrack(item), x, y });
+                    }}
+                  />
+                )}
+              </Fragment>
+            ))}
           </div>
         )}
       </div>
