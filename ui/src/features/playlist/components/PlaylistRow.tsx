@@ -230,7 +230,7 @@ export const PlaylistRow = memo(({
           </div>
         )}
         {showAlbum && showAdded && (
-          <div className="hidden w-28 truncate text-[13px] tabular-nums text-primary-dark/70 transition-opacity duration-200 lg:block group-hover:opacity-0 group-data-[menu-open=true]:opacity-0">
+          <div className="hidden w-28 truncate text-[13px] tabular-nums text-primary-dark/70 lg:block">
             {addedDate ?? ""}
           </div>
         )}
