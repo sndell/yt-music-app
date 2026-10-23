@@ -27,6 +27,10 @@ Grab the latest version from the [Releases page](https://github.com/sndell/yt-mu
 - Discord Rich Presence for the song that is playing
 - Windows media keys for play, pause, next, and previous, including when the window is in the background
 
+<p align="center">
+  <img src="docs/equalizer.png" alt="Settings with the equalizer open: ten faders, bass and treble shelves and a preamp, crossfade choices beside them, and the popout player on the right" width="920">
+</p>
+
 ## Requirements
 
 - Windows 10 or later, with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (already present on current Windows 11)
@@ -80,3 +84,4 @@ The exe has no console. Logs go to `%LOCALAPPDATA%\YTMusic\ytmusic.log`. The Web
 | `build/dist/` | Dated onefile builds. Older folders are left in place |
 
 YTMusic is an independent client. It is not affiliated with YouTube or Google.
+
