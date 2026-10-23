@@ -152,7 +152,10 @@ export const VolumeControl = ({ volume, setVolume }: { volume: number; setVolume
       />
       <div
         className={cn(
-          "absolute bottom-full left-1/2 z-30 -translate-x-1/2",
+          // Above the video/visualizer overlays (z-50): those cover the content
+          // box only, and the slider pops up from the bar next to them, so it
+          // must stay reachable while either is open.
+          "absolute bottom-full left-1/2 z-[60] -translate-x-1/2",
           revealed ? "pb-2" : "pointer-events-none h-0 overflow-hidden"
         )}
       >
