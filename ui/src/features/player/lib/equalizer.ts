@@ -88,6 +88,7 @@ type Graph = {
   bass: BiquadFilterNode;
   treble: BiquadFilterNode;
   bands: BiquadFilterNode[];
+  analyser: AnalyserNode;
 };
 
 /**
@@ -116,6 +117,9 @@ const buildFor = (source: HTMLAudioElement) => {
   const bass = filter("lowshelf", BASS_HZ);
   const treble = filter("highshelf", TREBLE_HZ);
   const bands = EQUALIZER_BANDS.map((hz) => filter("peaking", hz, BAND_Q));
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.5;
 
   let tail: AudioNode;
   try {
@@ -131,9 +135,10 @@ const buildFor = (source: HTMLAudioElement) => {
     tail.connect(node);
     tail = node;
   }
-  tail.connect(ctx.destination);
+  tail.connect(analyser);
+  analyser.connect(ctx.destination);
 
-  const graph = { context: ctx, preamp, bass, treble, bands };
+  const graph = { context: ctx, preamp, bass, treble, bands, analyser };
   (source as unknown as Record<string, Graph>)[GRAPH_KEY] = graph;
   graphs.set(source, graph);
 };
@@ -164,6 +169,23 @@ let resumeBound = false;
 /** A context can be suspended by the OS after a device change; the next tap brings them back. */
 export const resumeEqualizerContexts = () => {
   for (const graph of graphs.values()) if (graph.context.state !== "running") void graph.context.resume();
+};
+
+/**
+ * The analyser tapped onto this element's graph, after the equalizer chain and
+ * before the output, so the visualizer draws the sound that is actually heard.
+ * Null when the element was never captured: the graph is built on the
+ * element's first play, so anything that has not played yet has none.
+ */
+export const audioAnalyser = (audio: HTMLAudioElement | null | undefined): AnalyserNode | null => {
+  if (!audio) return null;
+  let graph = graphs.get(audio);
+  if (!graph) {
+    const adopted = (audio as unknown as Record<string, Graph | undefined>)[GRAPH_KEY];
+    if (!adopted) return null;
+    graph = adopted;
+  }
+  return graph.analyser;
 };
 
 /** Read the stored settings once. Safe to call from every mount. */

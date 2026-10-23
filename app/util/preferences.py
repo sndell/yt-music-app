@@ -183,6 +183,24 @@ class Preferences:
                 logger.exception("Could not save preferences")
         return enabled
 
+    def visualizer(self) -> bool:
+        with self._lock:
+            return _boolean(self._values.get("visualizer")) is True
+
+    def set_visualizer(self, value: object) -> bool:
+        enabled = _boolean(value)
+        if enabled is None:
+            return self.visualizer()
+        with self._lock:
+            if self._values.get("visualizer") == enabled:
+                return enabled
+            self._values["visualizer"] = enabled
+            try:
+                self._save()
+            except OSError:
+                logger.exception("Could not save preferences")
+        return enabled
+
     def equalizer(self) -> dict[str, Any]:
         with self._lock:
             stored = _equalizer(self._values.get("equalizer"))

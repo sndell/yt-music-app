@@ -66,6 +66,9 @@ export const PlayerControls = ({
   hasVideo,
   videoOpen,
   onToggleVideo,
+  hasVisualizer,
+  visualizerOpen,
+  onToggleVisualizer,
   popoutOpen,
   onTogglePopout,
   shuffle,
@@ -90,6 +93,9 @@ export const PlayerControls = ({
   hasVideo: boolean;
   videoOpen: boolean;
   onToggleVideo: () => void;
+  hasVisualizer: boolean;
+  visualizerOpen: boolean;
+  onToggleVisualizer: () => void;
   popoutOpen: boolean;
   onTogglePopout: () => void;
   shuffle: boolean;
@@ -254,6 +260,16 @@ export const PlayerControls = ({
             tone={videoOpen ? "active" : "ghost"}
             iconScale="dense"
             onClick={onToggleVideo}
+          />
+        )}
+        {hasVisualizer && (
+          <IconButton
+            iconClass="icon-[solar--soundwave-linear]"
+            label={visualizerOpen ? "Hide visualizer" : "Show visualizer"}
+            size="md"
+            tone={visualizerOpen ? "active" : "ghost"}
+            iconScale="dense"
+            onClick={onToggleVisualizer}
           />
         )}
         <IconButton

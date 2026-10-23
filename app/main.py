@@ -98,6 +98,16 @@ class Api(MusicApi):
         """Save the horizontal icon nav choice and return the stored value."""
         return preferences.set_horizontal_nav(enabled)
 
+    @api.read(returns="boolean")
+    def get_visualizer(self) -> bool:
+        """Whether the audio visualizer offers its button in the player bar."""
+        return preferences.visualizer()
+
+    @api.read(returns="boolean")
+    def set_visualizer(self, enabled: bool) -> bool:
+        """Save the audio visualizer choice and return the stored value."""
+        return preferences.set_visualizer(enabled)
+
     @api.read(returns="number")
     def set_volume(self, volume: int) -> int:
         """Save the player volume and return the stored value."""

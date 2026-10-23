@@ -94,6 +94,8 @@ export const PyBridge = {
   getSongTempo: (videoId: string) => callPython("get_song_tempo", videoId),
   /** The running version and the newest published release. */
   getUpdateStatus: () => callPython("get_update_status"),
+  /** Whether the audio visualizer offers its button in the player bar. */
+  getVisualizer: () => callPython("get_visualizer"),
   /** Saved player volume, 0-100 on the slider scale. */
   getVolume: () => callPython("get_volume"),
   /** Get a watch playlist for a specific video or playlist. */
@@ -134,6 +136,8 @@ export const PyBridge = {
   setPopoutCollapsed: (collapsed: boolean) => callPython("set_popout_collapsed", collapsed),
   /** Keep the always-on-top player above other windows, or let it sit. */
   setPopoutPinned: (pinned: boolean) => callPython("set_popout_pinned", pinned),
+  /** Save the audio visualizer choice and return the stored value. */
+  setVisualizer: (enabled: boolean) => callPython("set_visualizer", enabled),
   /** Save the player volume and return the stored value. */
   setVolume: (volume: number) => callPython("set_volume", volume),
   /** Return the given track ids in a true-random order. */

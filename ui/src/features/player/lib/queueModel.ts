@@ -68,6 +68,9 @@ export type PlayerContextType = {
   /** Video overlay drawn over the routed content. */
   videoOpen: boolean;
   toggleVideo: () => void;
+  /** Visualizer overlay drawn over the routed content. */
+  visualizerOpen: boolean;
+  toggleVisualizer: () => void;
 };
 
 

@@ -41,6 +41,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [queueRevision, setQueueRevision] = useState(0);
   const [queueFill, setQueueFill] = useState(0);
   const [videoOpen, setVideoOpen] = useState(false);
+  const [visualizerOpen, setVisualizerOpen] = useState(false);
   // A playlist true shuffle reads the whole list before it can draw an order,
   // so the queue panel shows a loader until then instead of a stale queue.
   const [shufflePending, setShufflePending] = useState(false);
@@ -99,6 +100,13 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
   const toggleVideo = useCallback(() => {
     setVideoOpen((open) => !open);
+    // The two overlays paint the same space; one at a time.
+    setVisualizerOpen(false);
+  }, []);
+
+  const toggleVisualizer = useCallback(() => {
+    setVisualizerOpen((open) => !open);
+    setVideoOpen(false);
   }, []);
 
   const loadWatchPlaylist = useCallback(
@@ -983,6 +991,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         currentVideoId,
         videoOpen,
         toggleVideo,
+        visualizerOpen,
+        toggleVisualizer,
       }}
     >
       {children}

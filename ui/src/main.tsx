@@ -13,7 +13,7 @@ import { Album } from "./features/album";
 import { Artist } from "./features/artist";
 import { Search } from "./features/search";
 import { MoodCategory, MoodsGenres, Explore, Charts } from "./features/discovery";
-import { Player, PlayerProvider, QueuePanel, VideoOverlay } from "./features/player";
+import { Player, PlayerProvider, QueuePanel, VideoOverlay, VisualizerOverlay } from "./features/player";
 import { PopoutApp, PopoutBridge } from "./features/popout";
 import { ToastProvider } from "./components/ui/Toast";
 import { installRendererLog } from "./dev/rendererLog";
@@ -54,6 +54,7 @@ const App = () => {
                     </Switch>
                   </div>
                   <VideoOverlay />
+                  <VisualizerOverlay />
                 </div>
                 <QueuePanel />
               </div>

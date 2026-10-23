@@ -12,6 +12,7 @@ import { automixEnabled } from "@/lib/automix";
 import { useCrossfadeSeconds } from "@/lib/crossfade";
 import { PyBridge } from "@/lib/api";
 import { closePopout, openPopout, usePopout } from "@/lib/popout";
+import { useVisualizerEnabled } from "@/lib/visualizerPref";
 import type { Thumbnail, Track } from "@/lib/api/types";
 import { PlayerControls } from "./PlayerControls";
 import { PlayerProgress } from "./PlayerProgress";
@@ -71,10 +72,13 @@ export const Player = () => {
     currentVideoId,
     videoOpen,
     toggleVideo,
+    visualizerOpen,
+    toggleVisualizer,
   } = usePlayer();
   const [isPlaying, setIsPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
   const popout = usePopout();
+  const visualizerEnabled = useVisualizerEnabled();
   const [elapsedTime, setElapsedTime] = useState(0);
   const { showToast } = useToast();
   const [duration, setDuration] = useState(0);
@@ -673,6 +677,12 @@ export const Player = () => {
     return () => window.clearTimeout(timer);
   }, [volume]);
 
+  // Turning the visualizer off in Settings closes the overlay with it, so the
+  // button is never the only exit.
+  useEffect(() => {
+    if (!visualizerEnabled && visualizerOpen) toggleVisualizer();
+  }, [toggleVisualizer, visualizerEnabled, visualizerOpen]);
+
   useEffect(() => {
     const artist = currentSong?.artists.map((item) => item.name).join(", ") ?? "";
     const artwork = currentSong?.thumbnails?.[0]?.url ?? "";
@@ -853,6 +863,9 @@ export const Player = () => {
           hasVideo={Boolean(currentVideoId)}
           videoOpen={videoOpen}
           onToggleVideo={toggleVideo}
+          hasVisualizer={visualizerEnabled}
+          visualizerOpen={visualizerOpen}
+          onToggleVisualizer={toggleVisualizer}
           popoutOpen={popout.open}
           onTogglePopout={() => void (popout.open ? closePopout() : openPopout())}
           shuffle={shuffle}

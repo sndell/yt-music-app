@@ -4,6 +4,7 @@ import { Switch } from "@/components/ui/Switch";
 import { PyBridge } from "@/lib/api";
 import { saveCrossfadeSeconds, useCrossfadeSeconds } from "@/lib/crossfade";
 import { saveHorizontalNav, useHorizontalNav } from "@/lib/horizontalNav";
+import { saveVisualizerEnabled, useVisualizerEnabled } from "@/lib/visualizerPref";
 import { cn } from "@/util/cn";
 import { Dot } from "@/components/ui/Dot";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
@@ -153,6 +154,8 @@ export const Settings = () => {
 
   const horizontalNav = useHorizontalNav();
   const [navWorking, setNavWorking] = useState(false);
+  const visualizer = useVisualizerEnabled();
+  const [visualizerWorking, setVisualizerWorking] = useState(false);
   const crossfade = useCrossfadeSeconds();
   const [crossfadeWorking, setCrossfadeWorking] = useState(false);
 
@@ -160,6 +163,12 @@ export const Settings = () => {
     setNavWorking(true);
     await saveHorizontalNav(enabled);
     setNavWorking(false);
+  };
+
+  const saveVisualizer = async (enabled: boolean) => {
+    setVisualizerWorking(true);
+    await saveVisualizerEnabled(enabled);
+    setVisualizerWorking(false);
   };
 
   const signedInDescription = signedIn
@@ -211,6 +220,18 @@ export const Settings = () => {
                     onChange={(enabled) => void saveNav(enabled)}
                     disabled={navWorking}
                     label="Horizontal navigation"
+                  />
+                }
+              />
+              <SettingsRow
+                title="Visualizer"
+                description="A fullscreen visualization of the playing song, opened and closed from a button in the player bar."
+                control={
+                  <Switch
+                    checked={visualizer}
+                    onChange={(enabled) => void saveVisualizer(enabled)}
+                    disabled={visualizerWorking}
+                    label="Visualizer"
                   />
                 }
               />

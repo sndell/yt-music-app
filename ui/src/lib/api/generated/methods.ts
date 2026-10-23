@@ -117,6 +117,10 @@ export interface ApiMethods {
   get_horizontal_nav: { params: []; response: boolean };
   /** Save the horizontal icon nav choice and return the stored value. */
   set_horizontal_nav: { params: [enabled: boolean]; response: boolean };
+  /** Whether the audio visualizer offers its button in the player bar. */
+  get_visualizer: { params: []; response: boolean };
+  /** Save the audio visualizer choice and return the stored value. */
+  set_visualizer: { params: [enabled: boolean]; response: boolean };
   /** Save the player volume and return the stored value. */
   set_volume: { params: [volume: number]; response: number };
   /** The saved equalizer: on/off, preamp, bass, treble, and each band's gain. */
