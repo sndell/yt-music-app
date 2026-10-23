@@ -3,12 +3,12 @@
 A Windows desktop client for [YouTube Music](https://music.youtube.com). Sign in with your account, browse home, playlists, albums, and artists, and play from a queue that stays in sync with the hardware media keys.
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="YTMusic window with a playlist open, the queue on the right, and a track menu showing Start mix, Play next, and Add to queue" width="920">
+  <img src="docs/screenshot.png" alt="YTMusic window with a playlist page open, the queue panel on the right showing what played, what is playing, and what is next" width="920">
 </p>
 
 ## Download
 
-Grab the latest pre-release from the [Releases page](https://github.com/sndell/yt-music-app/releases). Each release is a single `YTMusic.exe` (onefile) for Windows 10 or later with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+Grab the latest version from the [Releases page](https://github.com/sndell/yt-music-app/releases). Each release is a single `YTMusic.exe` (onefile) for Windows 10 or later with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
 ## Features
 
@@ -19,6 +19,9 @@ Grab the latest pre-release from the [Releases page](https://github.com/sndell/y
 - Queue styles: pick a style (All, Workout, Party, Focus, ...) to retune the up-next list without interrupting the current song
 - Drag to reorder the queue, and reorder tracks in your own playlists
 - Track actions: start a mix, play next, or add to the queue
+- An audio equalizer: ten bands, a 150 Hz bass and a 6 kHz treble shelf, and a manual preamp, running inside the player
+- A crossfade that starts the next song N seconds before this one ends, preloading it so the hand-over costs no network
+- An always-on-top popout player: a small frameless window with the queue, lyrics and related songs while the main window stays in the background
 - Like and dislike, written back to your YouTube Music account
 - Pages paint from cache instantly, then refresh in the background
 - Discord Rich Presence for the song that is playing
