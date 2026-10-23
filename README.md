@@ -6,6 +6,10 @@ A Windows desktop client for [YouTube Music](https://music.youtube.com). Sign in
   <img src="docs/screenshot.png" alt="YTMusic window with a playlist page open, the queue panel on the right showing what played, what is playing, and what is next" width="920">
 </p>
 
+<p align="center">
+  <img src="docs/equalizer.png" alt="Settings with the equalizer open: ten faders, bass and treble shelves and a preamp, crossfade choices beside them, and the popout player on the right" width="920">
+</p>
+
 ## Download
 
 Grab the latest version from the [Releases page](https://github.com/sndell/yt-music-app/releases). Each release is a single `YTMusic.exe` (onefile) for Windows 10 or later with the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
@@ -26,10 +30,6 @@ Grab the latest version from the [Releases page](https://github.com/sndell/yt-mu
 - Pages paint from cache instantly, then refresh in the background
 - Discord Rich Presence for the song that is playing
 - Windows media keys for play, pause, next, and previous, including when the window is in the background
-
-<p align="center">
-  <img src="docs/equalizer.png" alt="Settings with the equalizer open: ten faders, bass and treble shelves and a preamp, crossfade choices beside them, and the popout player on the right" width="920">
-</p>
 
 ## Requirements
 
