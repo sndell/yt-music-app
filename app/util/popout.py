@@ -105,7 +105,7 @@ class PopoutWindow:
         return self._window is not None
 
     def restore(self) -> None:
-        """Open the window at startup when the feature is enabled."""
+        """Open the window at startup when the player last left it open."""
         if preferences.popout()["enabled"]:
             self.open()
 

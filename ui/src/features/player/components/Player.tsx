@@ -853,7 +853,6 @@ export const Player = () => {
           hasVideo={Boolean(currentVideoId)}
           videoOpen={videoOpen}
           onToggleVideo={toggleVideo}
-          popoutEnabled={popout.enabled}
           popoutOpen={popout.open}
           onTogglePopout={() => void (popout.open ? closePopout() : openPopout())}
           shuffle={shuffle}

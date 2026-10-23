@@ -37,7 +37,7 @@ export const PopoutQueue = ({
 
   if (queue.length === 0) {
     return (
-      <p className="px-8 py-10 text-center text-xs leading-5 text-primary-dark">
+      <p className="pywebview-drag-region px-8 py-10 text-center text-xs leading-5 text-primary-dark">
         Nothing queued. Play a song and its queue lands here.
       </p>
     );

@@ -123,12 +123,16 @@ def _bounds(value: object) -> dict[str, int]:
 def _popout(value: object) -> dict[str, Any]:
     """The popout settings with every default filled in.
 
-    `pinned` defaults on, so a missing value means "above other windows". The
-    window's open state is not stored: the feature being enabled is what brings
-    it back, which keeps shutdown order from deciding the next launch.
+    `enabled` defaults off and has no Settings row: the player bar's popout
+    button is the switch, and open/close store it, so a launch reopens the
+    window only when it was open. That keeps the shutdown order from deciding
+    the next start. `pinned` defaults on, so a missing value means "above
+    other windows".
     """
     stored = value if isinstance(value, dict) else {}
     return {
+        # Off by default: the player bar's button is the only switch, and it
+        # writes this when it opens and closes the window.
         "enabled": _boolean(stored.get("enabled")) is True,
         "pinned": _boolean(stored.get("pinned")) is not False,
         "collapsed": _boolean(stored.get("collapsed")) is True,

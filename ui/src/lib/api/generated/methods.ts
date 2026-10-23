@@ -131,13 +131,11 @@ export interface ApiMethods {
   get_automix: { params: []; response: boolean };
   /** Save the beat-aligned blend choice and return the stored value. */
   set_automix: { params: [enabled: boolean]; response: boolean };
-  /** Whether the always-on-top player is enabled, open, pinned or collapsed. */
+  /** Whether the always-on-top player is open, pinned or collapsed. */
   get_popout: { params: []; response: PopoutPrefs };
-  /** Turn the always-on-top player on or off, opening or closing its window. */
-  set_popout: { params: [enabled: boolean]; response: PopoutPrefs };
-  /** Show the always-on-top player window. */
+  /** Show the always-on-top player window, and keep it across launches. */
   open_popout: { params: []; response: PopoutPrefs };
-  /** Hide the always-on-top player window. */
+  /** Hide the always-on-top player window, and keep that across launches. */
   close_popout: { params: []; response: PopoutPrefs };
   /** Keep the always-on-top player above other windows, or let it sit. */
   set_popout_pinned: { params: [pinned: boolean]; response: PopoutPrefs };

@@ -66,7 +66,6 @@ export const PlayerControls = ({
   hasVideo,
   videoOpen,
   onToggleVideo,
-  popoutEnabled,
   popoutOpen,
   onTogglePopout,
   shuffle,
@@ -91,8 +90,6 @@ export const PlayerControls = ({
   hasVideo: boolean;
   videoOpen: boolean;
   onToggleVideo: () => void;
-  /** The always-on-top player is enabled in Settings. */
-  popoutEnabled: boolean;
   popoutOpen: boolean;
   onTogglePopout: () => void;
   shuffle: boolean;
@@ -259,16 +256,14 @@ export const PlayerControls = ({
             onClick={onToggleVideo}
           />
         )}
-        {popoutEnabled && (
-          <IconButton
-            iconClass="icon-[lucide--picture-in-picture-2]"
-            label={popoutOpen ? "Close the player popout" : "Open the player popout"}
-            size="md"
-            tone={popoutOpen ? "active" : "ghost"}
-            iconScale="dense"
-            onClick={onTogglePopout}
-          />
-        )}
+        <IconButton
+          iconClass="icon-[lucide--picture-in-picture-2]"
+          label={popoutOpen ? "Close the player popout" : "Open the player popout"}
+          size="md"
+          tone={popoutOpen ? "active" : "ghost"}
+          iconScale="dense"
+          onClick={onTogglePopout}
+        />
         <IconButton
           iconClass={cn(
             "icon-[solar--alt-arrow-up-bold] transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
