@@ -178,6 +178,11 @@ class Api(MusicApi):
         """The running version and the newest published release."""
         return updates.status()
 
+    @api.read(returns="UpdateHistory")
+    def get_update_history(self) -> dict:
+        """Every published release, newest first, and what each change was."""
+        return updates.history()
+
     @api.read(returns="UpdateInstall")
     def install_update(self) -> dict:
         """Download the newest release, replace this exe with it, and restart."""

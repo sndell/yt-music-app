@@ -67,6 +67,7 @@ class Release:
 
 _LOCK = threading.Lock()
 _release: Release | None = None
+_history: list[dict] = []
 _error = ""
 _checked_at = 0.0
 
@@ -93,6 +94,17 @@ def status() -> dict:
         "url": release.url if release else "",
         "error": error,
     }
+
+
+def history() -> dict:
+    """Every published version, newest first, with what its notes describe.
+
+    Comes from the same release list the update check reads, so opening the
+    history costs no request when the check has already run.
+    """
+    _latest()
+    with _LOCK:
+        return {"releases": list(_history), "error": _error}
 
 
 def warm() -> None:
@@ -166,7 +178,7 @@ def update_dir() -> Path:
 
 def _latest() -> tuple[Release | None, str]:
     """The newest release, from the cached check or a fresh one."""
-    global _release, _error, _checked_at
+    global _release, _history, _error, _checked_at
 
     with _LOCK:
         now = time.time()
@@ -175,7 +187,9 @@ def _latest() -> tuple[Release | None, str]:
         if _error and now - _checked_at < ERROR_TTL:
             return None, _error
         try:
-            _release = _fetch_latest()
+            payload = _fetch_releases()
+            _history = _parse_history(payload)
+            _release = _pick_latest(payload)
             _error = ""
         except Exception as exc:  # offline, rate limited, or a shape we cannot read
             _release = None
@@ -185,11 +199,14 @@ def _latest() -> tuple[Release | None, str]:
         return _release, _error
 
 
-def _fetch_latest() -> Release:
+def _fetch_releases() -> list:
     payload = _get_json(RELEASES_URL, CHECK_TIMEOUT)
     if not isinstance(payload, list):
         raise RuntimeError("GitHub returned an unexpected release list.")
+    return payload
 
+
+def _pick_latest(payload: list) -> Release:
     found: list[tuple[tuple[int, int, int], Release]] = []
     for item in payload:
         if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
@@ -218,6 +235,136 @@ def _fetch_latest() -> Release:
     if not found:
         raise RuntimeError("No release has a YTMusic.exe asset.")
     return max(found, key=lambda pair: pair[0])[1]
+
+
+def _parse_history(payload: list) -> list[dict]:
+    found: list[tuple[tuple[int, int, int], dict]] = []
+    for item in payload:
+        if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
+            continue
+        tag = str(item.get("tag_name") or "")
+        key = _version_key(tag)
+        if key is None:
+            continue
+        summary, changes = _notes(str(item.get("body") or ""))
+        found.append(
+            (
+                key,
+                {
+                    "version": tag.lstrip("v"),
+                    "date": str(item.get("published_at") or ""),
+                    "url": str(item.get("html_url") or ""),
+                    "summary": summary,
+                    "changes": changes,
+                },
+            )
+        )
+    found.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _, entry in found]
+
+
+# A trailing "([#77](...), [abc1234](...))" credit list after a title.
+_CREDITS = re.compile(r"\s*\((?:\[[^\]]*\]\([^)]*\)(?:\s*,\s*)?)+\)")
+_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_ORPHAN_SPACE = re.compile(r"\s+([.,;:!?])")
+
+
+def _plain(text: str) -> str:
+    """The words of a line of notes, without the markup a dialog cannot show.
+
+    Credits go first, while the links that make them a credit list are still
+    there; replacing a link with its label first would leave "(#77, #78)".
+    """
+    text = _CREDITS.sub("", text)
+    text = _LINK.sub(r"\1", text).replace("**", "").replace("`", "")
+    return " ".join(_ORPHAN_SPACE.sub(r"\1", text).split())
+
+
+def _split_bullet(raw: str) -> tuple[str, str]:
+    """The title a bullet leads with, and the sentence that explains it.
+
+    The notes have used "**Title.** explanation" and "**Title** ([#7](…)):
+    explanation". A bullet with no title of its own keeps all its words.
+    """
+    if raw.startswith("**"):
+        end = raw.find("**", 2)
+        if end > 2:
+            title = _plain(raw[2:end]).rstrip(" .:")
+            rest = _plain(raw[end + 2 :]).lstrip(" .:—–-")
+            return title, rest
+    text = _plain(raw)
+    head, sep, tail = text.partition(": ")
+    if sep and len(head) <= 60:
+        return head.rstrip(" ."), tail
+    return text, ""
+
+
+def _notes(body: str) -> tuple[str, list[dict]]:
+    """A release's notes as an opening sentence and the changes it lists.
+
+    The notes have used two shapes: a `### Heading` with a paragraph under it,
+    and a bullet that leads with a bold title. Reading both into a title and the
+    sentence that explains it is what lets the dialog say what a change means
+    instead of only naming it. The Install section closes every release and is
+    not a change.
+    """
+    summary: list[str] = []
+    changes: list[dict] = []
+    # The change the paragraphs that follow are explaining.
+    owner: dict | None = None
+    minor = False
+
+    for raw in body.replace("﻿", "").splitlines():
+        line = raw.strip()
+        if line.lower().startswith("## install"):
+            break
+        if line.startswith("## "):
+            # "## What's new since v0.4.2" is a label, not a change; the oldest
+            # release opened its extra list with "## Also included" instead.
+            if _plain(line[3:]).lower() == "also included":
+                minor = True
+            owner = None
+            continue
+        if line.startswith("### "):
+            text = _plain(line[4:])
+            if text.lower() == "also included":
+                minor = True
+                owner = None
+                continue
+            owner = {"title": text, "detail": "", "minor": False}
+            changes.append(owner)
+            continue
+        if line.startswith(("- ", "* ")):
+            raw_item = line[2:].strip()
+            if minor:
+                # A smaller item is one short line in the notes; splitting it
+                # would leave a title with no explanation under it.
+                item = {"title": _plain(raw_item), "detail": "", "minor": True}
+                changes.append(item)
+                owner = None
+                continue
+            title, detail = _split_bullet(raw_item)
+            if not title:
+                continue
+            item = {"title": title, "detail": detail, "minor": False}
+            changes.append(item)
+            owner = None if detail else item
+            continue
+        if not line:
+            continue
+        text = _plain(line)
+        if owner is not None:
+            owner["detail"] = f"{owner['detail']} {text}".strip()
+        elif not changes:
+            # A paragraph before the first change opens the release.
+            summary.append(text)
+
+    for change in changes:
+        # A detail taken from after a title's colon continues that sentence.
+        detail = change["detail"]
+        if detail[:1].islower():
+            change["detail"] = detail[:1].upper() + detail[1:]
+    return " ".join(summary), changes
 
 
 def _exe_asset(release: dict) -> dict | None:

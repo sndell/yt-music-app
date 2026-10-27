@@ -2,7 +2,7 @@
 // app/features/music_api.py and app/main.py. Do not edit.
 // Regenerate: python app\dev\contract.py
 
-import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioSample, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, EqualizerSettings, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PopoutPrefs, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, SongTempo, Track, TranslatedLyrics, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
+import type { AlbumDetails, ArtistDetails, ArtistRelease, AudioSample, AudioStream, Charts, DevLogEntry, DiscordPresenceStatus, EqualizerSettings, ExploreFeed, HomeFeed, LibraryAlbums, LibraryArtists, LibraryPlaylists, LibrarySongs, LikeStatus, Lyrics, MoodCategories, MoodPlaylists, PlaylistDetails, PlaylistItemRef, PlaylistPage, PlaylistPatch, PlaylistPrivacy, PopoutPrefs, QuickPicks, RelatedSection, SearchFilter, SearchResult, SearchScope, SearchSuggestion, SongTempo, Track, TranslatedLyrics, UpdateHistory, UpdateInstall, UpdateStatus, WatchPlaylist, WatchTunerChip } from "../types";
 
 export interface ApiMethods {
   /** Vibrant cover color for the queue wash. */
@@ -145,6 +145,8 @@ export interface ApiMethods {
   focus_main: { params: []; response: void };
   /** The running version and the newest published release. */
   get_update_status: { params: []; response: UpdateStatus };
+  /** Every published release, newest first, and what each change was. */
+  get_update_history: { params: []; response: UpdateHistory };
   /** Download the newest release, replace this exe with it, and restart. */
   install_update: { params: []; response: UpdateInstall };
 }

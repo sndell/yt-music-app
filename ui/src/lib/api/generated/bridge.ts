@@ -92,6 +92,8 @@ export const PyBridge = {
   getSongRelated: (relatedId: string) => callPython("get_song_related", relatedId),
   /** The beat estimate kept for a song, or null when it has never been measured. */
   getSongTempo: (videoId: string) => callPython("get_song_tempo", videoId),
+  /** Every published release, newest first, and what each change was. */
+  getUpdateHistory: () => callPython("get_update_history"),
   /** The running version and the newest published release. */
   getUpdateStatus: () => callPython("get_update_status"),
   /** Saved player volume, 0-100 on the slider scale. */
