@@ -40,6 +40,21 @@ _DEFAULT_CLIENT_ID = "1558993268094668981"
 _VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
 _MAX_IMAGE_LEN = 256
 _MIN_INTERVAL = 1.0
+# Discord takes five SET_ACTIVITY calls per twenty seconds for one user and app,
+# and drops anything past that with no error frame. A skipped-through queue
+# would otherwise leave the card on a song two tracks back with nothing in the
+# log to explain it.
+_RATE_LIMIT = 5
+_RATE_WINDOW = 20.0
+# Re-sending the same activity proves the pipe is still there and keeps the card
+# from ageing out, and costs one call of the five the window allows.
+_KEEPALIVE = 20.0
+# A refused payload is retried, but not on every tick.
+_REJECT_BACKOFF = 5.0
+# pypresence times out opening the pipe, then waits on the handshake reply with
+# no deadline of its own.
+_CONNECT_TIMEOUT = 12.0
+_MAX_IMAGE_MEMO = 256
 _IDLE = object()
 
 # Pipe errors mean Discord is not running, or it restarted. They are not fatal.
@@ -135,12 +150,9 @@ def _listen_url(video_id: str) -> str | None:
     return None
 
 
-def _image_key(track: dict[str, Any], mode: int) -> str | None:
-    """mode 0 is the cover URL, mode 1 is Discord's external-image proxy form."""
-    if mode >= 2:
-        return None
-    url = cover_url(str(track.get("artwork") or ""), str(track.get("video_id") or ""))
-    if not url:
+def _image_form(url: str | None, mode: int) -> str | None:
+    """The image key Discord takes: the cover URL (0), its proxy form (1), or none."""
+    if not url or mode >= 2:
         return None
     if mode == 0:
         return url
@@ -151,9 +163,8 @@ def _image_key(track: dict[str, Any], mode: int) -> str | None:
     return proxied
 
 
-def _payload(track: dict[str, Any], *, buttons: bool, image_mode: int) -> dict[str, Any]:
+def _payload(track: dict[str, Any], *, buttons: bool, image: str | None) -> dict[str, Any]:
     url = _listen_url(str(track["video_id"]))
-    image = _image_key(track, image_mode)
     details = _clip(str(track["title"]), 128) or "YouTube Music"
     payload: dict[str, Any] = {
         "activity_type": ActivityType.LISTENING,
@@ -170,9 +181,11 @@ def _payload(track: dict[str, Any], *, buttons: bool, image_mode: int) -> dict[s
         # artist line, so a caption would show it a second time.
     # pypresence 4 documents these as unix milliseconds.
     if track["playing"]:
-        now_ms = int(time.time() * 1000)
+        # Anchored when the page reported the position, not when the pipe got
+        # around to sending it: after a reconnect or a wait on the rate window
+        # the bar would otherwise jump backwards.
         elapsed_ms = int(float(track["elapsed"]) * 1000)
-        start = now_ms - elapsed_ms
+        start = int(float(track["started_at"]) * 1000)
         payload["start"] = start
         duration_ms = int(float(track["duration"]) * 1000)
         if duration_ms > elapsed_ms + 500:
@@ -195,6 +208,12 @@ def _track_key(track: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _desired_key(desired: dict[str, Any] | None | object) -> tuple[Any, ...] | None:
+    if desired is _IDLE:
+        return None
+    return ("clear",) if desired is None else _track_key(desired)
+
+
 class DiscordPresence:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -208,6 +227,7 @@ class DiscordPresence:
         self._desired: dict[str, Any] | None | object = _IDLE
         self._epoch = 0
         self._rejected = ""
+        self._wedged = False
         self._load()
         self._thread = threading.Thread(target=self._loop, name="discord-presence", daemon=True)
         self._thread.start()
@@ -229,6 +249,7 @@ class DiscordPresence:
         with self._lock:
             self._enabled = turned_on
             self._rejected = ""
+            self._wedged = False
             self._epoch += 1
             self._connected = False
             if self._enabled:
@@ -277,6 +298,9 @@ class DiscordPresence:
                     "duration": length,
                     "artwork": str(artwork or "").strip(),
                     "video_id": str(video_id or "").strip(),
+                    # The wall clock this position belongs to, so a publish that
+                    # waits does not draw the bar from a stale position.
+                    "started_at": time.time() - position,
                 }
                 # A paused song is not shown at all. Discord would otherwise keep
                 # a frozen progress bar and the old track on screen after a pause.
@@ -286,6 +310,16 @@ class DiscordPresence:
             logger.exception("Ignored a bad Discord presence update")
             return
         with self._lock:
+            # The same song sent again (a re-render, a repeated tick) keeps the
+            # anchor it already had, so a keepalive republish cannot nudge the
+            # progress bar.
+            previous = self._desired
+            if (
+                isinstance(previous, dict)
+                and isinstance(desired, dict)
+                and _track_key(previous) == _track_key(desired)
+            ):
+                desired["started_at"] = previous["started_at"]
             self._desired = desired
         self._wake.set()
 
@@ -342,7 +376,12 @@ class DiscordPresence:
         self._shown = False
         self._sent_key: tuple[Any, ...] | None = None
         self._sent_epoch = -1
+        self._keepalive_at = 0.0
+        self._failed_key: tuple[Any, ...] | None = None
+        self._retry_at = 0.0
         self._last_ipc = 0.0
+        self._slots: list[float] = []
+        self._image_modes: dict[str, int] = {}
         self._backoff = 2.0
         self._reported_wait = False
         self._allow_buttons = True
@@ -354,7 +393,7 @@ class DiscordPresence:
             if self._stop.is_set():
                 break
             try:
-                self._tick()
+                delay = self._tick()
             except _Retry as exc:
                 delay = exc.delay
             except Exception:
@@ -364,7 +403,7 @@ class DiscordPresence:
                 delay = 15
         self._drop(clear=True)
 
-    def _tick(self) -> None:
+    def _tick(self) -> float | None:
         with self._lock:
             enabled = self._enabled
             client_id = self._client_id
@@ -375,28 +414,31 @@ class DiscordPresence:
             self._sent_key = None
             self._sent_epoch = -1
             self._drop(clear=True)
-            return
-        if rejected == client_id:
-            return
+            return None
+        if rejected == client_id or self._wedged:
+            return None
+        if self._failed_key is not None:
+            key = _desired_key(desired)
+            if key == self._failed_key and time.monotonic() < self._retry_at:
+                return max(0.5, self._retry_at - time.monotonic())
+            self._failed_key = None
         try:
             if not self._ensure(client_id):
-                return
-            self._publish_desired(desired, epoch, client_id)
+                return None
+            return self._publish_desired(desired, epoch, client_id)
         except InvalidID:
             with self._lock:
                 self._rejected = client_id
             self._drop(clear=False)
             self._set("invalid", "Discord rejected this app's application ID.")
             logger.warning("Discord rejected the application ID")
-        except _UNAVAILABLE:
+            return None
+        except _UNAVAILABLE as exc:
             self._drop(clear=False)
             if not self._reported_wait:
-                logger.info("Discord rich presence is waiting for the desktop app")
+                logger.info("Discord rich presence is waiting: %s", exc)
                 self._reported_wait = True
-            self._set(
-                "waiting",
-                "Discord isn't open. Start the desktop app and this will connect on its own.",
-            )
+            self._set("waiting", "Discord isn't reachable. If the desktop app is already open, restart it.")
             delay = self._backoff
             self._backoff = min(30.0, self._backoff * 2)
             raise _Retry(delay)
@@ -408,7 +450,7 @@ class DiscordPresence:
         self._set("connecting", "Connecting to Discord...")
         rpc = Presence(str(client_id), connection_timeout=8, response_timeout=8)
         try:
-            rpc.connect()
+            self._connect(rpc)
         except Exception:
             self._close_rpc(rpc)
             raise
@@ -426,19 +468,80 @@ class DiscordPresence:
         logger.info("Discord rich presence connected")
         return True
 
-    def _publish_desired(self, desired: dict[str, Any] | None | object, epoch: int, client_id: str) -> None:
+    def _connect(self, rpc: Presence) -> None:
+        """Connect on a deadline of our own, because the handshake has none.
+
+        pypresence times out opening the pipe and then reads the 8-byte
+        handshake reply with nothing to stop it waiting. A client that accepts
+        the pipe and says nothing would park this thread for the rest of the
+        session: the row would sit on "Connecting" and every song would go
+        nowhere. The attempt is abandoned instead, and the wedge is remembered
+        so the retries do not pile up threads; toggling the switch clears it.
+        """
+        error: list[BaseException] = []
+        done = threading.Event()
+
+        def run() -> None:
+            try:
+                rpc.connect()
+            except BaseException as exc:  # noqa: BLE001 - re-raised from here
+                error.append(exc)
+            finally:
+                done.set()
+
+        threading.Thread(target=run, name="discord-connect", daemon=True).start()
+        if not done.wait(_CONNECT_TIMEOUT):
+            self._wedged = True
+            logger.warning(
+                "Discord accepted the connection but never answered the handshake; "
+                "not retrying until the setting is turned off and on"
+            )
+            raise ConnectionTimeout
+        if error:
+            raise error[0]
+
+    def _take_slot(self) -> None:
+        """Spend one of Discord's calls, or say how long to wait for one.
+
+        Discord takes five SET_ACTIVITY calls per twenty seconds for one user
+        and app and drops the rest without an error, so a queue skipped through
+        quickly would leave the card on an old song and nothing in the log.
+        """
+        now = time.monotonic()
+        if self._last_ipc and now - self._last_ipc < _MIN_INTERVAL:
+            raise _Retry(_MIN_INTERVAL - (now - self._last_ipc))
+        self._slots = [slot for slot in self._slots if now - slot < _RATE_WINDOW]
+        if len(self._slots) >= _RATE_LIMIT:
+            raise _Retry(_RATE_WINDOW - (now - self._slots[0]) + 0.2)
+        self._slots.append(now)
+        self._last_ipc = now
+
+    def _remember_image(self, url: str, mode: int) -> None:
+        """Keep the form Discord took for this cover, so it is not rediscovered.
+
+        Without it every publish of a song whose cover Discord refuses spends
+        two or three calls finding that out again, against the same five the
+        rate window allows.
+        """
+        if len(self._image_modes) >= _MAX_IMAGE_MEMO:
+            self._image_modes.clear()
+        self._image_modes[url] = mode
+
+    def _publish_desired(
+        self, desired: dict[str, Any] | None | object, epoch: int, client_id: str
+    ) -> float | None:
         if desired is _IDLE:
             self._mark_connected(client_id)
-            return
-        key = ("clear",) if desired is None else _track_key(desired)
+            return None
+        key = _desired_key(desired)
+        now = time.monotonic()
         if key == self._sent_key and epoch == self._sent_epoch:
-            return
-        since = time.monotonic() - self._last_ipc
-        if self._last_ipc and since < _MIN_INTERVAL:
-            raise _Retry(_MIN_INTERVAL - since)
+            if desired is None or now < self._keepalive_at:
+                return None if desired is None else max(0.5, self._keepalive_at - now)
         try:
             if desired is None:
                 if self._shown and self._rpc is not None:
+                    self._take_slot()
                     self._rpc.clear()
                     logger.info("Discord presence cleared")
                 self._shown = False
@@ -446,16 +549,19 @@ class DiscordPresence:
                 self._publish(desired)
                 self._shown = True
         except ServerError as exc:
+            # Not delivered: leave the key unset so the same song is tried again
+            # rather than the card staying on the previous one for the track.
             logger.warning("Discord rejected presence: %s", exc)
-            self._sent_key = key
-            self._sent_epoch = epoch
-            self._last_ipc = time.monotonic()
+            self._failed_key = key
+            self._retry_at = time.monotonic() + _REJECT_BACKOFF
             self._set("error", "Couldn't update Discord presence.")
-            return
+            return _REJECT_BACKOFF
         self._sent_key = key
         self._sent_epoch = epoch
-        self._last_ipc = time.monotonic()
+        self._failed_key = None
+        self._keepalive_at = time.monotonic() + _KEEPALIVE
         self._mark_connected(client_id)
+        return None if desired is None else _KEEPALIVE
 
     def _mark_connected(self, client_id: str) -> None:
         with self._lock:
@@ -470,10 +576,12 @@ class DiscordPresence:
         if rpc is None:
             raise PipeClosed
         buttons = self._allow_buttons
-        image_mode = 0
+        url = cover_url(str(track.get("artwork") or ""), str(track.get("video_id") or ""))
+        mode = self._image_modes.get(url, 0) if url else 2
         stripped = False
         while True:
-            kwargs = _payload(track, buttons=buttons, image_mode=image_mode)
+            self._take_slot()
+            kwargs = _payload(track, buttons=buttons, image=_image_form(url, mode))
             try:
                 rpc.update(**kwargs)
             except ServerError as exc:
@@ -482,21 +590,26 @@ class DiscordPresence:
                     buttons = False
                     logger.info("Discord presence buttons are not available for this application")
                     continue
-                if image_mode < 2 and kwargs.get("large_image") and any(
+                if mode < 2 and url and any(
                     token in text for token in ("image", "asset", "url", "icon")
                 ):
-                    image_mode += 1
+                    mode += 1
+                    self._remember_image(url, mode)
                     logger.info("Discord cover was rejected (%s); trying another image form", exc)
                     continue
-                if not stripped and (buttons or image_mode < 2):
+                if not stripped and (buttons or mode < 2):
                     buttons = False
-                    image_mode = 2
+                    mode = 2
+                    if url:
+                        self._remember_image(url, mode)
                     stripped = True
                     logger.info("Discord rejected the presence payload (%s); retrying with text only", exc)
                     continue
                 raise
             else:
                 self._allow_buttons = buttons
+                if url:
+                    self._remember_image(url, mode)
                 logger.info(
                     "Discord presence: %s (%s)",
                     track["title"],
