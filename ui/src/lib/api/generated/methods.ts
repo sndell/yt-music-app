@@ -77,8 +77,8 @@ export interface ApiMethods {
   add_song_to_history: { params: [videoId: string]; response: { added: boolean } };
   /** Open YouTube Music, follow the signed-in page, and store its API headers. */
   sign_in: { params: []; response: void };
-  /** Return whether saved YouTube Music headers are on disk. */
-  is_signed_in: { params: []; response: { signedIn: boolean } };
+  /** Whether a sign-in is saved, and whether YouTube stopped accepting it. */
+  is_signed_in: { params: []; response: { signedIn: boolean; expired: boolean } };
   /** Remove saved headers and clear the WebView profile. */
   sign_out: { params: []; response: void };
   /** Move one playlist row with YouTube Music's edit_playlist action. */

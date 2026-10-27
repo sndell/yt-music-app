@@ -104,7 +104,7 @@ export const PyBridge = {
   installUpdate: () => callPython("install_update"),
   /** Invalidate cache for specific playlist IDs. */
   invalidatePlaylistCache: (playlistIds: string[]) => callPython("invalidate_playlist_cache", playlistIds),
-  /** Return whether saved YouTube Music headers are on disk. */
+  /** Whether a sign-in is saved, and whether YouTube stopped accepting it. */
   isSignedIn: () => callPython("is_signed_in"),
   /** Move one playlist row with YouTube Music's edit_playlist action. */
   movePlaylistItem: (playlistId: string, setVideoId: string, beforeSetVideoId: string = "") => callPython("move_playlist_item", playlistId, setVideoId, beforeSetVideoId),

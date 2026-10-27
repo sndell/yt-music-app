@@ -8,6 +8,7 @@ import { cn } from "@/util/cn";
 import { Dot } from "@/components/ui/Dot";
 import type { DiscordPresenceStatus, UpdateStatus } from "@/lib/api/types";
 import { useUpdateStatus } from "@/lib/updateStatus";
+import { useSession } from "@/lib/session";
 import { SettingsAction, SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { EqualizerSection } from "../components/EqualizerSection";
 
@@ -44,7 +45,9 @@ const applyStatus = (
 export const Settings = () => {
   const [signInStatus, setSignInStatus] = useState<"idle" | "working" | "error">("idle");
   const [signInError, setSignInError] = useState<string | null>(null);
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const session = useSession();
+  const signedIn = session?.signedIn ?? null;
+  const expired = session?.expired ?? false;
   const [discordReady, setDiscordReady] = useState(false);
   const [discordWorking, setDiscordWorking] = useState(false);
   const [discordEnabled, setDiscordEnabled] = useState(false);
@@ -68,16 +71,6 @@ export const Settings = () => {
     }
     setUpdateStage("restarting");
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    PyBridge.isSignedIn().then((result) => {
-      if (!cancelled) setSignedIn(result.success ? result.data.signedIn : false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +119,6 @@ export const Settings = () => {
     const result = await PyBridge.signIn();
 
     if (result.success) {
-      setSignedIn(true);
       setSignInStatus("idle");
       notifyAuthChanged();
     } else {
@@ -142,7 +134,6 @@ export const Settings = () => {
     const result = await PyBridge.signOut();
 
     if (result.success) {
-      setSignedIn(false);
       setSignInStatus("idle");
       notifyAuthChanged();
     } else {
@@ -164,7 +155,9 @@ export const Settings = () => {
 
   const signedInDescription = signedIn
     ? "Signed in to YouTube Music."
-    : "Opens YouTube Music to capture the signed-in API request. Log in there if asked; the window closes when the headers are read.";
+    : expired
+      ? "YouTube Music no longer accepts the saved sign-in, so your library and playlists cannot load. Search still works. Sign in again to get them back."
+      : "Opens YouTube Music to capture the signed-in API request. Log in there if asked; the window closes when the headers are read.";
 
   const saveCrossfade = async (seconds: number) => {
     setCrossfadeWorking(true);
@@ -182,7 +175,7 @@ export const Settings = () => {
               <SettingsRow
                 title="YouTube Music"
                 description={signedInDescription}
-                detail={signInStatus === "error" ? signInError : null}
+                detail={signInStatus === "error" ? signInError : expired ? "Session expired." : null}
                 detailTone="error"
                 control={
                   <SettingsAction

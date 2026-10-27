@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import type { PlaylistDetails, PlaylistSummary } from "@/lib/api";
 import { PyBridge } from "@/lib/api";
+import { useSession } from "@/lib/session";
 import { ReorderItem, ReorderList, consumeDragClick } from "@/components/ui/reorder";
 import { PlaylistMenu } from "@/components/ui/PlaylistMenu";
 import { CreatePlaylistDialog } from "@/components/ui/CreatePlaylistDialog";
@@ -34,6 +35,7 @@ type PreviewState = {
 export const SidebarList = () => {
   const { playlists, isLoading, error, fetchPlaylists, createPlaylist, editPlaylist, deletePlaylist } = usePlaylist();
   const { showToast } = useToast();
+  const session = useSession();
   const orderMap = useOrderMap();
   const applyOrderMap = orderMap.apply;
   // Liked Music is pinned to the panel's first row: keep it there even if a
@@ -295,7 +297,9 @@ export const SidebarList = () => {
         {playlists.length === 0 && !isLoading && !error && (
           <div className="grid h-full place-content-center py-4 text-center text-sm text-primary-dark">
             <span className="max-lg:hidden">
-              Playlists will be shown here. Sign in from Settings.{" "}
+              {session?.expired
+                ? "Your session expired. Sign in again from Settings."
+                : "Playlists will be shown here. Sign in from Settings."}{" "}
             </span>
             <button
               type="button"
