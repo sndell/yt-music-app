@@ -6,7 +6,7 @@ import { setActiveAudio } from "../lib/activeAudio";
 import { rampVolumes, type Ramp } from "../lib/volumeRamp";
 import { bytesFromBase64, tempoFromBytes, type Tempo } from "../lib/tempo";
 import { playback } from "../lib/playback";
-import { APP_EVENTS, type AppEvent } from "../lib/appEvents";
+import { onPythonEvent } from "@/lib/pythonEvents";
 import { useToast } from "@/components/ui/Toast";
 import { automixEnabled } from "@/lib/automix";
 import { useCrossfadeSeconds } from "@/lib/crossfade";
@@ -725,20 +725,20 @@ export const Player = () => {
   }, [currentSong, isPlaying, elapsedTime, duration]);
 
   useEffect(() => {
-    window.pythonEvent = (action: string) => {
-      if (!APP_EVENTS.includes(action as AppEvent)) return;
-      const event = action as AppEvent;
-      if (event === "play") {
+    const stops = [
+      onPythonEvent("play", () => {
         playingRef.current = true;
         setIsPlaying(true);
-      } else if (event === "pause") {
+      }),
+      onPythonEvent("pause", () => {
         playingRef.current = false;
         setIsPlaying(false);
-      } else if (event === "next") handleNext();
-      else if (event === "previous") handlePrevious();
-    };
+      }),
+      onPythonEvent("next", () => handleNext()),
+      onPythonEvent("previous", () => handlePrevious()),
+    ];
     return () => {
-      window.pythonEvent = undefined;
+      for (const stop of stops) stop();
     };
   }, [handleNext, handlePrevious]);
 

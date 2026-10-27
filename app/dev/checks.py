@@ -6,7 +6,8 @@ list and exits 0, for the first look before a rule is enforced.
 
 What it checks:
   * the generated TypeScript is current with the Python declarations
-  * the media-key actions Python dispatches equal the actions the UI handles
+  * the events Python dispatches (media keys plus direct dispatch_event
+    calls) equal the events the UI handles
   * only the transport and the dev log forwarder touch window.pywebview
 
 The API contract itself is generated now, so a name or an argument count cannot
@@ -35,7 +36,11 @@ PYWEBVIEW_ALLOWED = {
     "ui/src/types/webview.d.ts",
 }
 
-PY_EVENT_LITERAL = re.compile(r'"([a-z]+)"')
+PY_EVENT_LITERAL = re.compile(r'"([a-zA-Z]+)"')
+# A direct push: a literal event name passed to dispatch_event, called directly
+# or as a Thread target with args.
+PY_DISPATCH = re.compile(r'dispatch_event(?:\(|,\s*args=\()\s*"([a-zA-Z]+)"')
+APP_DIR = ROOT / "app"
 
 # The checkout's venv sits at app/.venv (see start.ps1), inside the tree the
 # cache scan reads, so its site-packages would report every vendored package
@@ -62,7 +67,12 @@ def python_events() -> set[str]:
     match = re.search(r"_COMMANDS\s*=\s*\{([^}]*)\}", text)
     if not match:
         raise SystemExit("no _COMMANDS dict in app/util/media_controls.py")
-    return set(PY_EVENT_LITERAL.findall(match.group(1)))
+    events = set(PY_EVENT_LITERAL.findall(match.group(1)))
+    for path in APP_DIR.rglob("*.py"):
+        if VENV_DIRS.intersection(path.relative_to(APP_DIR).parts):
+            continue
+        events.update(PY_DISPATCH.findall(path.read_text(encoding="utf-8")))
+    return events
 
 
 def ui_events() -> set[str]:

@@ -6,7 +6,7 @@ import { Home } from "./pages/Home";
 import { Sidebar } from "./components/ui/Sidebar";
 import { Library } from "./pages/Library";
 import { History } from "./pages/History";
-import { Settings } from "./features/settings";
+import { SessionNotice, Settings } from "./features/settings";
 import "./styles/globals.css";
 import { Playlist, PlaylistProvider } from "./features/playlist";
 import { Album } from "./features/album";
@@ -59,6 +59,7 @@ const App = () => {
               </div>
               <Player />
               <PopoutBridge />
+              <SessionNotice />
             </div>
           </PlaylistProvider>
         </PlayerProvider>

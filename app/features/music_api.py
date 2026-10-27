@@ -34,6 +34,7 @@ from ytmusicapi.parsers.songs import parse_song_runs
 from util.app_paths import data_dir
 from util.audio_stream import audio_prefix, audio_stream
 from util.get_dominant_color import get_dominant_color_hex
+from util.webview_controller import WebViewController
 from contract.registry import api
 from contract.cache import (
     ALBUM,
@@ -68,6 +69,11 @@ from features.music.playlists import _PlaylistDateCapture, _apply_added_dates, _
 logger = logging.getLogger(__name__)
 
 _BROWSER_JSON_PATH = data_dir() / "browser.json"
+# Where the account menu names the signed-in account; absent when signed out.
+_ACCOUNT_NAME = [
+    "actions", 0, "openPopupAction", "popup", "multiPageMenuRenderer", "header",
+    "activeAccountHeaderRenderer", "accountName", "runs", 0, "text",
+]
 
 # Cached payloads live behind app/contract/cache.py: one family per payload
 # kind, each with its TTL and the shape whose hash becomes the version in its
@@ -551,16 +557,14 @@ def _save_browser_json(headers: dict[str, str]) -> None:
     try:
         tmp_path.write_text(json.dumps(headers, indent=4), encoding="utf-8")
         ytmusic = ytmusicapi.YTMusic(str(tmp_path))
-        try:
-            account = ytmusic.get_account_info()
-        except KeyError:
-            # A signed-out account menu has no activeAccountHeaderRenderer.
-            # ytmusicapi raises KeyError while walking that path.
+        response = ytmusic._send_request("account/account_menu", {})
+        logged_in = _session_logged_in(response)
+        if logged_in is None:
+            logged_in = nav(response, _ACCOUNT_NAME, none_if_absent=True) is not None
+        if not logged_in:
             raise ValueError(
                 "YouTube Music did not accept these headers. The account menu came back signed out."
             )
-        if not account:
-            raise ValueError("YouTube Music did not accept these headers.")
         tmp_path.replace(_BROWSER_JSON_PATH)
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -860,6 +864,26 @@ _auth_lock = threading.Lock()
 _AUTH_CHECK_TTL = 60.0
 
 
+def _session_logged_in(response: dict[str, Any]) -> bool | None:
+    """YouTube's own answer to "is this request signed in", or None when absent.
+
+    The account menu's header is not a reliable signal on its own: a parse
+    failure there looks the same as a dead session. ``responseContext`` carries
+    ``logged_in`` (GFEEDBACK) and ``yt_li`` (CSI) on every response.
+    """
+    context = response.get("responseContext") if isinstance(response, dict) else None
+    seen: set[str] = set()
+    for service in (context or {}).get("serviceTrackingParams") or []:
+        for param in service.get("params") or []:
+            if param.get("key") in ("logged_in", "yt_li"):
+                seen.add(str(param.get("value")))
+    if "1" in seen:
+        return True
+    if "0" in seen:
+        return False
+    return None
+
+
 class MusicApi:
     """API class for interacting with YouTube Music via ytmusicapi.
     
@@ -868,8 +892,12 @@ class MusicApi:
     """
 
     _ytmusic: ytmusicapi.YTMusic | None = None
+    _public_client: ytmusicapi.YTMusic | None = None
     _auth_ok: bool | None = None
     _auth_checked_at: float = 0.0
+    # True once YouTube answered signed out for a saved sign-in. The file stays
+    # on disk; signing in again replaces it and clears this.
+    _session_expired: bool = False
 
     @classmethod
     def _get_ytmusic(cls) -> ytmusicapi.YTMusic:
@@ -888,11 +916,36 @@ class MusicApi:
         return cls._ytmusic
 
     @classmethod
+    def _get_public_ytmusic(cls) -> ytmusicapi.YTMusic:
+        """A client for reads that need no account, such as search.
+
+        The signed-in client when there is a live session, so results match
+        the account's region and language; otherwise a signed-out one.
+        """
+        if _BROWSER_JSON_PATH.exists() and not cls._session_expired:
+            return cls._get_ytmusic()
+        if cls._public_client is None:
+            cls._public_client = ytmusicapi.YTMusic()
+        return cls._public_client
+
+    @classmethod
     def _reset_ytmusic(cls) -> None:
         """Reset the YTMusic instance to force re-initialization."""
         cls._ytmusic = None
         cls._auth_ok = None
         cls._auth_checked_at = 0.0
+        cls._session_expired = False
+
+    @classmethod
+    def _mark_session_expired(cls) -> None:
+        if cls._session_expired:
+            return
+        cls._session_expired = True
+        logger.warning("YouTube Music session expired: the saved sign-in is no longer accepted")
+        # evaluate_js waits on the UI thread; keep it off the API call's thread.
+        threading.Thread(
+            target=WebViewController.dispatch_event, args=("sessionExpired",), daemon=True
+        ).start()
 
     @classmethod
     def _is_authenticated(cls) -> bool:
@@ -903,17 +956,30 @@ class MusicApi:
         this is ever asked, so a warm disk cache works with the network down.
 
         Returns:
-            True if authenticated (get_account_info succeeds), False otherwise.
+            True if YouTube answers the account menu as signed in.
         """
         now = time.monotonic()
         if cls._auth_ok is not None and now - cls._auth_checked_at < _AUTH_CHECK_TTL:
             return cls._auth_ok
         try:
-            account_info = cls._get_ytmusic().get_account_info()
-            ok = account_info is not None
+            ytmusic = cls._get_ytmusic()
+            response = ytmusic._send_request("account/account_menu", {})
+            logged_in = _session_logged_in(response)
+            if logged_in is None:
+                # No flag in the response: fall back to the account header.
+                ok = nav(response, _ACCOUNT_NAME, none_if_absent=True) is not None
+            else:
+                ok = logged_in
+                if not logged_in:
+                    cls._mark_session_expired()
+        except FileNotFoundError:
+            ok = False
         except Exception as e:
+            # A network or server error says nothing about the session.
             logger.warning("Authentication check failed: %s", e)
             ok = False
+        if ok:
+            cls._session_expired = False
         cls._auth_ok = ok
         cls._auth_checked_at = now
         return ok
@@ -1515,7 +1581,8 @@ class MusicApi:
                 active_filter = None
 
             logger.info("Search '%s' (filter=%s, scope=%s, limit=%d)", text, active_filter, active_scope, limit)
-            raw = self._get_ytmusic().search(text, filter=active_filter, scope=active_scope, limit=limit)
+            ytmusic = self._get_ytmusic() if active_scope else self._get_public_ytmusic()
+            raw = ytmusic.search(text, filter=active_filter, scope=active_scope, limit=limit)
             if not isinstance(raw, list):
                 return []
 
@@ -1543,7 +1610,7 @@ class MusicApi:
             text = query.strip() if isinstance(query, str) else ""
             if not text:
                 return []
-            raw = self._get_ytmusic().get_search_suggestions(text)
+            raw = self._get_public_ytmusic().get_search_suggestions(text)
             if not isinstance(raw, list):
                 return []
             return [item for item in raw if isinstance(item, str) and item]
@@ -2634,10 +2701,15 @@ class MusicApi:
         if state["error"]:
             raise ValueError(state["error"])
 
-    @api.read(returns="{ signedIn: boolean }")
+    @api.read(returns="{ signedIn: boolean; expired: boolean }")
     def is_signed_in(self) -> dict[str, bool]:
-        """Return whether saved YouTube Music headers are on disk."""
-        return {"signedIn": _BROWSER_JSON_PATH.is_file()}
+        """Whether a sign-in is saved, and whether YouTube stopped accepting it.
+
+        Makes no request: ``expired`` is what the last account check found.
+        """
+        saved = _BROWSER_JSON_PATH.is_file()
+        expired = saved and self._session_expired
+        return {"signedIn": saved and not expired, "expired": expired}
 
     @api.write(returns="void")
     def sign_out(self) -> None:
@@ -2649,8 +2721,7 @@ class MusicApi:
             _BROWSER_JSON_PATH.unlink(missing_ok=True)
             _BROWSER_JSON_PATH.with_suffix(".json.tmp").unlink(missing_ok=True)
             self._reset_ytmusic()
-            cleared = len(cache)
-            store.clear()
+            cleared = store.clear()
             logger.info("Signed out and cleared %d cached items", cleared)
         except Exception as exc:
             logger.exception("Sign-out failed")
@@ -3041,7 +3112,6 @@ class MusicApi:
         Returns:
             A dict with 'cleared' count of items removed.
         """
-        count = len(cache)
-        store.clear()
+        count = store.clear()
         logger.info("All cache cleared (%d items)", count)
         return {"cleared": count}
