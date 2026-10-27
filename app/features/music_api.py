@@ -857,6 +857,9 @@ def _destroy_sign_in_window(window: Any) -> None:
 
 
 _auth_lock = threading.Lock()
+# The check is a network round trip and, on a stale header set, a hidden page
+# load. One thread answers it while the rest wait on the cached answer.
+_auth_check_lock = threading.Lock()
 
 # `_is_authenticated` asks YouTube for the account, which is a network round
 # trip. A cached read must not pay it before serving from disk, and a burst of
@@ -898,6 +901,10 @@ class MusicApi:
     # True once YouTube answered signed out for a saved sign-in. The file stays
     # on disk; signing in again replaces it and clears this.
     _session_expired: bool = False
+    # True once an automatic recapture was tried and failed. Browser auth has no
+    # refresh token, so a profile that is signed out cannot recover without the
+    # user, and another attempt would only open another hidden window.
+    _refresh_tried: bool = False
 
     @classmethod
     def _get_ytmusic(cls) -> ytmusicapi.YTMusic:
@@ -935,6 +942,31 @@ class MusicApi:
         cls._auth_ok = None
         cls._auth_checked_at = 0.0
         cls._session_expired = False
+        cls._refresh_tried = False
+
+    @classmethod
+    def _refresh_session(cls) -> bool:
+        """Recapture the headers from the saved WebView profile, once.
+
+        The header file is a frozen copy of one request's cookies, and Google
+        rotates the cookies a session needs, so it stops being accepted after a
+        few hours while the profile stays signed in. A page load in that profile
+        mints a fresh set, which is what the hidden sign-in window does; the
+        user should not have to press Sign in for that.
+        """
+        if cls._refresh_tried:
+            return False
+        cls._refresh_tried = True
+        if not _BROWSER_JSON_PATH.exists():
+            return False
+        logger.info("Refreshing YouTube Music sign-in from the saved profile")
+        try:
+            cls._sign_in(reveal_ok=False)
+        except Exception as exc:
+            logger.info("Could not refresh the YouTube Music session: %s", exc)
+            return False
+        logger.info("YouTube Music session refreshed from the saved profile")
+        return True
 
     @classmethod
     def _mark_session_expired(cls) -> None:
@@ -961,28 +993,36 @@ class MusicApi:
         now = time.monotonic()
         if cls._auth_ok is not None and now - cls._auth_checked_at < _AUTH_CHECK_TTL:
             return cls._auth_ok
-        try:
-            ytmusic = cls._get_ytmusic()
-            response = ytmusic._send_request("account/account_menu", {})
-            logged_in = _session_logged_in(response)
-            if logged_in is None:
-                # No flag in the response: fall back to the account header.
-                ok = nav(response, _ACCOUNT_NAME, none_if_absent=True) is not None
-            else:
-                ok = logged_in
-                if not logged_in:
-                    cls._mark_session_expired()
-        except FileNotFoundError:
-            ok = False
-        except Exception as e:
-            # A network or server error says nothing about the session.
-            logger.warning("Authentication check failed: %s", e)
-            ok = False
-        if ok:
-            cls._session_expired = False
-        cls._auth_ok = ok
-        cls._auth_checked_at = now
-        return ok
+        with _auth_check_lock:
+            # A thread that waited on the lock may find the answer already made.
+            now = time.monotonic()
+            if cls._auth_ok is not None and now - cls._auth_checked_at < _AUTH_CHECK_TTL:
+                return cls._auth_ok
+            try:
+                ytmusic = cls._get_ytmusic()
+                response = ytmusic._send_request("account/account_menu", {})
+                logged_in = _session_logged_in(response)
+                if logged_in is None:
+                    # No flag in the response: fall back to the account header.
+                    ok = nav(response, _ACCOUNT_NAME, none_if_absent=True) is not None
+                else:
+                    ok = logged_in
+                    if not logged_in and cls._refresh_session():
+                        response = cls._get_ytmusic()._send_request("account/account_menu", {})
+                        ok = _session_logged_in(response) is True
+                    if not ok:
+                        cls._mark_session_expired()
+            except FileNotFoundError:
+                ok = False
+            except Exception as e:
+                # A network or server error says nothing about the session.
+                logger.warning("Authentication check failed: %s", e)
+                ok = False
+            if ok:
+                cls._session_expired = False
+            cls._auth_ok = ok
+            cls._auth_checked_at = now
+            return ok
 
     @api.read(returns="string | null")
     def get_cover_color(self, image_url: str) -> str | None:
@@ -2384,6 +2424,17 @@ class MusicApi:
         The window stays hidden when a session is already available. It is shown
         only so the user can log in. Closing it cancels.
         """
+        self._sign_in(reveal_ok=True)
+
+    @classmethod
+    def _sign_in(cls, *, reveal_ok: bool) -> None:
+        """Capture API headers from a YouTube Music page load.
+
+        ``reveal_ok=False`` is the automatic refresh: the window stays hidden
+        whatever happens, and a signed-out profile settles as a failure instead
+        of waiting for a login, because a check that runs on its own must not
+        put a window on the screen.
+        """
         if not _auth_lock.acquire(blocking=False):
             raise ValueError("Authentication is already being updated.")
 
@@ -2440,6 +2491,8 @@ class MusicApi:
                     cond.notify_all()
 
             def reveal() -> None:
+                if not reveal_ok:
+                    return
                 with cond:
                     if state["settled"] or state["revealed"]:
                         return
@@ -2528,10 +2581,15 @@ class MusicApi:
                         state["last_error"] = message
                         already_settled = state["settled"]
                     if not already_settled:
-                        reveal()
+                        if reveal_ok:
+                            reveal()
+                        else:
+                            # Nothing on screen to log into: report the reason and
+                            # let the caller decide, instead of waiting here.
+                            settle(message)
                     return False
 
-                self._reset_ytmusic()
+                cls._reset_ytmusic()
                 with cond:
                     state["saved"] = True
                     state["settled"] = True
@@ -2570,7 +2628,10 @@ class MusicApi:
                 loaded = window.events.loaded.is_set()
                 if not loaded:
                     if time.monotonic() - started >= 20:
-                        reveal()
+                        if reveal_ok:
+                            reveal()
+                        else:
+                            settle("YouTube Music did not load.")
                     return
 
                 try:
@@ -2584,7 +2645,10 @@ class MusicApi:
                 if not _is_music_youtube_url(url):
                     if _is_web_url(url):
                         state["saw_signed_out"] = True
-                        reveal()
+                        if reveal_ok:
+                            reveal()
+                        else:
+                            settle("YouTube Music is signed out.")
                     return
 
                 try:
@@ -2600,7 +2664,10 @@ class MusicApi:
                     state["saw_signed_out"] = True
                     state["session_at"] = None
                     state["pushed"] = False
-                    reveal()
+                    if reveal_ok:
+                        reveal()
+                    else:
+                        settle("YouTube Music is signed out.")
                     return
 
                 if state["session_at"] is None:
@@ -2627,6 +2694,12 @@ class MusicApi:
                     if not window.events.loaded.is_set():
                         return
                     if time.monotonic() - float(state["pushed_at"]) < 8:
+                        return
+                    if not reveal_ok:
+                        # Account index 0 is a guess. Never guess on an automatic
+                        # refresh: a different Google account behind the same
+                        # profile would be saved as this app's signed-in one.
+                        settle("YouTube Music did not report an account.")
                         return
                     fallback = {
                         "x-goog-authuser": "0",

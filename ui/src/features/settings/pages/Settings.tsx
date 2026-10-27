@@ -11,6 +11,7 @@ import { useUpdateStatus } from "@/lib/updateStatus";
 import { useSession } from "@/lib/session";
 import { SettingsAction, SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { EqualizerSection } from "../components/EqualizerSection";
+import { ChangelogDialog } from "../components/ChangelogDialog";
 
 /** The lengths offered in Settings, in seconds. Zero leaves each song to end on its own. */
 const CROSSFADE_CHOICES = [0, 3, 6, 9, 12];
@@ -59,6 +60,7 @@ export const Settings = () => {
   const { status: update, error: updateError } = useUpdateStatus();
   const [updateStage, setUpdateStage] = useState<"idle" | "installing" | "restarting">("idle");
   const [installError, setInstallError] = useState<string | null>(null);
+  const [changelogOpen, setChangelogOpen] = useState(false);
 
   const installUpdate = async () => {
     setInstallError(null);
@@ -260,8 +262,9 @@ export const Settings = () => {
                 detail={installError ?? updateError}
                 detailTone="error"
                 control={
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <span className="text-sm tabular-nums text-primary-dark">{update?.current ?? "..."}</span>
+                    <SettingsAction onClick={() => setChangelogOpen(true)}>What&apos;s new</SettingsAction>
                     {update?.available && update.frozen && (
                       <SettingsAction primary onClick={() => void installUpdate()} disabled={updateStage !== "idle"}>
                         {updateStage === "installing"
@@ -278,6 +281,9 @@ export const Settings = () => {
           </div>
         </div>
       </div>
+      {changelogOpen && (
+        <ChangelogDialog current={update?.current ?? ""} onClose={() => setChangelogOpen(false)} />
+      )}
     </div>
   );
 };

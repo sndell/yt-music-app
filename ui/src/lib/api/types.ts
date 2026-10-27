@@ -632,3 +632,32 @@ export interface UpdateInstall {
   version: string;
   restarting: boolean;
 }
+
+/** One line of a release's notes: what changed, and a sentence on what it means. */
+export interface UpdateChange {
+  title: string;
+  /** The explanation under the title, empty when the notes give none. */
+  detail: string;
+  /** A smaller item, from the release's "Also included" list. */
+  minor: boolean;
+}
+
+/** One published release, as its notes describe it. */
+export interface UpdateRelease {
+  /** The tag without its `v`, e.g. `1.0.1`. */
+  version: string;
+  /** ISO timestamp GitHub published it, or empty when the release has none. */
+  date: string;
+  /** The release page on GitHub, for the full notes. */
+  url: string;
+  /** The opening sentence of the notes, empty when they have none. */
+  summary: string;
+  changes: UpdateChange[];
+}
+
+/** Every published release, newest first, for the changelog. */
+export interface UpdateHistory {
+  releases: UpdateRelease[];
+  /** Empty when the check worked; a sentence the dialog can show when it did not. */
+  error: string;
+}
