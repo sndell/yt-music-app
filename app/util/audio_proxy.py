@@ -62,7 +62,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        url, user_agent = entry
+        url, user_agent, video_id = entry
         headers = {"User-Agent": user_agent}
         requested = self.headers.get("Range")
         if requested:
@@ -71,13 +71,24 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             upstream = requests.get(url, headers=headers, stream=True, timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT))
         except requests.RequestException as exc:
-            logger.warning("Audio proxy could not reach the stream: %s", exc)
+            logger.warning("Audio proxy could not reach the stream for %s: %s", video_id, exc)
             self.send_response(502)
             self._cors()
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
 
+        if upstream.status_code >= 400:
+            _mark_refused(url, upstream.status_code)
+            # The stream check passed but the player's own read was refused.
+            # The status reaches the page only as a bare media error, so this
+            # line is the one place that says what googlevideo answered.
+            logger.warning(
+                "Audio proxy: %s upstream HTTP %s for %s",
+                video_id,
+                upstream.status_code,
+                f"Range {requested}" if requested else "the whole file",
+            )
         try:
             self.send_response(upstream.status_code)
             self._cors()
@@ -96,7 +107,7 @@ class _Handler(BaseHTTPRequestHandler):
             # The player seeked away or moved on; nothing is owed to the page.
             pass
         except requests.RequestException as exc:
-            logger.warning("Audio proxy stream ended early: %s", exc)
+            logger.warning("Audio proxy stream for %s ended early: %s", video_id, exc)
         finally:
             upstream.close()
             self.close_connection = True
@@ -106,11 +117,26 @@ class _Handler(BaseHTTPRequestHandler):
 _lock = threading.RLock()
 _server: ThreadingHTTPServer | None = None
 _port = 0
-_streams: dict[str, tuple[str, str]] = {}
+_streams: dict[str, tuple[str, str, str]] = {}
 _tokens: dict[str, str] = {}
+# Upstream URLs googlevideo refused when the player read them, with the status.
+_refused: dict[str, int] = {}
 
 
-def _lookup(path: str) -> tuple[str, str] | None:
+def _mark_refused(url: str, status: int) -> None:
+    with _lock:
+        _refused[url] = status
+        while len(_refused) > _MAX_TOKENS:
+            _refused.pop(next(iter(_refused)))
+
+
+def refused(url: str) -> bool:
+    """Whether the player's read of this upstream URL was refused through the proxy."""
+    with _lock:
+        return url in _refused
+
+
+def _lookup(path: str) -> tuple[str, str, str] | None:
     token = path.rsplit("/", 1)[-1]
     with _lock:
         return _streams.get(token)
@@ -131,7 +157,7 @@ def _start() -> int:
     return _port
 
 
-def url_for(url: str, user_agent: str) -> str:
+def url_for(url: str, user_agent: str, video_id: str) -> str:
     """The loopback URL for one resolved stream, minting a token on first use.
 
     Tokens are keyed by the upstream URL so a cached stream keeps one token for
@@ -143,9 +169,9 @@ def url_for(url: str, user_agent: str) -> str:
         if token is None:
             token = secrets.token_urlsafe(16)
             _tokens[url] = token
-            _streams[token] = (url, user_agent)
+            _streams[token] = (url, user_agent, video_id)
             while len(_streams) > _MAX_TOKENS:
-                stale_token, (stale_url, _) = next(iter(_streams.items()))
+                stale_token, (stale_url, _, _) = next(iter(_streams.items()))
                 _streams.pop(stale_token, None)
                 if _tokens.get(stale_url) == stale_token:
                     _tokens.pop(stale_url, None)

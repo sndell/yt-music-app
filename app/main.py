@@ -47,6 +47,8 @@ from util.ui_server import serve_ui
 from util.webview_controller import WebViewController
 from contract.registry import api
 
+logger = logging.getLogger(__name__)
+
 
 class Api(MusicApi):
     """Main API class exposed to the webview frontend."""
@@ -192,6 +194,21 @@ class Api(MusicApi):
         timer.daemon = True
         timer.start()
         return result
+
+    @api.read(returns="void")
+    def report_playback_error(self, video_id: str, code: int, message: str = "", retried: bool = False) -> None:
+        """Log a media error from the player's audio element.
+
+        A frozen build keeps no page console, so without this a stream that
+        passed the check and then failed in the element leaves no trace.
+        """
+        logger.warning(
+            "Playback error for %s: MediaError %s%s%s",
+            video_id or "?",
+            code,
+            f" ({message})" if message else "",
+            " after a fresh stream" if retried else "; fetching a fresh stream",
+        )
 
     @api.internal(reason="dev renderer log forwarding", dev_only=True, returns="void", params={"entry": "DevLogEntry | null"})
     def dev_log(self, entry: dict | None = None) -> None:

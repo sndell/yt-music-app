@@ -804,7 +804,9 @@ export const Player = () => {
       }
       const videoId = currentSong.videoId;
       if (!node.getAttribute("src") || !videoId) return;
-      if (failedRef.current === videoId) {
+      const retried = failedRef.current === videoId;
+      void PyBridge.reportPlaybackError(videoId, node.error?.code ?? 0, node.error?.message ?? "", retried);
+      if (retried) {
         setIsPlaying(false);
         showToast("Playback failed", "error");
         return;

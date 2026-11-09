@@ -350,9 +350,17 @@ _player_js: str | None = None
 _player_timestamp: int | None = None
 
 _stream_lock = threading.Lock()
-# Expiry, payload and the user agent that URL was verified with, which the local
-# proxy has to replay when it re-fetches the bytes.
-_streams: dict[str, tuple[float, dict[str, Any], str]] = {}
+# Expiry, payload, the user agent that URL was verified with (which the local
+# proxy has to replay when it re-fetches the bytes), and the client that served it.
+_streams: dict[str, tuple[float, dict[str, Any], str, str]] = {}
+# Clients whose URL for a song passed verification and was then refused when the
+# player read it through the proxy. They are tried last for that song for the
+# rest of the session. The verify reads two 2 KB ranges; the player reads the
+# whole file, and on 2026-11-09 a session's web URLs passed the first and failed
+# the second until the user signed in again. The fallback clients send no
+# cookies, so a session that has gone bad cannot refuse them.
+_player_refused: dict[str, set[str]] = {}
+_PLAYER_REFUSED_MAX = 64
 
 
 def _player_source(ytmusic: ytmusicapi.YTMusic) -> tuple[str, str, int]:
@@ -627,11 +635,25 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
     """Return the best direct audio URL for this account and song."""
     now = time.time()
     with _stream_lock:
+        cached = _streams.get(video_id)
+        if cached is not None and audio_proxy.refused(cached[1]["url"]):
+            refused = _player_refused.setdefault(video_id, set())
+            refused.add(cached[3])
+            while len(_player_refused) > _PLAYER_REFUSED_MAX:
+                _player_refused.pop(next(iter(_player_refused)))
+            logger.warning(
+                "Audio stream %s: the player could not read the %s stream; trying other clients first",
+                video_id,
+                cached[3],
+            )
+            _streams.pop(video_id, None)
+            cached = None
         if refresh:
             _streams.pop(video_id, None)
-        cached = _streams.get(video_id)
+            cached = None
         if cached is not None and cached[0] > now:
-            return _proxied(cached[1], cached[2])
+            return _proxied(cached[1], cached[2], video_id)
+        refused_clients = set(_player_refused.get(video_id, ()))
 
     deadline = time.time() + _STREAM_DEADLINE_SECONDS
     timestamp = _player_source(ytmusic)[2]
@@ -648,6 +670,10 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
         )
         for client in _FALLBACK_CLIENTS
     )
+    if refused_clients:
+        # Kept, not dropped: when every client has failed the player once, the
+        # best remaining try is still one of them.
+        candidates.sort(key=lambda candidate: candidate[0] in refused_clients)
 
     failures: list[str] = []
     for name, attempt in candidates:
@@ -676,11 +702,12 @@ def audio_stream(ytmusic: ytmusicapi.YTMusic, video_id: str, refresh: bool = Fal
                 time.time() + max(30, payload["expiresInSeconds"] - _CACHE_SKEW_SECONDS),
                 dict(payload),
                 user_agent,
+                name,
             )
             if len(_streams) > 32:
                 oldest = min(_streams, key=lambda key: _streams[key][0])
                 _streams.pop(oldest, None)
-        return _proxied(payload, user_agent)
+        return _proxied(payload, user_agent, video_id)
     raise RuntimeError("YouTube refused to stream this song. " + "; ".join(failures))
 
 
@@ -708,13 +735,13 @@ def _warm(ytmusic: ytmusicapi.YTMusic) -> None:
         logger.info("Audio solver warm-up skipped: %s", exc)
 
 
-def _proxied(payload: dict[str, Any], user_agent: str) -> dict[str, Any]:
+def _proxied(payload: dict[str, Any], user_agent: str, video_id: str) -> dict[str, Any]:
     """The payload the UI plays: the same stream, re-served from loopback.
 
     The element has to stay untainted for the equalizer's Web Audio graph, and
     googlevideo authorizes no origin but its own page.
     """
-    return {**payload, "url": audio_proxy.url_for(payload["url"], user_agent)}
+    return {**payload, "url": audio_proxy.url_for(payload["url"], user_agent, video_id)}
 
 
 def audio_prefix(url: str, limit: int = _PREFIX_BYTES) -> bytes:

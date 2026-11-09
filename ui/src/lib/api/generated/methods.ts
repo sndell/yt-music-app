@@ -149,6 +149,8 @@ export interface ApiMethods {
   get_update_history: { params: []; response: UpdateHistory };
   /** Download the newest release, replace this exe with it, and restart. */
   install_update: { params: []; response: UpdateInstall };
+  /** Log a media error from the player's audio element. */
+  report_playback_error: { params: [videoId: string, code: number, message?: string, retried?: boolean]; response: void };
 }
 
 export type ApiMethodName = keyof ApiMethods;

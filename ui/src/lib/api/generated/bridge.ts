@@ -120,6 +120,8 @@ export const PyBridge = {
   removePlaylistItems: (playlistId: string, items: PlaylistItemRef[]) => callPython("remove_playlist_items", playlistId, items),
   /** Remove one row per video id, for the picker's add/remove toggle. */
   removePlaylistVideos: (playlistId: string, videoIds: string[], setVideoIds: Record<string, string> | null = null) => callPython("remove_playlist_videos", playlistId, videoIds, setVideoIds),
+  /** Log a media error from the player's audio element. */
+  reportPlaybackError: (videoId: string, code: number, message: string = "", retried: boolean = false) => callPython("report_playback_error", videoId, code, message, retried),
   /** Search YouTube Music. */
   search: (query: string, filter: SearchFilter | "" = "", scope: SearchScope | "" = "", limit: number = 30) => callPython("search", query, filter, scope, limit),
   /** Save the beat-aligned blend choice and return the stored value. */
